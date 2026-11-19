@@ -172,6 +172,7 @@ local function runRound()
 	local firstTagger = pickRandomParticipant()
 	setTagger(firstTagger)
 	Remotes.NotifyPlayer(firstTagger, "あなたが最初の鬼です！ 3秒後からタッチできます")
+	ItemManager.DeliverPendingItems() -- ラウンド外に買ったアイテムボックスをここで渡す
 
 	local endTime = GameState.Now() + Config.RoundTime
 	local nextBroadcast = 0

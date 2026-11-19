@@ -1,7 +1,8 @@
 -- ItemManager: バトルアイテムの出現・拾う処理・使用効果（すべてサーバー側で確定）
 --
--- クライアントから届くのは UseItem の「使いたい」という合図だけ。
+-- クライアントから届くのは UseItem の「何枠目を使いたい」という合図だけ。
 -- 何を持っているか、使えるか、効果がどうなるかはサーバーが持つ状態だけで決める。
+-- 所持はリスト形式（data.HeldItems、古い順）。枠数は GameState.GetItemSlots で決まる。
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -77,8 +78,13 @@ local function sendItemUpdate(player)
 	end
 	local data = GameState.GetData(player)
 	local now = GameState.Now()
+	local held = {}
+	for index, itemId in ipairs(data.HeldItems) do
+		held[index] = itemId
+	end
 	Remotes.ItemUpdate:FireClient(player, {
-		HeldItem = data.HeldItem or "",
+		HeldItems = held,
+		MaxSlots = GameState.GetItemSlots(player),
 		DashTimeLeft = math.max(0, data.DashUntil - now),
 		ShieldTimeLeft = math.max(0, data.ShieldUntil - now),
 	})
@@ -119,11 +125,14 @@ local function countItems()
 	return count
 end
 
-local function pickRandomItemId()
+-- SpawnWeight の重みで抽選する。filter を渡すと、filter(def) が true のアイテムだけから選ぶ
+local function pickRandomItemId(filter)
+	local candidates = {}
 	local total = 0
 	for _, itemId in ipairs(Config.ItemOrder) do
 		local def = Config.Items[itemId]
-		if def and def.SpawnWeight and def.SpawnWeight > 0 then
+		if def and def.SpawnWeight and def.SpawnWeight > 0 and (filter == nil or filter(def)) then
+			table.insert(candidates, itemId)
 			total = total + def.SpawnWeight
 		end
 	end
@@ -131,16 +140,13 @@ local function pickRandomItemId()
 		return nil
 	end
 	local roll = math.random() * total
-	for _, itemId in ipairs(Config.ItemOrder) do
-		local def = Config.Items[itemId]
-		if def and def.SpawnWeight and def.SpawnWeight > 0 then
-			roll = roll - def.SpawnWeight
-			if roll <= 0 then
-				return itemId
-			end
+	for _, itemId in ipairs(candidates) do
+		roll = roll - Config.Items[itemId].SpawnWeight
+		if roll <= 0 then
+			return itemId
 		end
 	end
-	return Config.ItemOrder[#Config.ItemOrder]
+	return candidates[#candidates]
 end
 
 local function removeItem(part)
@@ -166,19 +172,19 @@ local function onItemTouched(part, hit)
 		return
 	end
 	local data = GameState.GetData(player)
-	if data.HeldItem ~= nil then
-		return -- 1つしか持てない
+	if #data.HeldItems >= GameState.GetItemSlots(player) then
+		return -- 枠がいっぱいなら拾えない
 	end
 
 	local itemId = info.ItemId
 	removeItem(part)
-	data.HeldItem = itemId
+	table.insert(data.HeldItems, itemId)
 	sendItemUpdate(player)
 
 	local def = Config.Items[itemId]
 	Remotes.NotifyPlayer(player, string.format(
 		"%s を拾った！ ［%s］で使う：%s",
-		def.DisplayName, Config.UseItemKeyLabel, def.Description
+		def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems), def.Description
 	))
 end
 
@@ -296,8 +302,15 @@ handlers.Warp = function(player, def, data)
 	return true
 end
 
-local function onUseItem(player)
-	-- クライアントから来た引数は一切使わない
+local function onUseItem(player, slotArg)
+	-- クライアントから来るのは枠番号だけ。整数で、実際に持っている枠のときだけ受け付ける
+	local slot = 1
+	if slotArg ~= nil then
+		slot = tonumber(slotArg)
+		if slot == nil or slot ~= math.floor(slot) or slot < 1 or slot > GameState.GetItemSlots(player) then
+			return
+		end
+	end
 	local data = GameState.GetData(player)
 	local now = GameState.Now()
 	if now - data.LastUseTime < Config.UseItemCooldown then
@@ -312,14 +325,14 @@ local function onUseItem(player)
 		return
 	end
 
-	local itemId = data.HeldItem
+	local itemId = data.HeldItems[slot]
 	if not itemId then
 		return
 	end
 	local def = Config.Items[itemId]
 	local handler = handlers[itemId]
 	if not def or not handler then
-		data.HeldItem = nil
+		table.remove(data.HeldItems, slot)
 		sendItemUpdate(player)
 		return
 	end
@@ -331,7 +344,7 @@ local function onUseItem(player)
 
 	local ok, reason = handler(player, def, data)
 	if ok then
-		data.HeldItem = nil
+		table.remove(data.HeldItems, slot) -- 後ろの枠のアイテムは前に詰める
 	elseif reason then
 		Remotes.NotifyPlayer(player, reason)
 	end
@@ -378,6 +391,105 @@ function ItemManager.OnCharacterAdded(player)
 	if GameState.HasShield(player) then
 		addShieldVisual(player)
 	end
+end
+
+---------------------------------------------------------------------
+-- 購入（アイテムボックス）での付与。Monetization から呼ぶ
+---------------------------------------------------------------------
+
+-- 持ち物に1つ加える。枠がいっぱいなら、いちばん古いもの（1枠目）を捨てて入れ替える。
+-- 戻り値: 入れ替えで捨てたアイテムの Id（入れ替えなしなら nil）
+local function addToInventory(player, itemId)
+	local data = GameState.GetData(player)
+	local replaced = nil
+	while #data.HeldItems >= GameState.GetItemSlots(player) do
+		replaced = table.remove(data.HeldItems, 1)
+	end
+	table.insert(data.HeldItems, itemId)
+	return replaced
+end
+
+local function notifyBoxResult(player, itemId, replacedId)
+	local def = Config.Items[itemId]
+	local slot = #GameState.GetData(player).HeldItems
+	local text = string.format(
+		"アイテムボックス: %s を手に入れた！ ［%s］で使う",
+		def.DisplayName, Config.GetSlotKeyLabel(slot)
+	)
+	local replacedDef = Config.GetItem(replacedId)
+	if replacedDef then
+		text = text .. string.format("（枠がいっぱいだったので %s と入れ替えた）", replacedDef.DisplayName)
+	end
+	Remotes.NotifyPlayer(player, text)
+end
+
+-- 今使えるアイテムの中からランダムに1つ選ぶ（鬼には鬼が使えるアイテムだけ）
+local function pickBoxItemFor(player)
+	local isTagger = GameState.IsTagger(player)
+	local itemId = pickRandomItemId(function(def)
+		return def.CanTaggerUse or not isTagger
+	end)
+	return itemId or pickRandomItemId(nil)
+end
+
+-- アイテムボックスの中身を必ず渡す。戻り値: 渡した（または予約した）アイテムの Id。失敗時 nil
+--   ラウンド中の参加者 → その場で持ち物に入れる（いっぱいなら入れ替え）
+--   それ以外（待機中・観戦中など）→ 予約して、次のラウンド開始時に渡す
+function ItemManager.GrantItemBox(player)
+	if not player or not player.Parent then
+		return nil
+	end
+	local data = GameState.GetData(player)
+
+	if active and GameState.Phase == "Round" and GameState.IsParticipant(player) then
+		local itemId = pickBoxItemFor(player)
+		if not itemId then
+			return nil
+		end
+		local replacedId = addToInventory(player, itemId)
+		sendItemUpdate(player)
+		notifyBoxResult(player, itemId, replacedId)
+		return itemId
+	end
+
+	-- 中身はラウンド開始時に（その時の役割に合わせて）決める
+	table.insert(data.PendingItems, "ItemBox")
+	Remotes.NotifyPlayer(player, "アイテムボックスを受け取った！ 次のラウンド開始時にアイテムが届きます")
+	return "ItemBox"
+end
+
+-- 予約中のアイテムボックスを渡す（ラウンド開始時）
+local function deliverPending(player)
+	local data = GameState.GetData(player)
+	if #data.PendingItems == 0 then
+		return
+	end
+	local pending = data.PendingItems
+	data.PendingItems = {}
+	for _ in ipairs(pending) do
+		local itemId = pickBoxItemFor(player)
+		if itemId then
+			local replacedId = addToInventory(player, itemId)
+			notifyBoxResult(player, itemId, replacedId)
+		end
+	end
+	sendItemUpdate(player)
+end
+
+-- ラウンド開始直後（最初の鬼が決まった後）に呼ぶ: 予約中のアイテムを参加者に渡す
+function ItemManager.DeliverPendingItems()
+	for _, player in ipairs(GameState.ParticipantList()) do
+		deliverPending(player)
+	end
+end
+
+-- 所持枠の数が変わったとき（ダブルアイテム購入直後など）に呼ぶ
+function ItemManager.OnSlotsChanged(player)
+	local data = GameState.GetData(player)
+	while #data.HeldItems > GameState.GetItemSlots(player) do
+		table.remove(data.HeldItems, 1)
+	end
+	sendItemUpdate(player)
 end
 
 -- ラウンド開始時に呼ぶ: アイテムの定期出現を始める

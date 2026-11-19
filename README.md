@@ -30,7 +30,7 @@
 ## バトルアイテム
 
 ラウンド中、マップの出現ポイントに10秒ごとにランダムで1つ出てきます（同時に最大3つ）。
-触れると拾えます。持てるのは1つだけです。
+触れると拾えます。持てるのは1つだけです（ゲームパス「ダブルアイテム」を持っていると2つまで。枠が空いていれば拾えます）。
 
 | アイテム | 効果 | 鬼が使えるか |
 |---|---|---|
@@ -42,7 +42,11 @@
 ## 遊び方（操作）
 
 - 移動・ジャンプは Roblox の通常操作です。
-- アイテムを使う: **E キー**、ゲームパッドの **X ボタン**、または画面右下の**アイテムボタン**（スマホはタップ）。
+- アイテムを使う: 画面右下の**アイテムボタン**（スマホはタップ）、またはキー入力。
+  - 1枠目: **E キー** / ゲームパッドの **X ボタン** / 右側のボタン
+  - 2枠目（ダブルアイテム所有者のみ）: **Q キー** / ゲームパッドの **Y ボタン** / 左側のボタン
+  - 1枠目を使うと、2枠目のアイテムが1枠目に繰り上がります。
+- 画面左の**ショップ**ボタンで、課金商品の一覧を開けます（[課金](#課金) を参照）。
 - 画面上部に「今のフェーズ」「残り時間」「自分の役割（鬼／逃げる人／観戦中）」が出ます。
 
 ## ファイル構成
@@ -59,10 +63,13 @@ src/
     GameState.lua               ラウンドとプレイヤーの状態、移動速度の決定
     Leaderstats.lua             「逃げ切り」「鬼タッチ」の記録
     Remotes.lua                 RemoteEvent の作成
+    Monetization.lua            課金：レシート処理（アイテムボックス）、Game Pass の所有確認
+    SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
   client/                     → StarterPlayer.StarterPlayerScripts.Client
     HUD.client.lua              役割・残り時間・人数待ち・結果・お知らせの表示
     ItemControls.client.lua     アイテムボタンとキー入力、効果の残り時間表示
     SmokeEffect.client.lua      スモークを受けたときの白い画面
+    Shop.client.lua             ショップ画面（開くボタンと商品一覧、購入ダイアログの表示）
 ```
 
 ファイル名の `.server.lua` は Script、`.client.lua` は LocalScript、それ以外の `.lua` は ModuleScript になります。
@@ -70,7 +77,7 @@ src/
 ### 通信と判定の考え方
 
 - RemoteEvent はサーバー起動時に `ReplicatedStorage.Remotes` フォルダに自動で作られます（Studio で用意する必要はありません）。
-- クライアントから送るのは「アイテムを使いたい」（`UseItem`）だけです。何を持っているか、使えるか、効果がどうなるかは、すべてサーバーが決めます。
+- クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）と「Game Pass の所有状態を送って」（`PassUpdate`）だけです。何を持っているか、使えるか、効果がどうなるか、課金の付与は、すべてサーバーが決めます。
 - タッチ判定はサーバーが鬼と逃げる人の距離（`Config.TagDistance`、初期値5スタッド）を0.1秒ごとに測って行います。
 
 ## Roblox Studio での開き方
@@ -104,10 +111,13 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `GameState` | `src/server/GameState.lua` |
 | ServerScriptService › Server | ModuleScript `Leaderstats` | `src/server/Leaderstats.lua` |
 | ServerScriptService › Server | ModuleScript `Remotes` | `src/server/Remotes.lua` |
+| ServerScriptService › Server | ModuleScript `Monetization` | `src/server/Monetization.lua` |
+| ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
 | StarterPlayer › StarterPlayerScripts | Folder `Client` | |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `HUD` | `src/client/HUD.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `ItemControls` | `src/client/ItemControls.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `SmokeEffect` | `src/client/SmokeEffect.client.lua` |
+| StarterPlayer › StarterPlayerScripts › Client | LocalScript `Shop` | `src/client/Shop.client.lua` |
 
 ### テストのしかた
 
@@ -138,7 +148,8 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | 鬼になった直後のタッチ無効時間 | `Config.TagCooldown` | 3 |
 | タッチになる距離 | `Config.TagDistance` | 5 |
 | アイテムの出現間隔 / 同時最大数 | `Config.ItemSpawnInterval` / `Config.MaxItemsOnMap` | 10 / 3 |
-| アイテム使用キー | `Config.UseItemKeys`（表示名は `Config.UseItemKeyLabel`） | E / ゲームパッドX |
+| アイテム使用キー（枠ごと） | `Config.ItemSlotKeys`（表示名は `Config.ItemSlotKeyLabels`） | 1枠目 E / X、2枠目 Q / Y |
+| 通常の所持枠 / ダブルアイテムの所持枠 | `Config.BaseItemSlots` / `Config.Monetization.DoubleItem.ItemSlots` | 1 / 2 |
 | leaderstats の項目名 | `Config.LeaderstatNames` | 逃げ切り / 鬼タッチ |
 
 アイテムごとの数字は `Config.Items` の中にあります。
@@ -149,7 +160,74 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 - `Config.Items.Warp.HeightOffset`: ワープ先の高さ
 - 各アイテムの `DisplayName`（表示名）、`Description`（説明文）、`Color`（色）、`SpawnWeight`（出やすさ。0 にするとそのアイテムは出なくなる）、`CanTaggerUse`（鬼が使えるか）
 
+## 課金
+
+3つの商品があります。設定はすべて `src/shared/Config.lua` の **`Config.Monetization`** の節にあります。
+
+| 商品 | 種類 | 目安価格 | 効果 |
+|---|---|---|---|
+| アイテムボックス | Developer Product（消費型。何度でも買える） | 10 Robux | ランダムなバトルアイテムが1つ手に入る。枠がいっぱいなら、いちばん古いアイテムと入れ替える（画面にメッセージが出る） |
+| ダブルアイテム | Game Pass（買い切り） | 99 Robux | 所持できるアイテムが1つ → 2つになる（2つ目は Q キー / 左側のボタン） |
+| キラキラトレイル | Game Pass（買い切り） | 49 Robux | 走ると光の軌跡が出る。見た目だけで、速さや判定は変わらない |
+
+### しくみ（どこで何が決まるか）
+
+- **購入画面を出すのはクライアント**（`Shop.client.lua` の `PromptProductPurchase` / `PromptGamePassPurchase`）、**付与を決めるのはすべてサーバー**（`Monetization.lua`）です。
+- アイテムボックスは `MarketplaceService.ProcessReceipt` でレシートを受け取り、`ProductId` が `Config.Monetization.ItemBox.ProductId` と一致するときだけ付与して `PurchaseGranted` を返します。
+  - 処理済みの `PurchaseId` をサーバーのメモリに記録し、同じレシートが再送されても二重に付与しません（記録はそのサーバーにいる間だけ。DataStore は使っていません）。
+  - ショップではラウンドに参加している間だけ買えます。万一ラウンド外にレシートが届いた場合（ラウンド終了と同時に購入が完了した、など）は「予約」として持っておき、次のラウンド開始時に渡します。
+  - 鬼が買ったときは、鬼が使えるアイテム（ダッシュ・ワープ）の中から選びます。
+- Game Pass は、参加時と購入完了時（`PromptGamePassPurchaseFinished`）に `UserOwnsGamePassAsync` で確認し、結果をサーバーの `GameState` に持ちます。購入直後から再参加なしで反映されます。
+- ID が `0` の商品は、ショップで「準備中」と表示され、購入ボタンは押せません。
+
+### 1. Creator Dashboard で商品を作る
+
+先にゲームを Roblox に公開しておく必要があります（Studio の「ファイル」→「Roblox に公開」）。商品はゲーム（エクスペリエンス）ごとに作ります。
+※ Creator Dashboard の画面や項目名は変わることがあります。見つからないときは Roblox の公式ドキュメント（Developer Products / Passes のページ）を確認してください。
+
+1. https://create.roblox.com/dashboard/creations を開き、このゲームを選びます。
+2. 左のメニューの **収益化（Monetization）** を開きます。
+3. **Developer Product を1つ作る**: 「デベロッパー製品（Developer Products）」→「作成」
+   - 名前: `アイテムボックス`
+   - 説明: 例「ランダムなバトルアイテムが1つ手に入る」
+   - 価格: **10 Robux**
+   - アイコン画像は任意です。
+4. **Game Pass を2つ作る**: 「パス（Passes）」→「パスを作成」
+   - 1つ目 名前: `ダブルアイテム`、説明: 例「アイテムを2つまで持てる」
+   - 2つ目 名前: `キラキラトレイル`、説明: 例「走ると光の軌跡が出る（見た目だけ）」
+   - 作ったあと、各パスの「販売（Sales）」の設定で **販売中（Item for Sale）** をオンにし、価格を **ダブルアイテム 99 Robux**、**キラキラトレイル 49 Robux** にします（オンにしないと買えません）。
+
+### 2. ID を調べて Config に書き込む
+
+- **Developer Product の ID**: 収益化 → デベロッパー製品の一覧で、商品の「…」メニュー →「ID をコピー」（または商品の詳細画面に表示される数字）。
+- **Game Pass の ID**: 収益化 → パスの一覧で、パスの「…」メニュー →「アセット ID をコピー」。パスのページの URL（`.../passes/1234567/...`）の数字も同じ ID です。
+
+コピーした数字を `src/shared/Config.lua` の次の3か所（★印）に書き込みます。
+
+```lua
+Config.Monetization = {
+	ItemBox = {
+		ProductId = 0,   -- ★ アイテムボックス（Developer Product）の ID
+		...
+	DoubleItem = {
+		PassId = 0,      -- ★ ダブルアイテム（Game Pass）の ID
+		...
+	SparkleTrail = {
+		PassId = 0,      -- ★ キラキラトレイル（Game Pass）の ID
+```
+
+書き換えたら、ショップの「準備中」が「購入（R$ 価格）」に変わります。価格の表示は Roblox から自動で取ってくるので、Config の `PriceHint` は目安のメモです（画面には使いません）。
+
+### 3. Studio での購入テストの注意点
+
+- Studio のテストプレイ中の購入は**テスト購入**で、Robux は減りません。確認ダイアログにもテストである旨が出ます。
+- **アイテムボックス**: テスト購入でも `ProcessReceipt` が呼ばれるので、付与・入れ替えのメッセージまで確認できます。ラウンド中に参加しているときだけ買えるので、「クライアントとサーバー」で2人以上にしてラウンドを始めてから試してください。
+- **Game Pass**: Studio のテスト購入では `UserOwnsGamePassAsync` が `true` にならないことがあります。そのため購入完了（`wasPurchased = true`）を受け取ったときは、それを優先して反映しています（Output に警告が1行出ますが正常です）。テストを止めて再開すると「未所有」に戻ります。本当の所有確認（参加時の確認）は、公開したゲームで実際に購入して確かめてください。
+- 商品は公開済みのゲームに紐づいています。別のゲームの ID を入れると購入画面が出ないか、エラーになります。
+- 1人テスト（「プレイ」）ではラウンドが始まらないため、アイテムボックスは「ラウンド中のみ」と表示されて買えません。Game Pass は1人でも試せます。
+
 ## 注意
 
 - 移動はクライアント側の物理で動くため、チート対策（速度の改ざん検知など）までは入れていません。タッチ判定・アイテムの所持と効果はサーバーで確定しています。
 - 記録の永続保存（DataStore）は入っていません。必要なら `Leaderstats.lua` に追加してください。
+- アイテムボックスの二重付与防止の記録と「予約」は、そのサーバーにいる間だけ保持します。予約中（ラウンド外に購入が完了した場合のみ）にゲームを抜けると、その分は失われます。

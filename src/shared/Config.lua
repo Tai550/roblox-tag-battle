@@ -46,9 +46,15 @@ Config.FallbackSpawnOffsets = {
 ---------------------------------------------------------------------
 -- アイテム使用の操作
 ---------------------------------------------------------------------
--- キーボードの E、ゲームパッドの X ボタンで使う
-Config.UseItemKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonX }
-Config.UseItemKeyLabel = "E"     -- 画面のボタンに表示するキー名
+-- 所持はリスト形式。枠ごとに使うキーが決まっている。
+--   1枠目: キーボードの E / ゲームパッドの X
+--   2枠目: キーボードの Q / ゲームパッドの Y（ダブルアイテム所有者のみ）
+Config.ItemSlotKeys = {
+	{ Enum.KeyCode.E, Enum.KeyCode.ButtonX },
+	{ Enum.KeyCode.Q, Enum.KeyCode.ButtonY },
+}
+Config.ItemSlotKeyLabels = { "E", "Q" } -- 画面のボタンやメッセージに出すキー名
+Config.BaseItemSlots = 1         -- 通常の所持枠の数
 Config.UseItemCooldown = 0.5     -- 連打防止（サーバー側でもチェック）
 
 ---------------------------------------------------------------------
@@ -119,5 +125,50 @@ function Config.GetItem(itemId)
 	end
 	return Config.Items[itemId]
 end
+
+-- 枠番号からキー名を返す（"E" / "Q"）
+function Config.GetSlotKeyLabel(slot)
+	return Config.ItemSlotKeyLabels[slot] or tostring(slot)
+end
+
+---------------------------------------------------------------------
+-- 課金（Developer Product / Game Pass）
+--   ★ 商品を Creator Dashboard で作ったら、ここの 0 を本物の ID に書き換える。
+--   ID が 0 の商品は「準備中」扱いになり、ショップで購入ボタンが押せない。
+---------------------------------------------------------------------
+Config.Monetization = {
+	-- アイテムボックス（Developer Product・消費型）: ランダムなバトルアイテムを1つ得る
+	ItemBox = {
+		ProductId = 0,           -- ★ Developer Product の ID
+		DisplayName = "アイテムボックス",
+		Description = "ランダムなバトルアイテムが1つ手に入る。枠がいっぱいなら、いちばん古いアイテムと入れ替え",
+		PriceHint = 10,          -- 目安価格（Robux）。実際の価格は Creator Dashboard で決める
+	},
+	-- ダブルアイテム（Game Pass・買い切り）: 所持枠が 1 → 2 になる
+	DoubleItem = {
+		PassId = 0,              -- ★ Game Pass の ID
+		DisplayName = "ダブルアイテム",
+		Description = "アイテムを2つまで持てる（2つ目は Q キー / 2枠目のボタンで使う）",
+		PriceHint = 99,
+		ItemSlots = 2,           -- 所有者の所持枠の数
+	},
+	-- キラキラトレイル（Game Pass・買い切り）: 走ると光の軌跡が出る（見た目だけ）
+	SparkleTrail = {
+		PassId = 0,              -- ★ Game Pass の ID
+		DisplayName = "キラキラトレイル",
+		Description = "走ると光の軌跡が出る（見た目だけ。強さは変わらない）",
+		PriceHint = 49,
+		-- 見た目の設定
+		Lifetime = 0.45,         -- 軌跡が残る秒数
+		ColorStart = Color3.fromRGB(255, 240, 120),
+		ColorEnd = Color3.fromRGB(120, 200, 255),
+		TransparencyStart = 0.2,
+		LightEmission = 1,
+		AttachmentHeight = 0.9,  -- HumanoidRootPart の中心から上下に何スタッド離して Attachment を付けるか
+	},
+}
+
+-- Game Pass の一覧（所有確認やショップ表示で使う）
+Config.GamePassKeys = { "DoubleItem", "SparkleTrail" }
 
 return Config

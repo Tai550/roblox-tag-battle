@@ -62,6 +62,7 @@ messageLabel.TextWrapped = true
 
 local notifyLabel = makeLabel("Notify", gui, UDim2.new(0, 600, 0, 36), UDim2.new(0.5, 0, 0.62, 0), 24)
 notifyLabel.TextWrapped = true
+notifyLabel.AutomaticSize = Enum.AutomaticSize.Y -- 長いお知らせ（アイテムボックスの入れ替えなど）は複数行で表示
 notifyLabel.Visible = false
 
 gui.Parent = localPlayer:WaitForChild("PlayerGui")

@@ -24,7 +24,8 @@ local playerData = {}
 
 local function newData()
 	return {
-		HeldItem = nil,           -- 持っているアイテムの Id（1つだけ）
+		HeldItems = {},           -- 持っているアイテムの Id のリスト（古い順。枠数は GetItemSlots）
+		PendingItems = {},        -- ラウンド外に買ったアイテム（次のラウンド開始時に渡す）
 		DashUntil = 0,            -- ダッシュ効果が切れる時刻
 		ShieldUntil = 0,          -- シールドが切れる時刻
 		InvulnerableUntil = 0,    -- シールドで防いだ直後の無敵が切れる時刻
@@ -45,17 +46,52 @@ function GameState.GetData(player)
 	return data
 end
 
+-- ラウンドの区切りで持ち物・効果を消す。
+-- ただし購入で予約済みのアイテム（PendingItems）は消さない（買ったのに失う状態を作らない）
 function GameState.ResetData(player)
 	local data = GameState.GetData(player)
-	local lastUse = data.LastUseTime
 	local fresh = newData()
-	fresh.LastUseTime = lastUse
+	fresh.LastUseTime = data.LastUseTime
+	fresh.PendingItems = data.PendingItems
 	playerData[player] = fresh
 	return fresh
 end
 
 function GameState.ClearData(player)
 	playerData[player] = nil
+	GameState.ClearPasses(player)
+end
+
+---------------------------------------------------------------------
+-- Game Pass の所有状態（Monetization が確認して書き込む）
+---------------------------------------------------------------------
+
+local passOwnership = {}     -- [Player] = { DoubleItem = true, SparkleTrail = true }
+
+function GameState.SetPassOwned(player, passKey, owned)
+	local passes = passOwnership[player]
+	if not passes then
+		passes = {}
+		passOwnership[player] = passes
+	end
+	passes[passKey] = owned and true or nil
+end
+
+function GameState.OwnsPass(player, passKey)
+	local passes = passOwnership[player]
+	return passes ~= nil and passes[passKey] == true
+end
+
+function GameState.ClearPasses(player)
+	passOwnership[player] = nil
+end
+
+-- 所持枠の数（ダブルアイテム所有者は 2）
+function GameState.GetItemSlots(player)
+	if GameState.OwnsPass(player, "DoubleItem") then
+		return Config.Monetization.DoubleItem.ItemSlots
+	end
+	return Config.BaseItemSlots
 end
 
 function GameState.AllData()

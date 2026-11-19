@@ -1,5 +1,7 @@
--- ItemControls: アイテム使用ボタン（画面のボタンとキー入力）と、持ち物・効果時間の表示
--- クライアントは「使いたい」とサーバーに伝えるだけ。使えるかどうかはサーバーが決める。
+-- ItemControls: アイテム使用ボタン（枠ごとの画面ボタンとキー入力）と、持ち物・効果時間の表示
+-- クライアントは「何枠目を使いたい」とサーバーに伝えるだけ。使えるかどうかはサーバーが決める。
+--   1枠目: ボタン（右）/ E キー / ゲームパッド X
+--   2枠目: ボタン（左）/ Q キー / ゲームパッド Y（ダブルアイテム所有者だけ表示）
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,7 +14,8 @@ local UseItem = Remotes:WaitForChild("UseItem")
 
 local localPlayer = Players.LocalPlayer
 
-local heldItemId = nil
+local heldItems = {}        -- 持っているアイテムの Id のリスト（サーバーから届いたもの）
+local maxSlots = Config.BaseItemSlots
 local dashEndsAt = 0
 local shieldEndsAt = 0
 local lastRequest = 0
@@ -26,23 +29,33 @@ gui.Name = "ItemHUD"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 11
 
-local button = Instance.new("TextButton")
-button.Name = "UseItemButton"
-button.Size = UDim2.new(0, 190, 0, 70)
-button.Position = UDim2.new(1, -20, 1, -110)
-button.AnchorPoint = Vector2.new(1, 1)
-button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-button.BackgroundTransparency = 0.2
-button.Font = Enum.Font.GothamBold
-button.TextSize = 20
-button.TextColor3 = Color3.new(1, 1, 1)
-button.TextWrapped = true
-button.AutoButtonColor = true
-button.Parent = gui
+local BUTTON_WIDTH = 190
+local BUTTON_GAP = 10
+local slotButtons = {}
 
-local buttonCorner = Instance.new("UICorner")
-buttonCorner.CornerRadius = UDim.new(0, 12)
-buttonCorner.Parent = button
+-- 1枠目を右下、2枠目をその左に並べる
+for slot = 1, #Config.ItemSlotKeys do
+	local button = Instance.new("TextButton")
+	button.Name = "UseItemButton" .. slot
+	button.Size = UDim2.new(0, BUTTON_WIDTH, 0, 70)
+	button.Position = UDim2.new(1, -20 - (slot - 1) * (BUTTON_WIDTH + BUTTON_GAP), 1, -110)
+	button.AnchorPoint = Vector2.new(1, 1)
+	button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	button.BackgroundTransparency = 0.2
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 20
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.TextWrapped = true
+	button.AutoButtonColor = true
+	button.Visible = slot <= maxSlots
+	button.Parent = gui
+
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 12)
+	buttonCorner.Parent = button
+
+	slotButtons[slot] = button
+end
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "EffectStatus"
@@ -65,23 +78,30 @@ gui.Parent = localPlayer:WaitForChild("PlayerGui")
 -- 表示の更新
 ---------------------------------------------------------------------
 
-local function useHint()
+local function useHint(slot)
 	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
 		return "タップで使う"
 	end
-	return "[" .. Config.UseItemKeyLabel .. "] で使う"
+	return "[" .. Config.GetSlotKeyLabel(slot) .. "] で使う"
 end
 
 local function refreshButton()
-	local def = Config.GetItem(heldItemId)
-	if def then
-		button.Text = def.DisplayName .. "\n" .. useHint()
-		button.BackgroundColor3 = def.Color
-		button.TextColor3 = Color3.fromRGB(20, 20, 20)
-	else
-		button.Text = "アイテムなし"
-		button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-		button.TextColor3 = Color3.fromRGB(200, 200, 200)
+	for slot, button in ipairs(slotButtons) do
+		button.Visible = slot <= maxSlots
+		local def = Config.GetItem(heldItems[slot])
+		if def then
+			button.Text = def.DisplayName .. "\n" .. useHint(slot)
+			button.BackgroundColor3 = def.Color
+			button.TextColor3 = Color3.fromRGB(20, 20, 20)
+		else
+			if maxSlots >= 2 then
+				button.Text = string.format("%d枠目: なし", slot)
+			else
+				button.Text = "アイテムなし"
+			end
+			button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+			button.TextColor3 = Color3.fromRGB(200, 200, 200)
+		end
 	end
 end
 
@@ -101,10 +121,17 @@ ItemUpdate.OnClientEvent:Connect(function(info)
 	if type(info) ~= "table" then
 		return
 	end
-	if type(info.HeldItem) == "string" and info.HeldItem ~= "" then
-		heldItemId = info.HeldItem
-	else
-		heldItemId = nil
+	heldItems = {}
+	if type(info.HeldItems) == "table" then
+		for index, itemId in ipairs(info.HeldItems) do
+			if type(itemId) == "string" then
+				heldItems[index] = itemId
+			end
+		end
+	end
+	local slots = tonumber(info.MaxSlots)
+	if slots then
+		maxSlots = math.clamp(math.floor(slots), 1, #slotButtons)
 	end
 	local now = os.clock()
 	dashEndsAt = now + (tonumber(info.DashTimeLeft) or 0)
@@ -117,34 +144,43 @@ end)
 -- 使用の入力（ボタンとキー）
 ---------------------------------------------------------------------
 
-local function requestUse()
+local function requestUse(slot)
 	local now = os.clock()
 	if now - lastRequest < 0.2 then
 		return
 	end
-	lastRequest = now
-	if heldItemId then
-		UseItem:FireServer()
+	if slot > maxSlots or not heldItems[slot] then
+		return
 	end
+	lastRequest = now
+	UseItem:FireServer(slot)
 end
 
-button.Activated:Connect(requestUse)
+for slot, button in ipairs(slotButtons) do
+	button.Activated:Connect(function()
+		requestUse(slot)
+	end)
+end
 
-local function isUseKey(keyCode)
-	for _, key in ipairs(Config.UseItemKeys) do
-		if key == keyCode then
-			return true
+-- 押されたキーが何枠目のキーかを返す（どれでもなければ nil）
+local function slotForKey(keyCode)
+	for slot, keys in ipairs(Config.ItemSlotKeys) do
+		for _, key in ipairs(keys) do
+			if key == keyCode then
+				return slot
+			end
 		end
 	end
-	return false
+	return nil
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return -- チャット入力中などは無視
 	end
-	if isUseKey(input.KeyCode) then
-		requestUse()
+	local slot = slotForKey(input.KeyCode)
+	if slot then
+		requestUse(slot)
 	end
 end)
 
