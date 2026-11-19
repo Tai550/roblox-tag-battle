@@ -1,0 +1,13 @@
+# Roblox Studio の保存ファイル（Rojo でビルド・同期するので管理しない）
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+sourcemap.json
