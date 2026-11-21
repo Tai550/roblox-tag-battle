@@ -22,6 +22,17 @@
           "$path": "src/client"
         }
       }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {},
+      "$ignoreUnknownInstances": true,
+      "Map": {
+        "$path": "src/workspace/Map.model.json"
+      },
+      "ItemSpawns": {
+        "$path": "src/workspace/ItemSpawns.model.json"
+      }
     }
   }
 }
