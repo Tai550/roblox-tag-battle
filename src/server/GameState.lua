@@ -44,6 +44,7 @@ local function newData()
 		ZoneGuardUntil = 0,       -- エリアガードが切れる時刻
 		SlowUntil = 0,            -- ねばねば罠で遅くなっているのが切れる時刻
 		FrozenUntil = 0,          -- タイムストップで止まっているのが切れる時刻
+		BlindUntil = 0,           -- （ボットの鬼）スモーク・フラッシュで見えないのが切れる時刻
 		LastUseTime = 0,          -- 最後にアイテム使用を受け付けた時刻
 	}
 end
@@ -174,6 +175,11 @@ function GameState.RefreshSpeed(player)
 	end
 	if GameState.IsDashing(player) then
 		speed = math.max(speed, Config.Items.Dash.WalkSpeed)
+	end
+	if type(player) == "table" and player.IsBot then
+		-- ボットは人より少し遅くして、ひとりでも勝ち目があるようにする
+		local cap = GameState.IsTagger(player) and Config.BotTaggerWalkSpeed or Config.BotRunnerWalkSpeed
+		speed = math.min(speed, cap)
 	end
 	if data.SlowUntil > now then
 		speed = math.min(speed, Config.Items.Glue.SlowSpeed)

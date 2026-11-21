@@ -23,6 +23,7 @@ MODULES = [
     ("src/server/DeckManager.lua", "DeckManager"),
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),
+    ("src/server/BotManager.lua", "BotManager"),
     ("src/server/RoundManager.lua", "RoundManager"),
 ]
 

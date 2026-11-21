@@ -17,6 +17,7 @@ local SetDeck = Remotes:WaitForChild("SetDeck")
 local CreateRoom = Remotes:WaitForChild("CreateRoom")
 local JoinRoom = Remotes:WaitForChild("JoinRoom")
 local RoomCreated = Remotes:WaitForChild("RoomCreated")
+local SoloPlay = Remotes:WaitForChild("SoloPlay")
 
 local localPlayer = Players.LocalPlayer
 
@@ -90,12 +91,16 @@ local coinLabel = label(coinPill, "コイン 0", UDim2.new(1, -16, 1, 0), UDim2.
 
 local menu = Instance.new("Frame")
 menu.BackgroundTransparency = 1
-menu.Size = UDim2.new(0, 120, 0, 3 * 50)
+menu.Size = UDim2.new(0, 120, 0, 4 * 50)
 menu.Position = UDim2.new(0, 8, 0.5, -75)
 menu.Parent = gui
 local deckButton = button(menu, "デッキ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 0))
 local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50), Color3.fromRGB(200, 130, 40))
 local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100), GREEN)
+local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150), Color3.fromRGB(150, 80, 220))
+soloButton.MouseButton1Click:Connect(function()
+	SoloPlay:FireServer()
+end)
 
 -- 下の中央：すぐ遊ぶの状況
 local queueLabel = label(gui, "緑のパッドに乗ると「すぐ遊ぶ」に参加", UDim2.new(0, 420, 0, 28), UDim2.new(0.5, 0, 1, -40), 16, WHITE, true)

@@ -99,7 +99,7 @@ end
 ---------------------------------------------------------------------
 
 local function sendItemUpdate(player)
-	if not player or not player.Parent then
+	if not Remotes.IsRealPlayer(player) then
 		return
 	end
 	local data = GameState.GetData(player)
@@ -295,50 +295,57 @@ end
 
 local zoneBoxCounter = 0
 
+-- エリアの中のランダムな「空いた地面」を探す。
+-- 真上から光線を落として、最初に当たったのが低い地面なら OK（＝上に建物も木もない）。
+local function findOpenGround()
+	local centerPos, radius
+	if ZoneManager.IsActive() then
+		centerPos = ZoneManager.GetCenter()
+		radius = ZoneManager.GetRadius() * 0.9
+	else
+		centerPos = Config.FallbackSpawnCenter
+		radius = Config.ZoneFallbackRadius
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = { getItemContainer() }
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	local wall = workspace:FindFirstChild("ZoneWall")
+	if wall then
+		table.insert(ignore, wall)
+	end
+	params.FilterDescendantsInstances = ignore
+	for _ = 1, Config.BoxSpawnTries do
+		local angle = math.random() * math.pi * 2
+		local dist = math.sqrt(math.random()) * radius -- 円の中で均等に散らばるように
+		local x = centerPos.X + math.cos(angle) * dist
+		local z = centerPos.Z + math.sin(angle) * dist
+		local hit = workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -400, 0), params)
+		if hit and hit.Position.Y <= Config.BoxGroundMaxHeight then
+			return hit.Position
+		end
+	end
+	return nil
+end
+
 local function spawnOne()
 	if countItems() >= Config.BoxMaxOnMap then
 		return
 	end
-
-	local points = getSpawnPoints()
-	-- ボックスは縮小エリアの内側にだけ出す
-	if ZoneManager.IsActive() then
-		local centerPos = ZoneManager.GetCenter()
-		points = ItemManager.FilterPointsInZone(points, centerPos.X, centerPos.Z, ZoneManager.GetRadius())
+	local ground = findOpenGround()
+	if not ground then
+		return -- 空いた地面が見つからなければ、今回は出さない（次の回でまた探す）
 	end
+	zoneBoxCounter = zoneBoxCounter + 1
+	local key = "Box" .. zoneBoxCounter
+	local part = createBoxPart(ground + Vector3.new(0, Config.ItemHeightOffset, 0))
 
-	local freePoints = {}
-	for _, point in ipairs(points) do
-		if not occupiedPoints[point.Key] then
-			table.insert(freePoints, point)
-		end
-	end
-	if #freePoints == 0 then
-		-- エリア内に空きポイントがない（終盤にエリアが小さくなった）ときは、
-		-- エリア内のランダムな位置に直接出す
-		if not ZoneManager.IsActive() then
-			return
-		end
-		local centerPos = ZoneManager.GetCenter()
-		local radius = ZoneManager.GetRadius() * 0.85
-		local angle = math.random() * math.pi * 2
-		local dist = math.random() * radius
-		zoneBoxCounter = zoneBoxCounter + 1
-		freePoints = { {
-			Key = "ZoneBox" .. zoneBoxCounter,
-			Position = Vector3.new(
-				centerPos.X + math.cos(angle) * dist,
-				centerPos.Y,
-				centerPos.Z + math.sin(angle) * dist
-			),
-		} }
-	end
-
-	local point = freePoints[math.random(1, #freePoints)]
-	local part = createBoxPart(point.Position + Vector3.new(0, Config.ItemHeightOffset, 0))
-
-	spawnedItems[part] = { IsBox = true, PointKey = point.Key }
-	occupiedPoints[point.Key] = part
+	spawnedItems[part] = { IsBox = true, PointKey = key }
+	occupiedPoints[key] = part
 
 	part.Touched:Connect(function(hit)
 		onBoxTouched(part, hit)
@@ -365,7 +372,11 @@ handlers.Smoke = function(player, def, data)
 	if not tagger or not tagger.Parent or tagger == player then
 		return false, "今はスモークを使えません"
 	end
-	Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
+	if Remotes.IsRealPlayer(tagger) then
+		Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
+	else
+		GameState.GetData(tagger).BlindUntil = GameState.Now() + def.Duration -- ボットの鬼は立ち止まる
+	end
 	Remotes.NotifyPlayer(player, "スモーク！ 鬼の画面をまっ白にした")
 	return true
 end
@@ -539,7 +550,11 @@ handlers.Flash = function(player, def, data)
 	if (taggerRoot.Position - root.Position).Magnitude > def.Range then
 		return false, "鬼が遠すぎます（近づいてから使おう）"
 	end
-	Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
+	if Remotes.IsRealPlayer(tagger) then
+		Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
+	else
+		GameState.GetData(tagger).BlindUntil = GameState.Now() + def.Duration
+	end
 	Remotes.NotifyPlayer(player, "フラッシュ！ 鬼の目をくらませた")
 	return true
 end
@@ -659,13 +674,16 @@ handlers.ZoneGuard = function(player, def, data)
 end
 
 handlers.Radar = function(player, def, data)
+	-- 光らせる相手のキャラクター（ボットも含む）を送る
 	local targets = {}
 	if GameState.IsTagger(player) then
 		for _, runner in ipairs(activeRunners()) do
-			table.insert(targets, runner.UserId)
+			if runner.Character then
+				table.insert(targets, runner.Character)
+			end
 		end
-	elseif GameState.Tagger then
-		table.insert(targets, GameState.Tagger.UserId)
+	elseif GameState.Tagger and GameState.Tagger.Character then
+		table.insert(targets, GameState.Tagger.Character)
 	end
 	if #targets == 0 then
 		return false, "今はレーダーで探す相手がいません"

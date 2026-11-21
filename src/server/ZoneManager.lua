@@ -73,11 +73,15 @@ end
 -- 経過時間から今の半径を返す。試合時間の ZoneShrinkEndRatio まで一定速度で縮み、
 -- その後は ZoneEndRadius で固定される
 function ZoneManager.RadiusAt(elapsedTime, duration, fromRadius)
-	local shrinkTime = duration * Config.ZoneShrinkEndRatio
-	if shrinkTime <= 0 or elapsedTime >= shrinkTime then
+	local startTime = duration * Config.ZoneShrinkStartRatio
+	local endTime = duration * Config.ZoneShrinkEndRatio
+	if elapsedTime <= startTime then
+		return fromRadius -- 序盤は縮まない
+	end
+	if endTime <= startTime or elapsedTime >= endTime then
 		return Config.ZoneEndRadius
 	end
-	local ratio = math.max(0, elapsedTime) / shrinkTime
+	local ratio = (elapsedTime - startTime) / (endTime - startTime)
 	return fromRadius + (Config.ZoneEndRadius - fromRadius) * ratio
 end
 
@@ -200,7 +204,7 @@ end
 ---------------------------------------------------------------------
 
 local function sendZoneUpdate(player, data, isOutside)
-	if player and player.Parent then
+	if Remotes.IsRealPlayer(player) then
 		Remotes.ZoneUpdate:FireClient(player, {
 			Radius = currentRadius,
 			Stamina = data.ZoneStamina,

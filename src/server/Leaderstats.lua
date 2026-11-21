@@ -33,6 +33,9 @@ end
 
 -- key は "Survived" または "Tagged"
 function Leaderstats.Increment(player, key)
+	if typeof(player) ~= "Instance" then
+		return -- ボットには記録を付けない
+	end
 	local folder = player and player:FindFirstChild("leaderstats")
 	local statName = Config.LeaderstatNames[key]
 	if not folder or not statName then
@@ -45,6 +48,9 @@ function Leaderstats.Increment(player, key)
 end
 
 function Leaderstats.Set(player, key, amount)
+	if typeof(player) ~= "Instance" then
+		return
+	end
 	local folder = player and player:FindFirstChild("leaderstats")
 	local statName = Config.LeaderstatNames[key]
 	local value = folder and statName and folder:FindFirstChild(statName)

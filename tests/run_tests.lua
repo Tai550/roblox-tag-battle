@@ -14,6 +14,7 @@ RT.modules.MatchSession = require("./.build/MatchSession")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
+RT.modules.BotManager = require("./.build/BotManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
 
 local Config = RT.modules.Config
@@ -55,15 +56,15 @@ do
 	-- 2点 (0,0,0) と (30,0,40): 中心 (15,0,20)、最大距離 25 → 25+15=40 → 下限 50 に丸める
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(30, 0, 40) }, false)
 	check("中心は出現ポイントの平均", near(cx, 15) and near(cy, 0) and near(cz, 20))
-	check("開始半径は下限50に丸める", near(radius, 50))
+	check("開始半径は最大距離+80（25+80）", near(radius, 105))
 
 	-- 2点 (0,0,0) と (200,0,0): 中心 (100,0,0)、最大距離 100 → 115（上限内）
 	local _, _, _, radius2 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(200, 0, 0) }, false)
-	check("開始半径は最大距離+15", near(radius2, 115))
+	check("開始半径は上限175に丸める（200+80）", near(radius2, 175))
 
 	-- 2点 (0,0,0) と (300,0,0): 最大距離 150 → 165 → 上限 120 に丸める
 	local _, _, _, radius3 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(300, 0, 0) }, false)
-	check("開始半径は上限120に丸める", near(radius3, 120))
+	check("開始半径は上限175に丸める", near(radius3, 175))
 
 	-- 予備ポイントのみの場合は 60
 	local _, _, _, radius4 = ZoneManager.ComputeGeometry({ point(0, 3, 0), point(10, 3, 0) }, true)
@@ -79,14 +80,14 @@ end
 ---------------------------------------------------------------------
 
 do
-	-- 180秒・開始半径120: 縮小は144秒まで。72秒で半分 → 120 + (18-120)*0.5 = 69
-	check("縮小開始直後は開始半径", near(ZoneManager.RadiusAt(0, 180, 120), 120))
-	check("縮小区間の中間で線形に縮む", near(ZoneManager.RadiusAt(72, 180, 120), 69))
-	check("80%時点で終了半径18", near(ZoneManager.RadiusAt(144, 180, 120), 18))
-	check("80%を過ぎたら終了半径で固定", near(ZoneManager.RadiusAt(180, 180, 120), 18))
-	-- 60秒・開始半径60: 縮小は48秒まで
-	check("60秒試合でも80%で終了半径", near(ZoneManager.RadiusAt(48, 60, 60), 18))
-	check("60秒試合の途中経過", near(ZoneManager.RadiusAt(24, 60, 60), 39))
+	-- 180秒・開始半径175: 54秒(30%)までは縮まず、153秒(85%)で25まで縮む。中間103.5秒で100
+	check("開始直後は開始半径", near(ZoneManager.RadiusAt(0, 180, 175), 175))
+	check("30%までは縮まない", near(ZoneManager.RadiusAt(54, 180, 175), 175))
+	check("縮小区間の中間で線形に縮む", near(ZoneManager.RadiusAt(103.5, 180, 175), 100))
+	check("85%時点で終了半径25", near(ZoneManager.RadiusAt(153, 180, 175), 25))
+	check("85%を過ぎたら終了半径で固定", near(ZoneManager.RadiusAt(180, 180, 175), 25))
+	-- 60秒: 18秒まで縮まず、51秒で25
+	check("60秒試合の途中経過", near(ZoneManager.RadiusAt(34.5, 60, 175), 100))
 end
 
 ---------------------------------------------------------------------

@@ -87,7 +87,7 @@ local function applyRoomInfo(data, fallbackHost)
 	if modeDecided or type(data) ~= "table" then
 		return
 	end
-	if data.Mode ~= "Quick" and data.Mode ~= "Friends" then
+	if data.Mode ~= "Quick" and data.Mode ~= "Friends" and data.Mode ~= "Solo" then
 		return
 	end
 	modeDecided = true

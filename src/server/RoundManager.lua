@@ -18,10 +18,12 @@ local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 local MatchSession = require(script.Parent:WaitForChild("MatchSession"))
 local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
+local BotManager = require(script.Parent:WaitForChild("BotManager"))
 
 local RoundManager = {}
 
 local broadcastState -- 下の「状態の送信」で定義する
+local soloRound = false -- このラウンドをボットと遊ぶか
 
 ---------------------------------------------------------------------
 -- 試合時間の投票
@@ -319,12 +321,23 @@ local function setPhase(phase, message, timeLeft)
 	broadcastState()
 end
 
--- Studio: 人数がそろうまで待つ
+-- Studio: 人数がそろうまで待つ。1人のまましばらくたったらボットと遊ぶ
 local function waitForMinPlayers()
+	local aloneSince = nil
 	while true do
 		local count = #Players:GetPlayers()
 		if count >= Config.MinPlayers then
+			soloRound = false
 			return true
+		end
+		if count == 1 then
+			aloneSince = aloneSince or GameState.Now()
+			if GameState.Now() - aloneSince >= Config.StudioSoloAfter then
+				soloRound = true
+				return true
+			end
+		else
+			aloneSince = nil
 		end
 		GameState.PlayersNeeded = Config.MinPlayers - count
 		setPhase("Waiting", string.format("あと%d人で開始できます", GameState.PlayersNeeded))
@@ -381,6 +394,16 @@ local function waitForHost()
 	end
 end
 
+-- Solo: 本人が来たらすぐ始める
+local function waitForSoloPlayer()
+	while #Players:GetPlayers() == 0 do
+		setPhase("Waiting", "準備中…")
+		task.wait(0.5)
+	end
+	soloRound = true
+	return true
+end
+
 -- 人数が足りなくなったら false
 local function runIntermission()
 	setPhase("Intermission", "まもなく鬼ごっこが始まります。試合時間に投票しよう")
@@ -392,7 +415,8 @@ local function runIntermission()
 		if left <= 0 then
 			break
 		end
-		if #Players:GetPlayers() < Config.MinPlayers then
+		local needed = soloRound and 1 or Config.MinPlayers
+		if #Players:GetPlayers() < needed then
 			return false
 		end
 		GameState.TimeLeft = left
@@ -413,14 +437,23 @@ local function runRound()
 	GameState.Eliminated = {}
 	GameState.Results = {}
 	Leaderstats.ResetAll()
-	for _, player in ipairs(Players:GetPlayers()) do
+	local entrants = Players:GetPlayers()
+	if soloRound then
+		for _, bot in ipairs(BotManager.Spawn(Config.SoloBotCount)) do
+			table.insert(entrants, bot)
+		end
+		task.wait(0.5) -- ボットの体が落ち着くのを待つ
+	end
+	for _, player in ipairs(entrants) do
 		if GameState.IsAlive(player) then
 			GameState.Participants[player] = true
 			GameState.TagCounts[player] = 0
 			GameState.ResetData(player)
+			GameState.RefreshSpeed(player)
 		end
 	end
 	if GameState.CountParticipants() < Config.MinPlayers then
+		BotManager.Clear()
 		GameState.Participants = {}
 		return false
 	end
@@ -471,6 +504,7 @@ local function runRound()
 		tryTag()
 		ItemManager.Tick()
 		ZoneManager.Tick()
+		BotManager.Tick()
 
 		if now >= nextBroadcast then
 			GameState.TimeLeft = left
@@ -504,6 +538,11 @@ local function runRound()
 	local winners = {}
 	for _, entry in ipairs(results) do
 		local player = entry.Key
+		if BotManager.IsBot(player) then
+			entry.Coins = 0 -- ボットはコインをもらわない
+		elseif soloRound then
+			entry.Coins = math.floor(entry.Coins * Config.SoloCoinRate)
+		end
 		table.insert(forClient, {
 			UserId = player.UserId,
 			Name = player.DisplayName,
@@ -515,7 +554,9 @@ local function runRound()
 		if entry.Champion then
 			table.insert(winners, player)
 		end
-		task.spawn(PlayerDataStore.AddCoins, player, entry.Coins, entry.Champion)
+		if not BotManager.IsBot(player) then
+			task.spawn(PlayerDataStore.AddCoins, player, entry.Coins, entry.Champion)
+		end
 		Remotes.NotifyPlayer(player, string.format("%d位！ %d コインもらった", entry.Rank, entry.Coins))
 	end
 	GameState.Results = forClient
@@ -543,7 +584,7 @@ local function runResults()
 
 	-- 観戦席の人を地上に戻す
 	for _, player in ipairs(GameState.Eliminated) do
-		if player.Parent == Players then
+		if not BotManager.IsBot(player) and player.Parent == Players then
 			player:LoadCharacter()
 		end
 	end
@@ -558,6 +599,7 @@ local function runResults()
 		task.wait(math.min(1, left))
 	end
 	GameState.Eliminated = {}
+	BotManager.Clear()
 end
 
 ---------------------------------------------------------------------
@@ -618,9 +660,13 @@ function RoundManager.Run()
 			task.wait(5)
 			ready = false
 		elseif mode == "Quick" then
+			soloRound = false
 			ready = waitForArrivals()
 		elseif mode == "Friends" then
+			soloRound = false
 			ready = waitForHost()
+		elseif mode == "Solo" then
+			ready = waitForSoloPlayer()
 		else
 			ready = waitForMinPlayers()
 		end

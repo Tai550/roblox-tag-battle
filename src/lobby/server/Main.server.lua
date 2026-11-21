@@ -34,6 +34,7 @@ local SetDeck = remote("SetDeck")           -- 本人 → サーバー: この�
 local CreateRoom = remote("CreateRoom")     -- 本人 → サーバー: 友達部屋を作りたい
 local JoinRoom = remote("JoinRoom")         -- 本人 → サーバー: この合言葉の部屋に入りたい
 local RoomCreated = remote("RoomCreated")   -- サーバー → 本人: 作った部屋の合言葉
+local SoloPlay = remote("SoloPlay")         -- 本人 → サーバー: ひとりモードで遊びたい
 remoteFolder.Parent = ReplicatedStorage
 
 local function notify(player, text)
@@ -174,6 +175,14 @@ local function teleportToMatch(players, teleportData, accessCode)
 	end
 	return ok
 end
+
+SoloPlay.OnServerEvent:Connect(function(player)
+	if tooFast(player, 3) then
+		return
+	end
+	notify(player, "ひとりモードへ移動します！")
+	teleportToMatch({ player }, { Mode = "Solo", HostUserId = player.UserId })
+end)
 
 TeleportService.TeleportInitFailed:Connect(function(player, _, message)
 	notify(player, "移動に失敗しました: " .. tostring(message))
@@ -383,6 +392,7 @@ local RULES = {
 	"■ 遊び方",
 	"・すぐ遊ぶ：緑のパッドに乗る。2人そろうと出発（最大8人）",
 	"・友達部屋：左の「友達部屋」から作って、合言葉を友達に教えよう",
+	"・ひとりで遊ぶ：ボットと練習できる（コインは半分）",
 }
 
 local board = lobbyMap:FindFirstChild("RulesBoard")

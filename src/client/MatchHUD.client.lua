@@ -393,11 +393,13 @@ local function renderState()
 	local isFriends = state.Mode == "Friends"
 	local isHost = state.HostUserId == localPlayer.UserId
 	startButton.Visible = isFriends and phase == "RoomWaiting" and isHost
-	lobbyButton.Visible = state.Mode == "Friends" or state.Mode == "Quick"
+	lobbyButton.Visible = state.Mode == "Friends" or state.Mode == "Quick" or state.Mode == "Solo"
 	actionRow.Visible = startButton.Visible or lobbyButton.Visible
 
 	if phase == "Waiting" then
 		titleLabel.Text = "準備中"
+	elseif state.Mode == "Solo" and phase ~= "Results" and phase ~= "Intermission" then
+		titleLabel.Text = "ひとりモード"
 	elseif phase == "RoomWaiting" then
 		titleLabel.Text = "友達部屋　合言葉 " .. (state.RoomCode or "")
 	elseif phase == "Intermission" then
@@ -491,12 +493,10 @@ end)
 Notify.OnClientEvent:Connect(showToast)
 
 -- レーダー：相手を壁ごしに光らせる（自分の画面だけ）
-RadarEffect.OnClientEvent:Connect(function(userIds, duration)
+RadarEffect.OnClientEvent:Connect(function(characters, duration)
 	duration = math.clamp(tonumber(duration) or 0, 0, 15)
-	for _, userId in ipairs(userIds or {}) do
-		local player = Players:GetPlayerByUserId(userId)
-		local character = player and player.Character
-		if character then
+	for _, character in ipairs(characters or {}) do
+		if typeof(character) == "Instance" and character:IsA("Model") then
 			local highlight = Instance.new("Highlight")
 			highlight.Name = "RadarHighlight"
 			highlight.FillColor = Color3.fromRGB(60, 255, 230)

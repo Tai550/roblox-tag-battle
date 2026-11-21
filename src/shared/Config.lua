@@ -38,6 +38,8 @@ Config.BoxSpawnInterval = 8      -- 何秒ごとにボックスを1つ出現さ�
 Config.BoxMaxOnMap = 4           -- マップ上に同時に置けるボックスの最大数
 Config.ItemSpawnFolderName = "ItemSpawns" -- Workspace 内の出現ポイント用フォルダ名
 Config.ItemHeightOffset = 3      -- 出現ポイントの何スタッド上にアイテムを浮かせるか
+Config.BoxGroundMaxHeight = 2.5  -- ボックスを出してよい地面の高さ（これより高い所＝建物の上には出さない）
+Config.BoxSpawnTries = 20        -- 空いた地面を探す回数
 
 -- ItemSpawns フォルダがない（または中に Part がない）ときの代わりの出現位置
 Config.FallbackSpawnCenter = Vector3.new(0, 3, 0)
@@ -54,14 +56,15 @@ Config.FallbackSpawnOffsets = {
 -- ラウンド中、エリアは円形に縮み続ける。外に出続けると専用スタミナが減り、
 -- 0 になると中央へ強制送還される。送還は ZoneMaxReturns 回まで。その次で脱落（観戦）。
 ---------------------------------------------------------------------
-Config.ZoneEndRadius = 18          -- 縮小が止まる最後の半径
+Config.ZoneEndRadius = 25          -- 縮小が止まる最後の半径
 Config.ZoneStartRadiusMin = 50     -- 開始半径の下限
-Config.ZoneStartRadiusMax = 120    -- 開始半径の上限
-Config.ZoneStartRadiusPadding = 15 -- 開始半径 = 出現ポイントの最大距離 + この値
+Config.ZoneStartRadiusMax = 175    -- 開始半径の上限（フィールドの四隅まで入る大きさ）
+Config.ZoneStartRadiusPadding = 80 -- 開始半径 = 出現ポイントの最大距離 + この値（最初はフィールド全体）
 Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの開始半径
-Config.ZoneShrinkEndRatio = 0.8    -- 試合時間のこの割合が過ぎるまで縮み続ける
+Config.ZoneShrinkStartRatio = 0.3  -- 試合時間のこの割合までは縮まない（最初は広く遊べる）
+Config.ZoneShrinkEndRatio = 0.85   -- 試合時間のこの割合で最後の半径まで縮みきる
 Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
-Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
+Config.ZoneDrainPerSecond = 9      -- エリア外で1秒に減るスタミナ（0 まで約11秒）
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
 Config.ZoneWallHeight = 60         -- 壁の高さ
@@ -410,6 +413,17 @@ Config.MatchArrivalTimeout = 25       -- 試合サーバーで全員の到着を
 Config.FriendRoomCodeLength = 4       -- 友達部屋の合言葉の桁数
 Config.FriendRoomLifetime = 3 * 60 * 60 -- 合言葉が有効な秒数
 Config.FriendMaxPlayers = 12          -- 友達部屋の最大人数
+
+---------------------------------------------------------------------
+-- ひとりモード（ボットと遊ぶ）
+---------------------------------------------------------------------
+Config.SoloBotCount = 5            -- 一緒に走るボットの数
+Config.SoloCoinRate = 0.5          -- ひとりモードでもらえるコインの割合
+Config.StudioSoloAfter = 5         -- Studio で1人のまま何秒たったらボットで始めるか
+Config.BotThinkInterval = 0.4      -- ボットが行き先を決め直す間隔（秒）。大きいほど反応が遅い
+Config.BotFleeDistance = 32        -- 鬼がこの距離より近いとボットは逃げる
+Config.BotTaggerWalkSpeed = 17.5   -- 鬼になったボットの速さ（人の鬼 20 より遅め）
+Config.BotRunnerWalkSpeed = 15     -- 逃げるボットの速さ（人 16 より少し遅め）
 
 ---------------------------------------------------------------------
 -- BGM（Creator Store の正規ライセンス曲）

@@ -42,8 +42,13 @@ end
 folder.Parent = ReplicatedStorage
 
 -- 本人の画面にメッセージを出す
+-- 本物のプレイヤーか（ひとりモードのボットは表なので false）
+function Remotes.IsRealPlayer(player)
+	return typeof(player) == "Instance" and player:IsA("Player") and player.Parent ~= nil
+end
+
 function Remotes.NotifyPlayer(player, text)
-	if player and player.Parent then
+	if Remotes.IsRealPlayer(player) then
 		Remotes.Notify:FireClient(player, text)
 	end
 end
