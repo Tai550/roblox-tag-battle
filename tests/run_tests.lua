@@ -775,7 +775,7 @@ do
 		if part.Name == "InvisibleWall" and part.Transparency == 1 then
 			wallCount = wallCount + 1
 		end
-		if part.Name == "Grass" and part.Size.X >= 340 and part.Size.Z >= 340 then
+		if part.Name == "Grass" and near(part.Size.X, 220) and near(part.Size.Z, 220) then
 			grassOk = true
 		end
 		local color = part.Color
@@ -785,7 +785,8 @@ do
 	end
 	check("入れ替え2回目はパーク（14点）", second.MapId == "Park" and MapBuilder.CurrentMap == "Park"
 		and second.ItemSpawns == 14 and #parkSpawns == 14 and #MapBuilder.ParkSpawnPositions() == 14)
-	check("パークの出現ポイントは 340×340 の内側で、渋谷より外側まで散らばる", inPark and spreadsBeyond and hasPos and hasNeg)
+	-- パークは 220 前後に縮めたので、出現ポイントは ±115 の内側で、正負どちらにも散らばる
+	check("パークの出現ポイントは縮小後の範囲内で、四方に散らばる", not spreadsBeyond and hasPos and hasNeg)
 	check("パークの Part 数は 500 以下", second.PartCount <= 500 and second.PartCount == #parkParts + #parkSpawns)
 	print(string.format("    （パークの BasePart %d ＋ 出現ポイント %d ＝ %d）", #parkParts, #parkSpawns, second.PartCount))
 	check("パークは中央広場にスポーンが1つ、外周の透明な壁が4枚、芝生の地面", spawnLocations == 1
@@ -1283,6 +1284,25 @@ do
 end
 
 ---------------------------------------------------------------------
+-- マップ投票
+do
+	local a, b, c = {}, {}, {}
+	local best = RoundManager.TallyMapVotes({ [a] = "Ice", [b] = "Ice", [c] = "Cave" })
+	check("マップ投票は一番多いマップ", best == "Ice")
+	local tie = RoundManager.TallyMapVotes({ [a] = "Ice", [b] = "Cave" })
+	check("同数ならローテーションの次（nil）", tie == nil)
+	local none, counts = RoundManager.TallyMapVotes({})
+	check("無投票ならローテーションの次（nil）で、全マップの票数0", none == nil and counts.Arena == 0 and counts.Sky == 0)
+	local bad = RoundManager.TallyMapVotes({ [a] = "Nowhere" })
+	check("知らないマップの票は数えない", bad == nil)
+	MapBuilder.ResetRotation({ "Shibuya", "Park", "Cave", "Ice", "Volt", "Sky" }, 1)
+	MapBuilder.BuildNextRound()
+	check("投票で選んだマップを作る", MapBuilder.PrepareRound("Cave") == true and MapBuilder.CurrentMap == "Cave")
+	check("投票のあとは選んだマップからローテーションが続く", MapBuilder.GetNextMapId() == "Ice")
+	check("レア度は S・A・B 表記", Config.GetTierName("S") == "S" and Config.Items.TimeStop.Tier == "S"
+		and Config.Items.HighJump.Tier == "B")
+end
+
 -- 頭の上に乗っているときもタッチ
 do
 	local runner = { Name = "R" }

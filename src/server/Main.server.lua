@@ -9,10 +9,12 @@ local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local RoundManager = require(script.Parent:WaitForChild("RoundManager"))
 local Monetization = require(script.Parent:WaitForChild("Monetization"))
+local AdminManager = require(script.Parent:WaitForChild("AdminManager"))
 
 -- マップと Workspace.ItemSpawns を、どの Init よりも先に用意する（アリーナ・渋谷・パークのどれか）
 MapBuilder.Init()
 
+AdminManager.Init() -- 入室時の BAN 確認と管理者画面の受付
 Leaderstats.Init()
 RankManager.Init()   -- 段位の読み込み（leaderstats を作ったあと）
 MatchSession.Init()  -- すぐ遊ぶ／友達部屋／ひとり／Studio の判定とロビーへの移動

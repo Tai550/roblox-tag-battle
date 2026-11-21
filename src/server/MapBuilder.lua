@@ -11,7 +11,7 @@
 -- 座標の決まり（上から見て）
 --   渋谷は 220×220（-110〜110）。中心 (0, 0) がスクランブル交差点。
 --   道路は幅36（-18〜18）で X 方向・Z 方向に1本ずつ。残りの4区画が街区（歩道を少し高くした台）。
---   パークは 340×340（-170〜170）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
+--   パークは 220×220（-110〜110）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
 --   乱数は使わない。配置はすべて下の表に書いた固定値。
 
 local Lighting = game:GetService("Lighting")
@@ -29,19 +29,11 @@ MapBuilder.CurrentMap = nil -- "Arena" / "Shibuya" / "Park" / "Cave" / "Ice" / "
 MapBuilder.CaveWallGroup = "CaveInnerWall"
 MapBuilder.PhaseGroup = "CavePhasing"
 
-local rotation = {
-	{ Id = "Arena", Name = "アリーナ", Gimmick = "None" },
-	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
-	{ Id = "Park", Name = "パーク", Gimmick = "None" },
-	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
-	{ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" },
-	{ Id = "Volt", Name = "痺れるダンジョン", Gimmick = "Volt", ExclusiveItemId = "Insulate" },
-	{ Id = "Sky", Name = "落下ダンジョン", Gimmick = "None", ExclusiveItemId = "SafetyLine" },
-}
+local rotation = Config.MatchMaps
 
 local mapInfo = {}
 for _, info in ipairs(rotation) do
-	mapInfo[info.Id] = table.freeze(info)
+	mapInfo[info.Id] = info
 end
 
 function MapBuilder.GetCurrentMapInfo()
@@ -259,10 +251,12 @@ local ITEM_SPAWNS = {
 MapBuilder.ItemSpawnCount = #ITEM_SPAWNS
 
 ---------------------------------------------------------------------
--- パーク（340×340。広くて見通しがよい。障害物は周囲に寄せる）
+-- パーク（220×220。広くて見通しがよい。障害物は周囲に寄せる）
 ---------------------------------------------------------------------
 
-local PARK_HALF = 170
+local PARK_LAYOUT_HALF = 170 -- 配置表の半幅（縮小前の座標系）
+local PARK_HALF = 110
+local PARK_SCALE = PARK_HALF / PARK_LAYOUT_HALF
 local PARK_GRASS_TOP = 0
 local PARK_PLAZA_TOP = 0.5 -- 中央の円形広場の上面
 local PARK_WALL_HEIGHT = 36
@@ -313,7 +307,7 @@ local PARK_SPAWNS = {
 }
 MapBuilder.ParkSpawnCount = #PARK_SPAWNS
 
--- 中央から放射する散歩道（軸上。長さ40、内端は広場のふち）
+-- 中央から放射する散歩道（軸上。内端は広場のふち）
 local PARK_PATHS = {
 	{ x = 0, z = -54, sx = 8, sz = 40 },
 	{ x = 0, z = 54, sx = 8, sz = 40 },
@@ -400,15 +394,25 @@ local partCount = 0
 
 -- props: Size = {x,y,z}, Pos = {x,y,z}, Color, Material, Name, ClassName, Shape,
 --        Transparency, CanCollide, RotY / RotZ（度）
-local function makePart(parent, props)
+local function makePart(parent, props, horizontalScale)
+	local scale = horizontalScale or 1
+	local sx, sy, sz = table.unpack(props.Size)
+	local x, y, z = table.unpack(props.Pos)
+	-- Z 軸で90度回した円柱は、ローカル X が高さ、Y が水平の直径。
+	if props.RotZ == 90 then
+		sy = sy * scale
+	else
+		sx = sx * scale
+	end
 	local part = Instance.new(props.ClassName or "Part")
 	part.Name = props.Name or "Part"
 	part.Anchored = true
 	part.CanCollide = props.CanCollide ~= false
-	part.Size = Vector3.new(props.Size[1], props.Size[2], props.Size[3])
-	part.Position = Vector3.new(props.Pos[1], props.Pos[2], props.Pos[3])
+	part.Size = Vector3.new(sx, sy, sz * scale)
+	x, z = x * scale, z * scale
+	part.Position = Vector3.new(x, y, z)
 	if props.RotY or props.RotZ then
-		part.CFrame = CFrame.new(props.Pos[1], props.Pos[2], props.Pos[3])
+		part.CFrame = CFrame.new(x, y, z)
 			* CFrame.Angles(0, math.rad(props.RotY or 0), math.rad(props.RotZ or 0))
 	end
 	if props.Shape then
@@ -432,7 +436,7 @@ local function makeFolder(parent, name)
 end
 
 -- 縦に立てた円柱（Roblox の円柱は X 軸方向が長さなので Z 軸で90度回す）
-local function makeColumn(parent, name, x, bottomY, z, height, diameter, color, material)
+local function makeColumn(parent, name, x, bottomY, z, height, diameter, color, material, horizontalScale)
 	return makePart(parent, {
 		Name = name,
 		Shape = Enum.PartType.Cylinder,
@@ -441,7 +445,7 @@ local function makeColumn(parent, name, x, bottomY, z, height, diameter, color, 
 		RotZ = 90,
 		Color = color,
 		Material = material,
-	})
+	}, horizontalScale)
 end
 
 -- along が "X" なら (長さ, 短さ) を X/Z に、"Z" なら入れ替える
@@ -897,18 +901,19 @@ end
 function MapBuilder.ParkSpawnPositions()
 	local list = {}
 	for _, s in ipairs(PARK_SPAWNS) do
-		table.insert(list, { x = s.x, y = s.surface + SPAWN_LIFT, z = s.z })
+		table.insert(list, { x = s.x * PARK_SCALE, y = s.surface + SPAWN_LIFT, z = s.z * PARK_SCALE })
 	end
 	return list
 end
 
-local function buildItemSpawns(positions)
+local function buildItemSpawns(positions, horizontalScale)
+	local size = 2 * (horizontalScale or 1)
 	local folder = Instance.new("Folder")
 	folder.Name = Config.ItemSpawnFolderName
 	for index, p in ipairs(positions) do
 		makePart(folder, {
 			Name = "Spawn" .. index,
-			Size = { 2, 1, 2 },
+			Size = { size, 1, size },
 			Pos = { p.x, p.y, p.z },
 			Transparency = 1,
 			CanCollide = false,
@@ -937,13 +942,13 @@ local function buildParkGround(map)
 	local folder = makeFolder(map, "Ground")
 	makePart(folder, {
 		Name = "Grass",
-		Size = { PARK_HALF * 2, 2, PARK_HALF * 2 },
+		Size = { PARK_LAYOUT_HALF * 2, 2, PARK_LAYOUT_HALF * 2 },
 		Pos = { 0, -1, 0 },
 		Color = PARK.Grass,
 		Material = Enum.Material.Grass,
-	})
+	}, PARK_SCALE)
 	-- 円形の舗装（円柱を寝かせて薄い円盤にする）
-	makeColumn(folder, "Plaza", 0, PARK_GRASS_TOP, 0, PARK_PLAZA_TOP, 72, PARK.Plaza, Enum.Material.Concrete)
+	makeColumn(folder, "Plaza", 0, PARK_GRASS_TOP, 0, PARK_PLAZA_TOP, 72, PARK.Plaza, Enum.Material.Concrete, PARK_SCALE)
 	for _, path in ipairs(PARK_PATHS) do
 		makePart(folder, {
 			Name = "Path",
@@ -951,28 +956,28 @@ local function buildParkGround(map)
 			Pos = { path.x, 0.15, path.z },
 			Color = PARK.Path,
 			Material = Enum.Material.Concrete,
-		})
+		}, PARK_SCALE)
 	end
 end
 
 local function buildParkBoundary(map)
 	local folder = makeFolder(map, "Boundary")
 	local thickness = 2
-	local offset = PARK_HALF + thickness / 2
-	local length = PARK_HALF * 2 + thickness * 2
+	local offset = PARK_LAYOUT_HALF + thickness / 2
+	local length = PARK_LAYOUT_HALF * 2 + thickness * 2
 	for _, sign in ipairs({ 1, -1 }) do
 		makePart(folder, {
 			Name = "InvisibleWall",
 			Size = { thickness, PARK_WALL_HEIGHT, length },
 			Pos = { sign * offset, PARK_WALL_HEIGHT / 2, 0 },
 			Transparency = 1,
-		})
+		}, PARK_SCALE)
 		makePart(folder, {
 			Name = "InvisibleWall",
 			Size = { length, PARK_WALL_HEIGHT, thickness },
 			Pos = { 0, PARK_WALL_HEIGHT / 2, sign * offset },
 			Transparency = 1,
-		})
+		}, PARK_SCALE)
 	end
 end
 
@@ -986,7 +991,7 @@ local function buildParkProps(map)
 		Pos = { pond.x, 0.15, pond.z },
 		Color = PARK.Bank,
 		Material = Enum.Material.Grass,
-	})
+	}, PARK_SCALE)
 	makePart(folder, {
 		Name = "Pond",
 		Size = { pond.w, 0.25, pond.d },
@@ -994,7 +999,7 @@ local function buildParkProps(map)
 		Color = PARK.Water,
 		Material = Enum.Material.Water,
 		Transparency = 0.15,
-	})
+	}, PARK_SCALE)
 	for _, lily in ipairs({ { x = -8, z = -4 }, { x = 6, z = 5 }, { x = -2, z = 8 } }) do
 		makePart(folder, {
 			Name = "Lily",
@@ -1003,7 +1008,7 @@ local function buildParkProps(map)
 			Color = PARK.Lily,
 			Material = Enum.Material.Grass,
 			CanCollide = false,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, mound in ipairs(PARK_MOUNDS) do
@@ -1014,7 +1019,7 @@ local function buildParkProps(map)
 			Pos = { mound.x, mound.sy / 2 - 1.5, mound.z },
 			Color = PARK.Mound,
 			Material = Enum.Material.Grass,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, rock in ipairs(PARK_ROCKS) do
@@ -1025,11 +1030,11 @@ local function buildParkProps(map)
 			Pos = { rock.x, rock.sy / 2 - 0.4, rock.z },
 			Color = PARK.Rock,
 			Material = Enum.Material.Slate,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, tree in ipairs(PARK_TREES) do
-		makeColumn(folder, "TreeTrunk", tree.x, PARK_GRASS_TOP, tree.z, 7, 1.3, PARK.Trunk, Enum.Material.Wood)
+		makeColumn(folder, "TreeTrunk", tree.x, PARK_GRASS_TOP, tree.z, 7, 1.3, PARK.Trunk, Enum.Material.Wood, PARK_SCALE)
 		makePart(folder, {
 			Name = "TreeLeaves",
 			Shape = Enum.PartType.Ball,
@@ -1038,7 +1043,7 @@ local function buildParkProps(map)
 			Color = PARK.Leaves,
 			Material = Enum.Material.Grass,
 			CanCollide = false,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, bench in ipairs(PARK_BENCHES) do
@@ -1048,14 +1053,14 @@ local function buildParkProps(map)
 			Pos = { bench.x, 1.2, bench.z },
 			Color = PARK.Bench,
 			Material = Enum.Material.Wood,
-		})
+		}, PARK_SCALE)
 		makePart(folder, {
 			Name = "BenchBack",
 			Size = { 5, 1.2, 0.3 },
 			Pos = { bench.x, 2.0, bench.z + 0.7 },
 			Color = PARK.Bench,
 			Material = Enum.Material.Wood,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, fence in ipairs(PARK_FENCES) do
@@ -1066,7 +1071,7 @@ local function buildParkProps(map)
 			Pos = { fence.x, 1.1, fence.z },
 			Color = PARK.Fence,
 			Material = Enum.Material.Wood,
-		})
+		}, PARK_SCALE)
 		local half = fence.length / 2 - 0.3
 		for _, sign in ipairs({ -1, 1 }) do
 			local px, pz = fence.x, fence.z
@@ -1081,7 +1086,7 @@ local function buildParkProps(map)
 				Pos = { px, 1.3, pz },
 				Color = PARK.Fence,
 				Material = Enum.Material.Wood,
-			})
+			}, PARK_SCALE)
 		end
 	end
 
@@ -1092,7 +1097,7 @@ local function buildParkProps(map)
 		Pos = { gazebo.x, 0.2, gazebo.z },
 		Color = PARK.Path,
 		Material = Enum.Material.Wood,
-	})
+	}, PARK_SCALE)
 	local corner = gazebo.floor / 2 - 1.2
 	for _, sx in ipairs({ -1, 1 }) do
 		for _, sz in ipairs({ -1, 1 }) do
@@ -1105,7 +1110,8 @@ local function buildParkProps(map)
 				gazebo.height,
 				0.9,
 				PARK.Pillar,
-				Enum.Material.Wood
+				Enum.Material.Wood,
+				PARK_SCALE
 			)
 		end
 	end
@@ -1115,7 +1121,7 @@ local function buildParkProps(map)
 		Pos = { gazebo.x, 0.4 + gazebo.height + 0.3, gazebo.z },
 		Color = PARK.Roof,
 		Material = Enum.Material.Wood,
-	})
+	}, PARK_SCALE)
 
 	for _, hut in ipairs(PARK_HUTS) do
 		makePart(folder, {
@@ -1124,14 +1130,14 @@ local function buildParkProps(map)
 			Pos = { hut.x, hut.h / 2, hut.z },
 			Color = PARK.Wood,
 			Material = Enum.Material.Wood,
-		})
+		}, PARK_SCALE)
 		makePart(folder, {
 			Name = "HutRoof",
 			Size = { hut.w + 1.6, 0.8, hut.d + 1.6 },
 			Pos = { hut.x, hut.h + 0.4, hut.z },
 			Color = PARK.Roof,
 			Material = Enum.Material.Wood,
-		})
+		}, PARK_SCALE)
 		makePart(folder, {
 			Name = "HutDoor",
 			Size = { 1.8, hut.h * 0.55, 0.16 },
@@ -1139,7 +1145,7 @@ local function buildParkProps(map)
 			Color = PARK.Door,
 			Material = Enum.Material.Wood,
 			CanCollide = false,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, flower in ipairs(PARK_FLOWERS) do
@@ -1150,11 +1156,11 @@ local function buildParkProps(map)
 			Color = PARK[flower.color],
 			Material = Enum.Material.Grass,
 			CanCollide = false,
-		})
+		}, PARK_SCALE)
 	end
 
 	for _, lamp in ipairs(PARK_LAMPS) do
-		makeColumn(folder, "LampPole", lamp.x, PARK_GRASS_TOP, lamp.z, 8, 0.45, PARK.Pole)
+		makeColumn(folder, "LampPole", lamp.x, PARK_GRASS_TOP, lamp.z, 8, 0.45, PARK.Pole, nil, PARK_SCALE)
 		makePart(folder, {
 			Name = "Lamp",
 			Size = { 1.4, 0.5, 1.4 },
@@ -1162,7 +1168,7 @@ local function buildParkProps(map)
 			Color = PARK.Lamp,
 			Material = Enum.Material.Neon,
 			CanCollide = false,
-		})
+		}, PARK_SCALE)
 	end
 end
 
@@ -1174,7 +1180,7 @@ local function buildParkPlayerSpawn(map)
 		Pos = { PARK_PLAYER_SPAWN.x, PARK_PLAZA_TOP + 0.5, PARK_PLAYER_SPAWN.z },
 		Color = PARK.SpawnPad,
 		Transparency = 0.25,
-	})
+	}, PARK_SCALE)
 	spawn.Neutral = true
 	return spawn
 end
@@ -1189,9 +1195,9 @@ function MapBuilder.BuildPark()
 	buildParkBoundary(map)
 	buildParkProps(map)
 	buildParkPlayerSpawn(map)
-	local spawns = buildItemSpawns(MapBuilder.ParkSpawnPositions())
+	local spawns = buildItemSpawns(MapBuilder.ParkSpawnPositions(), PARK_SCALE)
 
-	map:SetAttribute("ZoneMaxRadius", 175)
+	map:SetAttribute("ZoneMaxRadius", 120)
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap("Park")
@@ -1241,18 +1247,20 @@ end
 -- ダンジョン
 ---------------------------------------------------------------------
 
-local function block(parent, name, x, y, z, sx, sy, sz, color, material)
+local DUNGEON_SCALE = { Ice = 220 / 260, Volt = 220 / 240, Sky = 220 / 260 }
+
+local function block(parent, name, x, y, z, sx, sy, sz, color, material, horizontalScale)
 	return makePart(parent, {
 		Name = name, Pos = { x, y, z }, Size = { sx, sy, sz },
 		Color = color, Material = material,
-	})
+	}, horizontalScale)
 end
 
-local function boundary(map, half, height, color, material)
+local function boundary(map, half, height, color, material, horizontalScale)
 	local span = half * 2
 	for _, side in ipairs({ -1, 1 }) do
-		block(map, "OuterWall", side * half, height / 2, 0, 4, height, span + 4, color, material)
-		block(map, "OuterWall", 0, height / 2, side * half, span, height, 4, color, material)
+		block(map, "OuterWall", side * half, height / 2, 0, 4, height, span + 4, color, material, horizontalScale)
+		block(map, "OuterWall", 0, height / 2, side * half, span, height, 4, color, material, horizontalScale)
 	end
 end
 
@@ -1307,53 +1315,54 @@ local function gridSpawns()
 	return points
 end
 
-local function buildIce(map)
+local function buildIce(map, scale)
 	local ice = Enum.Material.Ice
 	local blue = Color3.fromRGB(158, 221, 246)
-	local floor = block(map, "IceFloor", 0, -2, 0, 260, 4, 260, blue, ice)
+	local floor = block(map, "IceFloor", 0, -2, 0, 260, 4, 260, blue, ice, scale)
 	floor.CustomPhysicalProperties = PhysicalProperties.new(1, 0.6, 0, 10, 1)
-	boundary(map, 130, 24, blue, ice)
+	boundary(map, 130, 24, blue, ice, scale)
 	for _, x in ipairs({ -105, -54, 54, 105 }) do
 		for _, z in ipairs({ -48, 48 }) do
-			block(map, "FrozenColumn", x, 8, z, 5, 16, 5, blue, ice)
+			block(map, "FrozenColumn", x, 8, z, 5, 16, 5, blue, ice, scale)
 			local snow = block(map, "Snowdrift", x + 10, 0.8, z, 13, 3, 9,
-				Color3.fromRGB(238, 249, 255), Enum.Material.Snow)
+				Color3.fromRGB(238, 249, 255), Enum.Material.Snow, scale)
 			snow.Shape = Enum.PartType.Ball
-			local chunk = block(map, "IceChunk", x, 1.7, z + 13, 9, 5, 7, blue, ice)
+			local chunk = block(map, "IceChunk", x, 1.7, z + 13, 9, 5, 7, blue, ice, scale)
 			chunk.Shape = Enum.PartType.Ball
 		end
 	end
 	return gridSpawns()
 end
 
-local function buildVolt(map)
+local function buildVolt(map, scale)
 	local metal = Enum.Material.Metal
 	local gray = Color3.fromRGB(72, 87, 103)
-	block(map, "MetalFloor", 0, -2, 0, 240, 4, 240, gray, metal)
-	boundary(map, 120, 26, gray, metal)
+	block(map, "MetalFloor", 0, -2, 0, 240, 4, 240, gray, metal, scale)
+	boundary(map, 120, 26, gray, metal, scale)
 	local function hazard(x, y, z, sx, sy, sz, color)
-		local part = block(map, "VoltHazard", x, y, z, sx, sy, sz, color, Enum.Material.Neon)
+		local part = block(map, "VoltHazard", x, y, z, sx, sy, sz, color, Enum.Material.Neon, scale)
 		part.Touched:Connect(function(hit)
 			GameState.TryVoltStun(GameState.ParticipantFromHit(hit))
 		end)
 	end
 	for _, x in ipairs({ -63, 63 }) do
 		for _, z in ipairs({ -49, 49 }) do
-			block(map, "MetalPillar", x, 8, z, 6, 16, 6, gray, metal)
+			block(map, "MetalPillar", x, 8, z, 6, 16, 6, gray, metal, scale)
 			hazard(x, 2, z, 7, 4, 7, Color3.fromRGB(255, 227, 54))
-			block(map, "MetalPartition", x * 0.36, 4, z, 4, 8, 24, gray, metal)
+			block(map, "MetalPartition", x * 0.36, 4, z, 4, 8, 24, gray, metal, scale)
 			hazard(x * 0.36, 2, z, 5, 4, 17, Color3.fromRGB(86, 239, 255))
 		end
 	end
 	return gridSpawns()
 end
 
-local function buildSky(map)
+local function buildSky(map, scale)
 	local platforms = makeFolder(map, "SkyPlatforms")
 	local bridges = makeFolder(map, "SkyBridges")
 	local stone = Enum.Material.Slate
 	local lavender = Color3.fromRGB(119, 115, 160)
 	local points = {}
+	local bridgeWidth = math.max(6, 4 / scale) -- 縮小後も幅4スタッド以上
 	for row = -1, 1 do
 		for column = -1, 1 do
 			local x, z = column * 106, row * 106
@@ -1361,7 +1370,7 @@ local function buildSky(map)
 			local size = center and 58 or (row == 0 or column == 0) and 48 or 36
 			local top = (row ~= 0 and column ~= 0) and 52 or 50
 			block(platforms, center and "ArenaStart" or "SkyPlatform", x, top - 2, z,
-				size, 4, size, lavender, stone)
+				size, 4, size, lavender, stone, scale)
 			if center then
 				for _, offset in ipairs({ -11, 11 }) do
 					for _, other in ipairs({ -11, 11 }) do
@@ -1373,10 +1382,10 @@ local function buildSky(map)
 				table.insert(points, { x = x - column * 14, y = top, z = z - row * 14 })
 			end
 			if column < 1 then
-				block(bridges, "SkyBridge", x + 53, 48.5, z, 72, 3, 6, lavender, stone)
+				block(bridges, "SkyBridge", x + 53, 48.5, z, 72, 3, bridgeWidth, lavender, stone, scale)
 			end
 			if row < 1 then
-				block(bridges, "SkyBridge", x, 48.5, z + 53, 6, 3, 72, lavender, stone)
+				block(bridges, "SkyBridge", x, 48.5, z + 53, bridgeWidth, 3, 72, lavender, stone, scale)
 			end
 		end
 	end
@@ -1394,17 +1403,23 @@ local function buildDungeon(id)
 	clearExistingMap()
 	local map = Instance.new("Folder")
 	map.Name = MapBuilder.MapFolderName
-	local points = dungeonBuilders[id](map)
+	local scale = DUNGEON_SCALE[id] or 1
+	local points = dungeonBuilders[id](map, scale)
+	for _, point in ipairs(points) do
+		point.x = point.x * scale
+		point.z = point.z * scale
+	end
 	local sky = id == "Sky"
 	local spawn = makePart(map, {
 		Name = "PlayerSpawn", ClassName = "SpawnLocation",
 		Size = { sky and 26 or 18, 1, sky and 26 or 18 },
 		Pos = { 0, sky and 82 or 0.5, 0 }, Color = COLORS.SpawnPad,
-	})
+	}, scale)
 	spawn.Neutral = true
-	local spawns = buildItemSpawns(points)
+	local spawns = buildItemSpawns(points, scale)
 	-- エリアの開始半径の上限（外周の壁より外に円を出さない）と、ボックスを置ける高さの上限
-	local zoneMax = { Cave = 105, Ice = 135, Volt = 125, Sky = 150 }
+	-- （大きいマップは 220 前後に縮めたので、上限はどれも 120 前後）
+	local zoneMax = { Cave = 110, Ice = 120, Volt = 120, Sky = 125 }
 	map:SetAttribute("ZoneMaxRadius", zoneMax[id])
 	if sky then
 		map:SetAttribute("BoxGroundMaxHeight", 53) -- 足場の上面（Y=48〜52）にだけ置く
@@ -1545,11 +1560,42 @@ function MapBuilder.Init()
 	builtForFirstRound = true
 end
 
--- ラウンドの直前に呼ぶ。1回目は起動時のマップのまま、2回目からは次のマップに入れ替える。
+-- 次にローテーションで出るマップ（投票が無いとき・同数のときに使う）
+function MapBuilder.GetNextMapId()
+	local list = MapBuilder.Rotation
+	if mapTurn == nil then
+		return list[1]
+	end
+	return list[mapTurn % #list + 1]
+end
+
+-- 指定のマップを作り、ローテーションをそこから続ける
+function MapBuilder.BuildMap(id)
+	local builder = BUILDERS[id]
+	assert(builder, "Unknown map: " .. tostring(id))
+	for index, other in ipairs(MapBuilder.Rotation) do
+		if other == id then
+			mapTurn = index
+		end
+	end
+	return builder()
+end
+
+-- ラウンドの直前に呼ぶ。chosenId は投票で決まったマップ（無ければ nil）。
+--   投票あり … そのマップ（いま出ているマップと同じなら作り直さない）
+--   投票なし … 1回目は起動時のマップのまま、2回目からはローテーションの次
 -- 戻り値: マップを入れ替えたら true
-function MapBuilder.PrepareRound()
-	if builtForFirstRound then
-		builtForFirstRound = false
+function MapBuilder.PrepareRound(chosenId)
+	local first = builtForFirstRound
+	builtForFirstRound = false
+	if chosenId then
+		if chosenId == MapBuilder.CurrentMap and first then
+			return false
+		end
+		MapBuilder.BuildMap(chosenId)
+		return true
+	end
+	if first then
 		return false
 	end
 	MapBuilder.BuildNextRound()

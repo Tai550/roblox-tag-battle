@@ -13,13 +13,15 @@
 --   RadarEffect  (サーバー → 本人)  レーダー：光らせる相手の UserId リストと秒数
 --   HostStart    (クライアント → サーバー) 友達部屋のホストが「開始」を押した
 --   LeaveToLobby (クライアント → サーバー) 「ロビーへ戻る」を押した
+--   MapVote      (クライアント → サーバー) 開始前のマップ投票（引数はマップ Id）
+--   AdminRequest (クライアント ⇔ サーバー) 管理者画面の操作（権限はサーバーが毎回確認）
 --   RankUp       (サーバー → 本人)  段位が上がった瞬間だけ。引数は新しい段位名
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
 	"StateUpdate", "ItemUpdate", "UseItem", "SmokeEffect", "Notify", "PassUpdate",
-	"DurationVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby", "RankUp",
+	"DurationVote", "MapVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby", "RankUp", "AdminRequest",
 }
 
 local folder = ReplicatedStorage:FindFirstChild("Remotes")

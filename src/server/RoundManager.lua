@@ -36,6 +36,12 @@ local moveHumansToSpawn -- 下で定義する
 ---------------------------------------------------------------------
 
 local votes = {}          -- [Player] = 投票した秒数
+local mapVotes = {}       -- [Player] = 投票したマップ Id
+
+-- 管理者の操作（AdminManager から呼ぶ）
+local startRequested = false   -- 待ちを飛ばしてすぐ始める
+local endRequested = false     -- 試合をすぐ終わらせる
+local nextMapRequested = false -- 次の試合は投票に関係なくローテーションの次のマップ
 local voteCounts = {}     -- [秒数] = 票数（表示用）
 local displayDuration = Config.DefaultDuration
 
@@ -80,6 +86,45 @@ end
 
 local function refreshVoteDisplay()
 	displayDuration, voteCounts = RoundManager.TallyVotes(votes)
+end
+
+-- マップの投票を集計する（計算だけの関数）。
+-- 戻り値: いちばん票の多いマップ Id（同数・無投票は nil ＝ローテーションの次）, 表示用の票数表
+function RoundManager.TallyMapVotes(voteMap)
+	local counts = {}
+	for _, info in ipairs(Config.MatchMaps) do
+		counts[info.Id] = 0
+	end
+	for _, id in pairs(voteMap) do
+		if counts[id] then
+			counts[id] = counts[id] + 1
+		end
+	end
+	local best, bestCount, tie = nil, 0, false
+	for _, info in ipairs(Config.MatchMaps) do
+		local count = counts[info.Id]
+		if count > bestCount then
+			best, bestCount, tie = info.Id, count, false
+		elseif count == bestCount and count > 0 then
+			tie = true
+		end
+	end
+	if tie then
+		return nil, counts
+	end
+	return best, counts
+end
+
+local function onMapVote(player, id)
+	if GameState.Phase ~= "Intermission" or BotManager.IsBot(player) or type(id) ~= "string" then
+		return
+	end
+	local _, counts = RoundManager.TallyMapVotes({})
+	if counts[id] == nil then
+		return
+	end
+	mapVotes[player] = id
+	broadcastState()
 end
 
 local function onDurationVote(player, durationArg)
@@ -189,6 +234,9 @@ broadcastState = function()
 		Message = GameState.Message,
 		ChosenDuration = displayDuration,
 		VoteCounts = countsForClient,
+		MapVoteCounts = select(2, RoundManager.TallyMapVotes(mapVotes)),
+		CurrentMap = MapBuilder.CurrentMap,
+		NextMap = MapBuilder.GetNextMapId(),
 		Mode = MatchSession.Mode,
 		RoomCode = MatchSession.Code,
 		HostUserId = MatchSession.GetHostUserId(),
@@ -435,6 +483,10 @@ local function waitForMinPlayers()
 			soloRound = false
 			return true
 		end
+		if startRequested and count >= 1 then
+			soloRound = true -- 管理者の「開始」：1人ならボット相手で始める
+			return true
+		end
 		if count == 1 then
 			aloneSince = aloneSince or GameState.Now()
 			if GameState.Now() - aloneSince >= Config.StudioSoloAfter then
@@ -456,7 +508,8 @@ local function waitForArrivals()
 	while true do
 		local count = #Players:GetPlayers()
 		local expected = math.max(Config.MinPlayers, MatchSession.Expected)
-		if count >= expected then
+		if count >= expected or (startRequested and count >= 1) then
+			soloRound = count < Config.MinPlayers
 			return true
 		end
 		local left = deadline - GameState.Now()
@@ -487,6 +540,10 @@ local function waitForHost()
 				return true
 			end
 		end
+		if startRequested and count >= 1 then
+			soloRound = count < Config.MinPlayers
+			return true
+		end
 		local host = MatchSession.GetHost()
 		local hostName = host and host.DisplayName or "ホスト"
 		GameState.PlayersNeeded = math.max(0, Config.MinPlayers - count)
@@ -511,13 +568,14 @@ end
 
 -- 人数が足りなくなったら false
 local function runIntermission()
-	setPhase("Intermission", "まもなく鬼ごっこが始まります。試合時間に投票しよう")
+	setPhase("Intermission", "まもなく鬼ごっこが始まります。試合時間とマップに投票しよう")
 	votes = {}
+	mapVotes = {}
 	refreshVoteDisplay()
 	local endTime = GameState.Now() + Config.IntermissionTime
 	while true do
 		local left = endTime - GameState.Now()
-		if left <= 0 then
+		if left <= 0 or startRequested or nextMapRequested then
 			break
 		end
 		local needed = soloRound and 1 or Config.MinPlayers
@@ -571,7 +629,18 @@ local function runRound()
 	Leaderstats.ResetAll()
 	BotManager.Clear()
 	-- 2試合目からはマップを入れ替える（1試合目は起動時に作ったマップ）
-	local mapChanged = MapBuilder.PrepareRound()
+	-- マップ：管理者の「次のマップ」＞投票で一番多いマップ＞ローテーションの次
+	local chosenMap = nil
+	if nextMapRequested then
+		chosenMap = MapBuilder.GetNextMapId()
+	else
+		chosenMap = RoundManager.TallyMapVotes(mapVotes)
+	end
+	nextMapRequested = false
+	startRequested = false
+	endRequested = false
+	mapVotes = {}
+	local mapChanged = MapBuilder.PrepareRound(chosenMap)
 	if mapChanged or MapBuilder.CurrentMap == "Sky" then
 		moveHumansToSpawn()
 	end
@@ -636,7 +705,8 @@ local function runRound()
 	while true do
 		local now = GameState.Now()
 		local left = endTime - now
-		if left <= 0 then
+		if left <= 0 or endRequested or nextMapRequested then
+			endRequested = false
 			break
 		end
 
@@ -815,6 +885,7 @@ end
 
 function RoundManager.Init()
 	Remotes.DurationVote.OnServerEvent:Connect(onDurationVote)
+	Remotes.MapVote.OnServerEvent:Connect(onMapVote)
 	ZoneManager.OnEliminate = eliminate
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -831,11 +902,48 @@ function RoundManager.Init()
 		GameState.ClearStun(player)
 		GameState.ClearData(player)
 		votes[player] = nil
+		mapVotes[player] = nil
 		refreshVoteDisplay()
 	end)
 end
 
 RoundManager.IsEliminated = isEliminated
+
+---------------------------------------------------------------------
+-- 管理者の操作（AdminManager から。権限の確認は AdminManager が毎回行う）
+---------------------------------------------------------------------
+
+function RoundManager.SetAdminTagger(player)
+	if GameState.Phase ~= "Round" or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
+		return false
+	end
+	setTagger(player)
+	return true
+end
+
+function RoundManager.RequestStart()
+	if GameState.Phase == "Round" or startRequested or #Players:GetPlayers() == 0 then
+		return false
+	end
+	startRequested = true
+	return true
+end
+
+function RoundManager.RequestEnd()
+	if GameState.Phase ~= "Round" or endRequested then
+		return false
+	end
+	endRequested = true
+	return true
+end
+
+function RoundManager.RequestNextMap()
+	if nextMapRequested then
+		return false
+	end
+	nextMapRequested = true
+	return true
+end
 
 function RoundManager.Run()
 	while true do

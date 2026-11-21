@@ -4,25 +4,48 @@
 
 local Config = {}
 
+-- ブランドカラー（紫・黄・赤）。画面の色はここから取る
+Config.BrandColors = {
+	Primary = Color3.fromRGB(95, 25, 130),
+	Surface = Color3.fromRGB(48, 13, 74),
+	Secondary = Color3.fromRGB(140, 60, 190),
+	Accent = Color3.fromRGB(255, 201, 6),
+	Danger = Color3.fromRGB(225, 30, 55),
+	White = Color3.fromRGB(255, 255, 255),
+}
+Config.RadarHighlightColor = Color3.fromRGB(60, 255, 230)
+
 ---------------------------------------------------------------------
 -- ラウンド進行
 ---------------------------------------------------------------------
+Config.AdminUserIds = {}         -- 追加の管理者の UserId（ゲームの所有者は自動で管理者）
 Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数（人間の数。ボットだけでは始まらない）
 Config.BotFillTarget = 8         -- 人間がこれ未満なら、差分をボットで補う目標人数
 Config.BotsEnabled = true        -- false にするとボット補充をしない
-Config.IntermissionTime = 15     -- 待機（インターミッション）の秒数
+Config.IntermissionTime = 9      -- 待機（インターミッション）の秒数
 Config.ResultsTime = 6           -- 結果表示の秒数
 
 -- 試合時間はインターミッション中の投票で決める（同数・無投票なら DefaultDuration）
 Config.MatchDurations = { 60, 180, 300 } -- 選べる試合時間（秒）: 1分・3分・5分
 Config.DefaultDuration = 180     -- 投票が割れたとき・無投票のときの試合時間（秒）
 
+-- マップの一覧（ローテーションの順番。開始前にこの中から投票できる）
+Config.MatchMaps = {
+	{ Id = "Arena", Name = "アリーナ", Gimmick = "None" },
+	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
+	{ Id = "Park", Name = "パーク", Gimmick = "None" },
+	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
+	{ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" },
+	{ Id = "Volt", Name = "痺れるダンジョン", VoteLabel = "痺れる", Gimmick = "Volt", ExclusiveItemId = "Insulate" },
+	{ Id = "Sky", Name = "落下ダンジョン", VoteLabel = "落下", Gimmick = "None", ExclusiveItemId = "SafetyLine" },
+}
+
 ---------------------------------------------------------------------
 -- 移動速度
 ---------------------------------------------------------------------
 Config.NormalWalkSpeed = 16      -- 逃げる人・観戦中の人の WalkSpeed
-Config.IceSlideDecay = 1.7       -- 入力を離したときの減衰率（1/秒）
-Config.IceSlideSteering = 3.5    -- 入力方向への追従率（1/秒）
+Config.IceSlideDecay = 0.55      -- 入力を離したときの減衰率（1/秒）。小さいほど長く滑る
+Config.IceSlideSteering = 2.2    -- 入力方向への追従率（1/秒）。小さいほど曲がるときも滑る
 Config.VoltStunTime = 1.2
 Config.VoltRecoveryTime = 2
 Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
@@ -79,7 +102,7 @@ Config.ZoneDrainPerSecond = 9      -- エリア外で1秒に減るスタミナ�
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
 Config.ZoneWallHeight = 60         -- 壁の高さ
-Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
+Config.ZoneWallColor = Config.BrandColors.Danger -- 壁の色（ブランドの赤）
 Config.ZoneWallTransparency = 0.5  -- 壁の透明度
 Config.ZoneWallSegments = 64       -- 壁を何枚のパネルで円にするか（多いほどなめらか）
 Config.RespawnRayHeight = 60       -- リスポーン時、どの高さから足場を探すか
@@ -221,7 +244,7 @@ end
 Config.Items = {
 	Dash = {
 		Id = "Dash",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 0,
 		DisplayName = "ダッシュ",
 		Description = "5秒間、足がとても速くなる",
@@ -233,7 +256,7 @@ Config.Items = {
 	},
 	Smoke = {
 		Id = "Smoke",
-		Tier = "Take",
+		Tier = "A",
 		Price = 400,
 		DisplayName = "スモーク",
 		Description = "鬼の画面を3秒間まっ白にする",
@@ -245,7 +268,7 @@ Config.Items = {
 	},
 	Shield = {
 		Id = "Shield",
-		Tier = "Take",
+		Tier = "A",
 		Price = 0,
 		DisplayName = "シールド",
 		Description = "1回だけ鬼のタッチを防ぐ（10秒で消える）",
@@ -257,7 +280,7 @@ Config.Items = {
 	},
 	Warp = {
 		Id = "Warp",
-		Tier = "Take",
+		Tier = "A",
 		Price = 0,
 		DisplayName = "ワープ",
 		Description = "ランダムな出現ポイントへ瞬間移動",
@@ -268,7 +291,7 @@ Config.Items = {
 	},
 	Star = {
 		Id = "Star",
-		Tier = "Matsu",
+		Tier = "S",
 		Price = 900,
 		DisplayName = "スター",
 		Description = "4秒間、鬼にタッチされなくなる",
@@ -279,7 +302,7 @@ Config.Items = {
 	},
 	Banana = {
 		Id = "Banana",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 0,
 		DisplayName = "バナナ",
 		Description = "足元に置く。踏んだ人がすべってしまう",
@@ -295,7 +318,7 @@ Config.Items = {
 	-----------------------------------------------------------------
 	HighJump = {
 		Id = "HighJump",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 150,
 		DisplayName = "ハイジャンプ",
 		Description = "6秒間、ジャンプがとても高くなる（コンテナの上へ逃げられる）",
@@ -307,7 +330,7 @@ Config.Items = {
 	},
 	Decoy = {
 		Id = "Decoy",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 150,
 		DisplayName = "ダミー人形",
 		Description = "自分そっくりの人形をその場に置く（10秒）。鬼の目をごまかせ",
@@ -318,7 +341,7 @@ Config.Items = {
 	},
 	Flash = {
 		Id = "Flash",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 150,
 		DisplayName = "フラッシュ",
 		Description = "近く（30スタッド以内）の鬼の画面を1.5秒まっ白にする",
@@ -331,7 +354,7 @@ Config.Items = {
 	},
 	Sneak = {
 		Id = "Sneak",
-		Tier = "Ume",
+		Tier = "B",
 		Price = 150,
 		DisplayName = "しのび足",
 		Description = "8秒間、体がほぼ透明になり名前も消える",
@@ -343,7 +366,7 @@ Config.Items = {
 	},
 	Glue = {
 		Id = "Glue",
-		Tier = "Take",
+		Tier = "A",
 		Price = 400,
 		DisplayName = "ねばねば罠",
 		Description = "足元に罠を置く。踏んだ鬼は3秒間とても遅くなる（25秒で消える）",
@@ -356,7 +379,7 @@ Config.Items = {
 	},
 	AirBurst = {
 		Id = "AirBurst",
-		Tier = "Take",
+		Tier = "A",
 		Price = 400,
 		DisplayName = "エアバースト",
 		Description = "まわり（14スタッド以内）の全員を吹き飛ばす",
@@ -369,7 +392,7 @@ Config.Items = {
 	},
 	ZoneGuard = {
 		Id = "ZoneGuard",
-		Tier = "Take",
+		Tier = "A",
 		Price = 400,
 		DisplayName = "エリアガード",
 		Description = "12秒間、エリアの外にいてもスタミナが減らない（外のボックスを取りに行ける）",
@@ -380,7 +403,7 @@ Config.Items = {
 	},
 	Radar = {
 		Id = "Radar",
-		Tier = "Take",
+		Tier = "A",
 		Price = 400,
 		DisplayName = "レーダー",
 		Description = "8秒間、壁ごしに相手が光って見える（逃げる人には鬼、鬼には逃げる人）",
@@ -391,7 +414,7 @@ Config.Items = {
 	},
 	TimeStop = {
 		Id = "TimeStop",
-		Tier = "Matsu",
+		Tier = "S",
 		Price = 900,
 		DisplayName = "タイムストップ",
 		Description = "鬼を2.5秒間その場に止める",
@@ -402,7 +425,7 @@ Config.Items = {
 	},
 	SecondChance = {
 		Id = "SecondChance",
-		Tier = "Matsu",
+		Tier = "S",
 		Price = 900,
 		DisplayName = "セカンドチャンス",
 		Description = "強制送還の回数を1回分なかったことにする",
@@ -474,11 +497,11 @@ Config.ItemOrder = {
 	"Star", "TimeStop", "SecondChance",
 }
 
--- ランク（松竹梅）の表示
+-- アイテムのレア度の表示（B = 150 / A = 400 / S = 900 コイン。以前の梅・竹・松）
 Config.Tiers = {
-	Ume = { Name = "梅", Color = Color3.fromRGB(120, 200, 120) },
-	Take = { Name = "竹", Color = Color3.fromRGB(80, 160, 230) },
-	Matsu = { Name = "松", Color = Color3.fromRGB(240, 180, 40) },
+	S = { Name = "S", Color = Color3.fromRGB(200, 40, 55) },
+	A = { Name = "A", Color = Color3.fromRGB(230, 170, 30) },
+	B = { Name = "B", Color = Color3.fromRGB(40, 165, 90) },
 }
 
 function Config.GetItem(itemId)
@@ -582,7 +605,7 @@ Config.Music = {
 	Volume = 0.35,
 }
 
--- ランクの表示名を返す（"梅" など）
+-- レア度の表示名を返す（"S" など）
 function Config.GetTierName(tier)
 	local info = Config.Tiers[tier]
 	return info and info.Name or ""

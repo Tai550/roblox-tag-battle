@@ -1313,6 +1313,22 @@ end
 -- アイテムボックスの中身を必ず渡す。戻り値: 渡した（または予約した）アイテムの Id。失敗時 nil
 --   ラウンド中の参加者 → その場で持ち物に入れる（いっぱいなら入れ替え）
 --   それ以外（待機中・観戦中など）→ 予約して、次のラウンド開始時に渡す
+-- 指定のアイテムを渡す（管理者画面から）。試合外なら次に参加する試合で届く
+function ItemManager.GrantItem(player, itemId)
+	if not Remotes.IsRealPlayer(player) or not Config.Items[itemId] then
+		return false
+	end
+	if active and GameState.Phase == "Round" and GameState.IsParticipant(player) then
+		addToInventory(player, itemId)
+		sendItemUpdate(player)
+		Remotes.NotifyPlayer(player, Config.Items[itemId].DisplayName .. " を受け取りました")
+	else
+		table.insert(GameState.GetData(player).PendingItems, itemId)
+		Remotes.NotifyPlayer(player, Config.Items[itemId].DisplayName .. " は次の試合で届きます")
+	end
+	return true
+end
+
 function ItemManager.GrantItemBox(player)
 	if not player or (type(player) == "table" and player.IsBot == true) or not player.Parent then
 		return nil
@@ -1344,8 +1360,9 @@ local function deliverPending(player)
 	end
 	local pending = data.PendingItems
 	data.PendingItems = {}
-	for _ in ipairs(pending) do
-		local itemId = pickBoxItemFor(player)
+	for _, entry in ipairs(pending) do
+		-- "ItemBox" はデッキから抽選、それ以外は管理者が指定したアイテムそのもの
+		local itemId = entry == "ItemBox" and pickBoxItemFor(player) or (Config.Items[entry] and entry)
 		if itemId then
 			local replacedId = addToInventory(player, itemId)
 			notifyBoxResult(player, itemId, replacedId)
