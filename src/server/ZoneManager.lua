@@ -25,6 +25,7 @@ local wallModel = nil  -- 壁のパネルをまとめた Model
 -- 脱落したときに呼ぶ関数（RoundManager が設定する）
 ZoneManager.OnEliminate = nil
 local wallPanels = {}  -- 円周に並べた薄いパネル
+local skySpawnPoints = nil
 
 ---------------------------------------------------------------------
 -- 計算だけの関数（テストからも呼べるよう、状態に触らない形で公開）
@@ -187,6 +188,25 @@ local function respawnInside(player)
 	local x = center.X + math.cos(angle) * dist
 	local z = center.Z + math.sin(angle) * dist
 	local y = center.Y + Config.ItemHeightOffset
+	if skySpawnPoints then
+		-- 空中マップでは、ランダムな座標が空中にならないよう、エリア内の出現ポイントに戻す
+		local points = {}
+		for _, point in ipairs(skySpawnPoints) do
+			if ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, point.Position) then
+				table.insert(points, point)
+			end
+		end
+		local point = points[math.random(1, math.max(1, #points))]
+		if not point then
+			return
+		end
+		local root = GameState.GetRootPart(player)
+		if root then
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
+		character:PivotTo(CFrame.new(point.Position + Vector3.new(0, Config.ItemHeightOffset + 1, 0)))
+		return
+	end
 	-- 障害物の中に埋まらないよう、上から真下に光線を飛ばして足場の上に置く
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -278,6 +298,7 @@ function ZoneManager.Start(duration)
 	-- ItemManager との循環参照を避けるため、ここで遅れて require する
 	local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 	local points, isFallback = ItemManager.GetSpawnPoints()
+	skySpawnPoints = workspace:GetAttribute("CurrentMap") == "Sky" and points or nil
 
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry(points, isFallback)
 	-- マップごとの上限（MapBuilder が Workspace.Map の属性に書く）。外周の壁より外に円を出さない
@@ -323,6 +344,7 @@ end
 -- ラウンド終了時に呼ぶ
 function ZoneManager.Stop()
 	active = false
+	skySpawnPoints = nil
 	removeWall()
 end
 

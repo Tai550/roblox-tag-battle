@@ -64,7 +64,7 @@ function PlayerDataStore.ValidateDeck(list, owned)
 	local copy = {}
 	for index = 1, Config.DeckSize do
 		local itemId = list[index]
-		if type(itemId) ~= "string" or not Config.Items[itemId] or seen[itemId] then
+		if type(itemId) ~= "string" or not Config.Items[itemId] or Config.Items[itemId].ExclusiveMap or seen[itemId] then
 			return false, nil
 		end
 		if owned and not owned[itemId] then

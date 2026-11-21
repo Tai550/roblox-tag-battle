@@ -441,7 +441,7 @@ local function renderItems()
 		local itemId = myItems.HeldItems and myItems.HeldItems[slot]
 		local def = itemId and Config.Items[itemId]
 		if def then
-			b.Text = def.DisplayName
+			b.Text = def.Passive and (def.DisplayName .. "\n（自動）") or def.DisplayName
 			b.BackgroundColor3 = def.Color:Lerp(DARK, 0.45)
 			b.BackgroundTransparency = 0.1
 		else

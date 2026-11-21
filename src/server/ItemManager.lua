@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
@@ -129,7 +130,11 @@ local function sendItemUpdate(player)
 			{ Name = "エリアガード", Left = math.max(0, data.ZoneGuardUntil - now) },
 			{ Name = "ねばねば", Left = math.max(0, data.SlowUntil - now) },
 			{ Name = "タイムストップ", Left = math.max(0, data.FrozenUntil - now) },
+			{ Name = "壁抜け", Left = math.max(0, (data.PhaseUntil or 0) - now) },
+			{ Name = "スパイクブーツ", Left = math.max(0, (data.SpikeBootsUntil or 0) - now) },
+			{ Name = "絶縁", Left = math.max(0, (data.InsulateUntil or 0) - now) },
 		},
+		SpikeBootsUntil = data.SpikeBootsServerTime or 0,
 	})
 end
 ItemManager.SendItemUpdate = sendItemUpdate
@@ -207,12 +212,12 @@ function ItemManager.GetActiveBoxPositions()
 end
 
 -- SpawnWeight の重みで抽選する。filter を渡すと、filter(def) が true のアイテムだけから選ぶ
-local function pickRandomItemId(filter)
+local function pickRandomItemId(pool, filter)
 	local candidates = {}
 	local total = 0
-	for _, itemId in ipairs(Config.ItemOrder) do
+	for _, itemId in ipairs(pool) do
 		local def = Config.Items[itemId]
-		if def and def.SpawnWeight and def.SpawnWeight > 0 and (filter == nil or filter(def)) then
+		if def and def.SpawnWeight > 0 and (filter == nil or filter(def)) then
 			table.insert(candidates, itemId)
 			total = total + def.SpawnWeight
 		end
@@ -273,6 +278,17 @@ end
 
 -- フィールドのボックスに触れたとき：自分のデッキからランダムで1つ手に入る。
 -- 手に入れたアイテムには使用期限（Config.BoxExpireTime）が付く。
+-- 通常枠は従来どおりデッキから。固有アイテムだけマップの候補を足す。
+function ItemManager.GetFieldPool(deck, mapId)
+	local pool = table.clone(deck)
+	for id, def in pairs(Config.Items) do
+		if def.ExclusiveMap and def.ExclusiveMap == mapId and def.SpawnWeight > 0 then
+			table.insert(pool, id)
+		end
+	end
+	return pool
+end
+
 local function onBoxTouched(part, hit)
 	local info = spawnedItems[part]
 	if not info or not active then
@@ -291,18 +307,23 @@ local function onBoxTouched(part, hit)
 		return -- 枠がいっぱいなら拾えない
 	end
 
-	local itemId = DeckManager.PickFromDeck(player)
+	local pool = ItemManager.GetFieldPool(DeckManager.GetDeck(player), MapBuilder.CurrentMap)
+	local itemId = pickRandomItemId(pool)
 	if not itemId then
 		return
 	end
 
 	removeItem(part)
 	table.insert(data.HeldItems, itemId)
-	local expireAt = Config.BoxExpireTime > 0 and GameState.Now() + Config.BoxExpireTime or 0
+	local def = Config.Items[itemId]
+	local expireAt = (not def.Passive and Config.BoxExpireTime > 0) and GameState.Now() + Config.BoxExpireTime or 0
 	table.insert(data.HeldExpireAt, expireAt)
 	sendItemUpdate(player)
 
-	local def = Config.Items[itemId]
+	if def.Passive then
+		Remotes.NotifyPlayer(player, "ボックスから " .. def.DisplayName .. " が出た！ " .. def.Description)
+		return
+	end
 	Remotes.NotifyPlayer(player, string.format(
 		"%s をゲット！［%s］で使う", def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems)
 	))
@@ -508,13 +529,16 @@ local function findOpenGround()
 		table.insert(ignore, wall)
 	end
 	params.FilterDescendantsInstances = ignore
+	-- 置ける高さの上限（空中の足場マップは Map の属性で上げる）
+	local map = workspace:FindFirstChild("Map")
+	local maxHeight = (map and map:GetAttribute("BoxGroundMaxHeight")) or Config.BoxGroundMaxHeight
 	for _ = 1, Config.BoxSpawnTries do
 		local angle = math.random() * math.pi * 2
 		local dist = math.sqrt(math.random()) * radius -- 円の中で均等に散らばるように
 		local x = centerPos.X + math.cos(angle) * dist
 		local z = centerPos.Z + math.sin(angle) * dist
 		local hit = workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -400, 0), params)
-		if hit and hit.Position.Y <= Config.BoxGroundMaxHeight then
+		if hit and hit.Position.Y <= maxHeight then
 			return hit.Position
 		end
 	end
@@ -650,6 +674,7 @@ local function onBananaTouched(part, hit)
 	end
 	data.SlipDirection = direction.Unit
 	data.SlipUntil = GameState.Now() + Config.Items.Banana.SlipTime
+	player.Character:SetAttribute("BananaSlipping", true)
 
 	removeBanana(part)
 	Remotes.NotifyPlayer(player, "バナナですべった！")
@@ -800,10 +825,9 @@ local function onGlueTouched(part, hit)
 	if not info or not active then
 		return
 	end
-	local character = hit:FindFirstAncestorOfClass("Model")
-	local player = character and Players:GetPlayerFromCharacter(character)
+	local player = GameState.ParticipantFromHit(hit)
 	if not player or not GameState.IsTagger(player) then
-		return -- 鬼だけが引っかかる
+		return -- 鬼だけが引っかかる（ボットの鬼も）
 	end
 	local def = Config.Items.Glue
 	GameState.GetData(player).SlowUntil = GameState.Now() + def.SlowTime
@@ -913,6 +937,105 @@ handlers.SecondChance = function(player, def, data)
 	return true
 end
 
+local function applyPhaseGroup(effect, part)
+	if part:IsA("BasePart") and effect.Groups[part] == nil then
+		effect.Groups[part] = part.CollisionGroup
+		part.CollisionGroup = MapBuilder.PhaseGroup
+	end
+end
+
+function ItemManager.EndPhase(player)
+	local data = GameState.GetData(player)
+	local effect = data.PhaseEffect
+	if not effect then
+		return
+	end
+	effect.Connection:Disconnect()
+	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+	local walls = map and map:FindFirstChild("CaveInnerWalls")
+	if walls and effect.Character == player.Character then
+		local query = OverlapParams.new()
+		query.FilterType = Enum.RaycastFilterType.Include
+		query.FilterDescendantsInstances = { walls }
+		query.MaxParts = 1
+		local root = GameState.GetRootPart(player)
+		for part in pairs(effect.Groups) do
+			if part.Parent and (part == root or part.CanCollide)
+				and #workspace:GetPartsInPart(part, query) > 0 then
+				effect.Character:PivotTo(effect.Start)
+				if root then
+					root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+				end
+				break
+			end
+		end
+	end
+	for part, group in pairs(effect.Groups) do
+		if part.Parent then
+			part.CollisionGroup = group
+		end
+	end
+	data.PhaseEffect = nil
+	data.PhaseUntil = 0
+end
+
+handlers.Phase = function(player, def, data)
+	local character = player.Character
+	if not character or not GameState.GetRootPart(player) then
+		return false
+	end
+	local effect = data.PhaseEffect
+	if not effect then
+		effect = { Character = character, Start = character:GetPivot(), Groups = {} }
+		effect.Connection = character.DescendantAdded:Connect(function(part)
+			applyPhaseGroup(effect, part)
+		end)
+		for _, part in ipairs(character:GetDescendants()) do
+			applyPhaseGroup(effect, part)
+		end
+		data.PhaseEffect = effect
+	end
+	data.PhaseUntil = GameState.Now() + def.Duration
+	Remotes.NotifyPlayer(player, "壁抜け！ 2.5秒間、洞窟の内壁を通り抜けられる")
+	return true
+end
+
+handlers.SpikeBoots = function(player, def, data)
+	data.SpikeBootsUntil = GameState.Now() + def.Duration
+	data.SpikeBootsServerTime = workspace:GetServerTimeNow() + def.Duration
+	Remotes.NotifyPlayer(player, "スパイクブーツ！ 5秒間、氷の床で滑らない")
+	return true
+end
+
+handlers.Insulate = function(player, def, data)
+	data.InsulateUntil = GameState.Now() + def.Duration
+	Remotes.NotifyPlayer(player, "絶縁！ 6秒間、帯電部品で痺れない")
+	return true
+end
+
+function ItemManager.TrySafetyLine(player)
+	if type(player) == "table" and player.IsBot then
+		return false
+	end
+	local data = GameState.GetData(player)
+	local slot = table.find(data.HeldItems, "SafetyLine")
+	local root = GameState.GetRootPart(player)
+	if not slot or not data.LastSkyStand or not root then
+		return false
+	end
+	local expires = data.HeldExpireAt[slot] or 0
+	if expires > 0 and expires <= GameState.Now() then
+		return false
+	end
+	player.Character:PivotTo(data.LastSkyStand)
+	root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+	table.remove(data.HeldItems, slot)
+	table.remove(data.HeldExpireAt, slot)
+	sendItemUpdate(player)
+	Remotes.NotifyPlayer(player, "命綱が発動！ 最後の足場に戻った")
+	return true
+end
+
 local function onUseItem(player, slotArg)
 	-- クライアントから来るのは枠番号だけ。整数で、実際に持っている枠のときだけ受け付ける
 	local slot = 1
@@ -941,6 +1064,19 @@ local function onUseItem(player, slotArg)
 		return
 	end
 	local def = Config.Items[itemId]
+	if def and def.ExclusiveMap then
+		if (type(player) == "table" and player.IsBot) or def.ExclusiveMap ~= MapBuilder.CurrentMap then
+			return
+		end
+		if def.Passive then
+			Remotes.NotifyPlayer(player, def.Description)
+			return
+		end
+	end
+	local expires = data.HeldExpireAt[slot] or 0
+	if expires > 0 and expires <= now then
+		return
+	end
 	local handler = handlers[itemId]
 	if not def or not handler then
 		table.remove(data.HeldItems, slot)
@@ -988,6 +1124,17 @@ end
 function ItemManager.Tick()
 	local now = GameState.Now()
 	for player, data in pairs(GameState.AllData()) do
+		if data.PhaseEffect and (data.PhaseUntil <= now or data.PhaseEffect.Character ~= player.Character
+			or not GameState.IsAlive(player)) then
+			ItemManager.EndPhase(player)
+		end
+		local stunned = data.StunUntil > now
+		if stunned then
+			GameState.StopStunnedMovement(player)
+		elseif data.StunUntil > 0 then
+			GameState.ClearStun(player)
+			GameState.RefreshSpeed(player)
+		end
 		if data.DashUntil > 0 and data.DashUntil <= now then
 			data.DashUntil = 0
 			GameState.RefreshSpeed(player)
@@ -1039,11 +1186,14 @@ function ItemManager.Tick()
 			if data.SlipUntil <= now then
 				data.SlipUntil = 0
 				data.SlipDirection = nil
+				if player.Character then
+					player.Character:SetAttribute("BananaSlipping", nil)
+				end
 				if root then
 					local velocity = root.AssemblyLinearVelocity
 					root.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
 				end
-			elseif root and data.SlipDirection then
+			elseif root and data.SlipDirection and not stunned then
 				local velocity = root.AssemblyLinearVelocity
 				root.AssemblyLinearVelocity = Vector3.new(
 					data.SlipDirection.X * Config.Items.Banana.SlipSpeed,
@@ -1104,6 +1254,10 @@ end
 
 -- 復活したときにシールド・スターの見た目を付け直す
 function ItemManager.OnCharacterAdded(player)
+	ItemManager.EndPhase(player)
+	if GameState.IsSlipping(player) then
+		player.Character:SetAttribute("BananaSlipping", true)
+	end
 	if GameState.HasShield(player) then
 		addShieldVisual(player)
 	end
@@ -1148,10 +1302,12 @@ end
 -- 今使えるアイテムの中からランダムに1つ選ぶ（鬼には鬼が使えるアイテムだけ）
 local function pickBoxItemFor(player)
 	local isTagger = GameState.IsTagger(player)
-	local itemId = pickRandomItemId(function(def)
-		return def.CanTaggerUse or not isTagger
+	local itemId = pickRandomItemId(Config.ItemOrder, function(def)
+		return not def.ExclusiveMap and (def.CanTaggerUse or not isTagger)
 	end)
-	return itemId or pickRandomItemId(nil)
+	return itemId or pickRandomItemId(Config.ItemOrder, function(def)
+		return not def.ExclusiveMap
+	end)
 end
 
 -- アイテムボックスの中身を必ず渡す。戻り値: 渡した（または予約した）アイテムの Id。失敗時 nil
@@ -1271,6 +1427,13 @@ function ItemManager.Stop()
 		model:Destroy()
 	end
 
+	for player in pairs(GameState.AllData()) do
+		ItemManager.EndPhase(player)
+		GameState.ClearStun(player)
+		if player.Character then
+			player.Character:SetAttribute("BananaSlipping", nil)
+		end
+	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		GameState.ResetData(player)
 		removeShieldVisual(player)

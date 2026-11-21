@@ -35,6 +35,11 @@ local function newData()
 		DashUntil = 0,            -- ダッシュ効果が切れる時刻
 		ShieldUntil = 0,          -- シールドが切れる時刻
 		StarUntil = 0,            -- スター（タッチ無効）が切れる時刻
+		StunUntil = 0,
+		StunImmuneUntil = 0,
+		InsulateUntil = 0,
+		SpikeBootsUntil = 0,
+		PhaseUntil = 0,
 		SlipUntil = 0,            -- バナナですべっている最中が切れる時刻
 		SlipDirection = nil,      -- すべる向き（水平方向の Vector3）
 		InvulnerableUntil = 0,    -- シールドで防いだ直後の無敵が切れる時刻
@@ -163,6 +168,38 @@ function GameState.IsSlipping(player)
 end
 
 -- 役割とアイテム効果から WalkSpeed を決め直す（速度の確定は必ずここで行う）
+function GameState.IsStunned(player)
+	return GameState.GetData(player).StunUntil > GameState.Now()
+end
+
+function GameState.TryVoltStun(player)
+	if not player or GameState.Phase ~= "Round" or workspace:GetAttribute("CurrentGimmick") ~= "Volt"
+		or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
+		return false
+	end
+	local now = GameState.Now()
+	local data = GameState.GetData(player)
+	if data.StunImmuneUntil > now or data.InsulateUntil > now then
+		return false
+	end
+	data.StunUntil = now + Config.VoltStunTime
+	data.StunImmuneUntil = data.StunUntil + Config.VoltRecoveryTime
+	GameState.RefreshSpeed(player)
+	GameState.StopStunnedMovement(player)
+	return true
+end
+
+function GameState.StopStunnedMovement(player)
+	local root = GameState.GetRootPart(player)
+	if root then
+		root.AssemblyLinearVelocity = Vector3.new(0, math.min(0, root.AssemblyLinearVelocity.Y), 0)
+	end
+end
+
+function GameState.ClearStun(player)
+	GameState.GetData(player).StunUntil = 0
+end
+
 function GameState.RefreshSpeed(player)
 	local humanoid = GameState.GetHumanoid(player)
 	if not humanoid then
@@ -195,6 +232,11 @@ function GameState.RefreshSpeed(player)
 	if data.FrozenUntil > now then
 		speed = 0
 	end
+	local stunned = GameState.IsStunned(player)
+	if stunned then
+		humanoid.Jump = false
+		speed = 0 -- 帯電部品で痺れている間は動けない
+	end
 	humanoid.WalkSpeed = speed
 
 	-- ジャンプの高さ（ハイジャンプで高く、タイムストップ中は跳べない）
@@ -203,7 +245,7 @@ function GameState.RefreshSpeed(player)
 	if data.JumpUntil > now then
 		jump = Config.Items.HighJump.JumpHeight
 	end
-	if data.FrozenUntil > now then
+	if data.FrozenUntil > now or stunned then
 		jump = 0
 	end
 	humanoid.JumpHeight = jump

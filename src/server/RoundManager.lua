@@ -244,7 +244,8 @@ local function sendToSpectator(player)
 	local character = player.Character
 	if character then
 		local offset = Vector3.new(math.random(-6, 6), 3, math.random(-6, 6))
-		character:PivotTo(CFrame.new(Config.SpectatorPosition + offset))
+		local target = Config.SpectatorPosition + offset
+		character:PivotTo(CFrame.new(target.X, target.Y, target.Z))
 	end
 end
 
@@ -257,7 +258,8 @@ local function isEliminated(player)
 	return false
 end
 
-local function eliminate(player)
+-- reason: 「エリア外」「落下」など、全員に知らせる理由
+local function eliminate(player, reason)
 	if not GameState.IsParticipant(player) then
 		return
 	end
@@ -267,7 +269,7 @@ local function eliminate(player)
 	Remotes.NotifyPlayer(player, "脱落… 観戦席から見守ろう")
 	for _, other in ipairs(Players:GetPlayers()) do
 		if other ~= player then
-			Remotes.NotifyPlayer(other, player.DisplayName .. " がエリア外で脱落！")
+			Remotes.NotifyPlayer(other, player.DisplayName .. " が" .. (reason or "エリア外") .. "で脱落！")
 		end
 	end
 	if GameState.Tagger == player then
@@ -278,6 +280,37 @@ local function eliminate(player)
 		end
 	end
 	broadcastState()
+end
+
+-- 落下ダンジョン：足場から落ちたら脱落（命綱を持っていれば最後の足場に戻る）
+function RoundManager.CheckSkyFalls()
+	if GameState.Phase ~= "Round" or MapBuilder.CurrentMap ~= "Sky" then
+		return
+	end
+	local platforms = MapBuilder.GetSkyPlatforms()
+	if not platforms then
+		return
+	end
+	local query = RaycastParams.new()
+	query.FilterType = Enum.RaycastFilterType.Include
+	query.FilterDescendantsInstances = { platforms }
+	for _, player in ipairs(GameState.ParticipantList()) do
+		local root = GameState.GetRootPart(player)
+		local humanoid = GameState.GetHumanoid(player)
+		if root and humanoid and humanoid.Health > 0 then
+			local data = GameState.GetData(player)
+			if root.Position.Y < Config.FallEliminateY then
+				if not ItemManager.TrySafetyLine(player) then
+					eliminate(player, "落下")
+				end
+			elseif humanoid.FloorMaterial ~= Enum.Material.Air then
+				local reach = math.max(6, humanoid.HipHeight + root.Size.Y / 2 + 1)
+				if workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), query) then
+					data.LastSkyStand = player.Character:GetPivot()
+				end
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------------
@@ -455,12 +488,21 @@ moveHumansToSpawn = function()
 	if map then
 		spawnPart = map:FindFirstChildWhichIsA("SpawnLocation", true)
 	end
-	local base = spawnPart and spawnPart.Position or Config.FallbackSpawnCenter
+	local sky = MapBuilder.CurrentMap == "Sky"
+	if sky then
+		local platforms = MapBuilder.GetSkyPlatforms()
+		spawnPart = platforms and platforms:FindFirstChild("ArenaStart") or spawnPart
+	end
+	local base = spawnPart and (spawnPart.Position + Vector3.new(0, spawnPart.Size.Y / 2, 0)) or Config.FallbackSpawnCenter
 	for index, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		if character then
 			local angle = index / math.max(1, #Players:GetPlayers()) * math.pi * 2
-			character:PivotTo(CFrame.new(base + Vector3.new(math.cos(angle) * 6, 4, math.sin(angle) * 6)))
+			local destination = CFrame.new(base + Vector3.new(math.cos(angle) * 6, 4, math.sin(angle) * 6))
+			character:PivotTo(destination)
+			if sky then
+				GameState.GetData(player).LastSkyStand = destination
+			end
 		end
 	end
 end
@@ -477,7 +519,8 @@ local function runRound()
 	Leaderstats.ResetAll()
 	BotManager.Clear()
 	-- 2試合目からはマップを入れ替える（1試合目は起動時に作ったマップ）
-	if MapBuilder.PrepareRound() then
+	local mapChanged = MapBuilder.PrepareRound()
+	if mapChanged or MapBuilder.CurrentMap == "Sky" then
 		moveHumansToSpawn()
 	end
 	local entrants = {}
@@ -518,6 +561,10 @@ local function runRound()
 	GameState.Phase = "Round"
 	GameState.Message = ""
 	GameState.TimeLeft = duration
+	local info = MapBuilder.GetCurrentMapInfo()
+	if info then
+		Remotes.Notify:FireAllClients("このマップ：" .. info.Name)
+	end
 	ItemManager.Start()
 	ZoneManager.Start(duration)
 
@@ -564,6 +611,7 @@ local function runRound()
 		tryTag()
 		ItemManager.Tick()
 		ZoneManager.Tick()
+		RoundManager.CheckSkyFalls()
 		BotManager.Tick()
 
 		if now >= nextBroadcast then
@@ -682,6 +730,16 @@ local function onCharacterAdded(player, character)
 	GameState.RefreshSpeed(player)
 	ItemManager.OnCharacterAdded(player)
 	TaggerLook.OnCharacterAdded(player) -- 鬼のままリスポーンしたら色を付け直す
+	-- 落下ダンジョンで試合中にリスポーンした参加者は、中央の足場へ戻す
+	if GameState.Phase == "Round" and MapBuilder.CurrentMap == "Sky" and GameState.IsParticipant(player) then
+		local platforms = MapBuilder.GetSkyPlatforms()
+		local start = platforms and platforms:FindFirstChild("ArenaStart")
+		if start then
+			local destination = CFrame.new(start.Position + Vector3.new(0, start.Size.Y / 2 + 4, 0))
+			character:PivotTo(destination)
+			GameState.GetData(player).LastSkyStand = destination
+		end
+	end
 	-- 試合中に参加していない人（脱落した人・途中から来た人）は観戦席へ
 	if GameState.Phase == "Round" and not GameState.IsParticipant(player) then
 		task.wait(0.2)
@@ -712,6 +770,8 @@ function RoundManager.Init()
 			GameState.NoTagBack = nil
 		end
 		TaggerLook.Clear(player)
+		ItemManager.EndPhase(player)
+		GameState.ClearStun(player)
 		GameState.ClearData(player)
 		votes[player] = nil
 		refreshVoteDisplay()

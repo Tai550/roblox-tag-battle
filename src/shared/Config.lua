@@ -21,6 +21,12 @@ Config.DefaultDuration = 180     -- 投票が割れたとき・無投票のと�
 -- 移動速度
 ---------------------------------------------------------------------
 Config.NormalWalkSpeed = 16      -- 逃げる人・観戦中の人の WalkSpeed
+Config.IceSlideDecay = 1.7       -- 入力を離したときの減衰率（1/秒）
+Config.IceSlideSteering = 3.5    -- 入力方向への追従率（1/秒）
+Config.VoltStunTime = 1.2
+Config.VoltRecoveryTime = 2
+Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
+
 Config.TaggerWalkSpeed = 20      -- 鬼の WalkSpeed
 Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 
@@ -401,7 +407,62 @@ Config.Items = {
 		SpawnWeight = 1,
 		CanTaggerUse = true,
 	},
+	-----------------------------------------------------------------
+	-- マップ専用アイテム（そのマップのボックスからだけ出る。ショップ・デッキには出ない）
+	-----------------------------------------------------------------
+	Phase = {
+		Id = "Phase",
+		DisplayName = "壁抜け",
+		Description = "洞窟の内壁を2.5秒間すり抜ける",
+		Color = Color3.fromRGB(180, 125, 255),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		ExclusiveMap = "Cave",
+		Duration = 2.5,
+	},
+	SpikeBoots = {
+		Id = "SpikeBoots",
+		DisplayName = "スパイクブーツ",
+		Description = "5秒間、氷の床で滑らなくなる",
+		Color = Color3.fromRGB(120, 220, 255),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		ExclusiveMap = "Ice",
+		Duration = 5,
+	},
+	Insulate = {
+		Id = "Insulate",
+		DisplayName = "絶縁",
+		Description = "6秒間、帯電部品で痺れなくなる",
+		Color = Color3.fromRGB(255, 240, 100),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		ExclusiveMap = "Volt",
+		Duration = 6,
+	},
+	SafetyLine = {
+		Id = "SafetyLine",
+		DisplayName = "命綱",
+		Description = "落下時に一度だけ、自動で最後の足場に戻る",
+		Color = Color3.fromRGB(120, 230, 160),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		ExclusiveMap = "Sky",
+		Passive = true,
+	},
 }
+
+
+-- 氷上の水平速度を合成する。Y 方向の速度は呼び出し側で維持する。
+function Config.IceVelocity(previous, direction, speed, dt)
+	local input = Vector3.new(direction.X, 0, direction.Z)
+	local moving = input.Magnitude > 0.01
+	local rate = moving and Config.IceSlideSteering or Config.IceSlideDecay
+	local blend = 1 - math.exp(-rate * dt)
+	local target = input * speed
+	local velocity = previous + (target - previous) * blend
+	return velocity.Magnitude >= 0.1 and velocity or Vector3.new(0, 0, 0)
+end
 
 -- アイテムの並び順（ショップやデッキ画面の表示順）
 Config.ItemOrder = {

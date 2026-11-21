@@ -43,6 +43,9 @@ local Vector3 = __RT.Vector3
 local CFrame = __RT.CFrame
 local RaycastParams = __RT.RaycastParams
 local UDim2 = __RT.UDim2
+local PhysicalProperties = __RT.PhysicalProperties
+local OverlapParams = __RT.OverlapParams
+local RaycastParams = __RT.RaycastParams
 local task = __RT.task
 local warn = __RT.warn
 -- [original file below]

@@ -2,8 +2,8 @@
 --
 -- MapBuilder.Build() は渋谷風の街を作る（サーバー起動時・1ラウンド目）。
 -- MapBuilder.BuildPark() は広いパークを作る（2ラウンド目）。
--- MapBuilder.BuildNextRound() は呼ぶたびにアリーナ → 渋谷 → パーク → … と入れ替える（最初はランダム）。
--- どちらも Workspace に次を作る。
+-- MapBuilder.BuildNextRound() は呼ぶたびに次のマップへ入れ替える（アリーナ → 渋谷 → パーク → 洞窟 → 氷床 → 痺れる → 落下 → …。最初はランダム）。
+-- 各マップは Workspace に次を作る。
 --   Workspace.Map        … 地面・障害物・外周の透明な壁・SpawnLocation
 --   Workspace.ItemSpawns … アイテムの出現ポイント。ItemManager / ZoneManager がそのまま使う
 -- 既に Map / ItemSpawns があれば消してから作り直す。
@@ -14,6 +14,10 @@
 --   パークは 340×340（-170〜170）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
 --   乱数は使わない。配置はすべて下の表に書いた固定値。
 
+local Lighting = game:GetService("Lighting")
+local PhysicsService = game:GetService("PhysicsService")
+local GameState = require(script.Parent:WaitForChild("GameState"))
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -21,7 +25,51 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local MapBuilder = {}
 
 MapBuilder.MapFolderName = "Map"
-MapBuilder.CurrentMap = nil -- "Arena" / "Shibuya" / "Park"。Build / BuildPark / BuildNextRound が更新する
+MapBuilder.CurrentMap = nil -- "Arena" / "Shibuya" / "Park" / "Cave" / "Ice" / "Volt" / "Sky"
+MapBuilder.CaveWallGroup = "CaveInnerWall"
+MapBuilder.PhaseGroup = "CavePhasing"
+
+local rotation = {
+	{ Id = "Arena", Name = "アリーナ", Gimmick = "None" },
+	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
+	{ Id = "Park", Name = "パーク", Gimmick = "None" },
+	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
+	{ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" },
+	{ Id = "Volt", Name = "痺れるダンジョン", Gimmick = "Volt", ExclusiveItemId = "Insulate" },
+	{ Id = "Sky", Name = "落下ダンジョン", Gimmick = "None", ExclusiveItemId = "SafetyLine" },
+}
+
+local mapInfo = {}
+for _, info in ipairs(rotation) do
+	mapInfo[info.Id] = table.freeze(info)
+end
+
+function MapBuilder.GetCurrentMapInfo()
+	return mapInfo[MapBuilder.CurrentMap]
+end
+
+local caveLighting
+local function setCurrentMap(id)
+	if caveLighting then
+		Lighting.Ambient = caveLighting.Ambient
+		Lighting.OutdoorAmbient = caveLighting.OutdoorAmbient
+		Lighting.Brightness = caveLighting.Brightness
+		caveLighting = nil
+	end
+	if id == "Cave" then
+		caveLighting = {
+			Ambient = Lighting.Ambient,
+			OutdoorAmbient = Lighting.OutdoorAmbient,
+			Brightness = Lighting.Brightness,
+		}
+		Lighting.Ambient = Color3.fromRGB(66, 62, 74)
+		Lighting.OutdoorAmbient = Color3.fromRGB(79, 73, 87)
+		Lighting.Brightness = caveLighting.Brightness * 0.65
+	end
+	MapBuilder.CurrentMap = id
+	workspace:SetAttribute("CurrentMap", id)
+	workspace:SetAttribute("CurrentGimmick", mapInfo[id].Gimmick)
+end
 
 ---------------------------------------------------------------------
 -- 寸法
@@ -1146,7 +1194,7 @@ function MapBuilder.BuildPark()
 	map:SetAttribute("ZoneMaxRadius", 175)
 	map.Parent = workspace
 	spawns.Parent = workspace
-	MapBuilder.CurrentMap = "Park"
+	setCurrentMap("Park")
 
 	return {
 		PartCount = partCount,
@@ -1161,7 +1209,7 @@ end
 ---------------------------------------------------------------------
 
 -- 渋谷のマップ一式を作り直す。戻り値は集計（Part 数・屋上に登れる建物の数）
--- ラウンドの交互には進めない（起動時の1回目は、この関数のまま渋谷になる）。
+-- ローテーションは進めない（起動時の1回目は、この関数のまま渋谷になる）。
 function MapBuilder.Build()
 	clearExistingMap()
 	local map = Instance.new("Folder")
@@ -1179,7 +1227,7 @@ function MapBuilder.Build()
 	map:SetAttribute("ZoneMaxRadius", 125)
 	map.Parent = workspace
 	spawns.Parent = workspace
-	MapBuilder.CurrentMap = "Shibuya"
+	setCurrentMap("Shibuya")
 
 	return {
 		PartCount = partCount,
@@ -1187,6 +1235,205 @@ function MapBuilder.Build()
 		ItemSpawns = #ITEM_SPAWNS,
 		MapId = "Shibuya",
 	}
+end
+
+---------------------------------------------------------------------
+-- ダンジョン
+---------------------------------------------------------------------
+
+local function block(parent, name, x, y, z, sx, sy, sz, color, material)
+	return makePart(parent, {
+		Name = name, Pos = { x, y, z }, Size = { sx, sy, sz },
+		Color = color, Material = material,
+	})
+end
+
+local function boundary(map, half, height, color, material)
+	local span = half * 2
+	for _, side in ipairs({ -1, 1 }) do
+		block(map, "OuterWall", side * half, height / 2, 0, 4, height, span + 4, color, material)
+		block(map, "OuterWall", 0, height / 2, side * half, span, height, 4, color, material)
+	end
+end
+
+local function buildCave(map)
+	local stone = Enum.Material.Slate
+	local dark = Color3.fromRGB(59, 53, 64)
+	block(map, "StoneFloor", 0, -2, 0, 200, 4, 200, dark, stone)
+	boundary(map, 100, 28, dark, stone)
+	for _, group in ipairs({ MapBuilder.CaveWallGroup, MapBuilder.PhaseGroup }) do
+		if not PhysicsService:IsCollisionGroupRegistered(group) then
+			PhysicsService:RegisterCollisionGroup(group)
+		end
+	end
+	PhysicsService:CollisionGroupSetCollidable(MapBuilder.CaveWallGroup, MapBuilder.PhaseGroup, false)
+
+	local walls = makeFolder(map, "CaveInnerWalls")
+	local points = {}
+	for _, x in ipairs({ -54, 54 }) do
+		for _, z in ipairs({ -57, 57 }) do
+			for _, offset in ipairs({ -16, 16 }) do
+				local wall = block(walls, "RockWall", x + offset, 14, z, 20, 28, 58,
+					Color3.fromRGB(87, 76, 88), Enum.Material.Rock)
+				wall.CollisionGroup = MapBuilder.CaveWallGroup
+			end
+			for _, offset in ipairs({ -18, 0, 18 }) do
+				table.insert(points, { x = x + offset, y = 0, z = z * 0.32 })
+			end
+			for _, side in ipairs({ -1, 1 }) do
+				local torch = block(map, "Torch", x + side * 24, 3, z * 0.43,
+					0.8, 6, 0.8, Color3.fromRGB(180, 106, 53), Enum.Material.Wood)
+				local flame = block(map, "Flame", torch.Position.X, 6.4, torch.Position.Z,
+					1.2, 1.4, 1.2, Color3.fromRGB(255, 165, 76), Enum.Material.Neon)
+				flame.CanCollide = false
+				local light = Instance.new("PointLight")
+				light.Color = flame.Color
+				light.Range = 36
+				light.Brightness = 2
+				light.Parent = flame
+			end
+		end
+	end
+	return points
+end
+
+local function gridSpawns()
+	local points = {}
+	for _, x in ipairs({ -86, -31, 31, 86 }) do
+		for _, z in ipairs({ -76, 0, 76 }) do
+			table.insert(points, { x = x, y = 0, z = z })
+		end
+	end
+	return points
+end
+
+local function buildIce(map)
+	local ice = Enum.Material.Ice
+	local blue = Color3.fromRGB(158, 221, 246)
+	local floor = block(map, "IceFloor", 0, -2, 0, 260, 4, 260, blue, ice)
+	floor.CustomPhysicalProperties = PhysicalProperties.new(1, 0.6, 0, 10, 1)
+	boundary(map, 130, 24, blue, ice)
+	for _, x in ipairs({ -105, -54, 54, 105 }) do
+		for _, z in ipairs({ -48, 48 }) do
+			block(map, "FrozenColumn", x, 8, z, 5, 16, 5, blue, ice)
+			local snow = block(map, "Snowdrift", x + 10, 0.8, z, 13, 3, 9,
+				Color3.fromRGB(238, 249, 255), Enum.Material.Snow)
+			snow.Shape = Enum.PartType.Ball
+			local chunk = block(map, "IceChunk", x, 1.7, z + 13, 9, 5, 7, blue, ice)
+			chunk.Shape = Enum.PartType.Ball
+		end
+	end
+	return gridSpawns()
+end
+
+local function buildVolt(map)
+	local metal = Enum.Material.Metal
+	local gray = Color3.fromRGB(72, 87, 103)
+	block(map, "MetalFloor", 0, -2, 0, 240, 4, 240, gray, metal)
+	boundary(map, 120, 26, gray, metal)
+	local function hazard(x, y, z, sx, sy, sz, color)
+		local part = block(map, "VoltHazard", x, y, z, sx, sy, sz, color, Enum.Material.Neon)
+		part.Touched:Connect(function(hit)
+			GameState.TryVoltStun(GameState.ParticipantFromHit(hit))
+		end)
+	end
+	for _, x in ipairs({ -63, 63 }) do
+		for _, z in ipairs({ -49, 49 }) do
+			block(map, "MetalPillar", x, 8, z, 6, 16, 6, gray, metal)
+			hazard(x, 2, z, 7, 4, 7, Color3.fromRGB(255, 227, 54))
+			block(map, "MetalPartition", x * 0.36, 4, z, 4, 8, 24, gray, metal)
+			hazard(x * 0.36, 2, z, 5, 4, 17, Color3.fromRGB(86, 239, 255))
+		end
+	end
+	return gridSpawns()
+end
+
+local function buildSky(map)
+	local platforms = makeFolder(map, "SkyPlatforms")
+	local bridges = makeFolder(map, "SkyBridges")
+	local stone = Enum.Material.Slate
+	local lavender = Color3.fromRGB(119, 115, 160)
+	local points = {}
+	for row = -1, 1 do
+		for column = -1, 1 do
+			local x, z = column * 106, row * 106
+			local center = row == 0 and column == 0
+			local size = center and 58 or (row == 0 or column == 0) and 48 or 36
+			local top = (row ~= 0 and column ~= 0) and 52 or 50
+			block(platforms, center and "ArenaStart" or "SkyPlatform", x, top - 2, z,
+				size, 4, size, lavender, stone)
+			if center then
+				for _, offset in ipairs({ -11, 11 }) do
+					for _, other in ipairs({ -11, 11 }) do
+						table.insert(points, { x = offset, y = top, z = other })
+					end
+				end
+			else
+				-- アイテムは開始ゾーンに寄った、安全な足場上に置く。
+				table.insert(points, { x = x - column * 14, y = top, z = z - row * 14 })
+			end
+			if column < 1 then
+				block(bridges, "SkyBridge", x + 53, 48.5, z, 72, 3, 6, lavender, stone)
+			end
+			if row < 1 then
+				block(bridges, "SkyBridge", x, 48.5, z + 53, 6, 3, 72, lavender, stone)
+			end
+		end
+	end
+	return points
+end
+
+local dungeonBuilders = {
+	Cave = buildCave,
+	Ice = buildIce,
+	Volt = buildVolt,
+	Sky = buildSky,
+}
+
+local function buildDungeon(id)
+	clearExistingMap()
+	local map = Instance.new("Folder")
+	map.Name = MapBuilder.MapFolderName
+	local points = dungeonBuilders[id](map)
+	local sky = id == "Sky"
+	local spawn = makePart(map, {
+		Name = "PlayerSpawn", ClassName = "SpawnLocation",
+		Size = { sky and 26 or 18, 1, sky and 26 or 18 },
+		Pos = { 0, sky and 82 or 0.5, 0 }, Color = COLORS.SpawnPad,
+	})
+	spawn.Neutral = true
+	local spawns = buildItemSpawns(points)
+	-- エリアの開始半径の上限（外周の壁より外に円を出さない）と、ボックスを置ける高さの上限
+	local zoneMax = { Cave = 105, Ice = 135, Volt = 125, Sky = 150 }
+	map:SetAttribute("ZoneMaxRadius", zoneMax[id])
+	if sky then
+		map:SetAttribute("BoxGroundMaxHeight", 53) -- 足場の上面（Y=48〜52）にだけ置く
+	end
+	map.Parent = workspace
+	spawns.Parent = workspace
+	setCurrentMap(id)
+	return { PartCount = partCount, ClimbableBuildings = 0, ItemSpawns = #points, MapId = id }
+end
+
+function MapBuilder.GetSkyPlatforms()
+	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+	return map and map:FindFirstChild("SkyPlatforms")
+end
+
+function MapBuilder.GetNearestSkyPlatform(position)
+	local platforms = MapBuilder.GetSkyPlatforms()
+	local nearest, distance
+	if platforms then
+		for _, platform in ipairs(platforms:GetChildren()) do
+			local dx = platform.Position.X - position.X
+			local dz = platform.Position.Z - position.Z
+			local squared = dx * dx + dz * dz
+			if distance == nil or squared < distance then
+				nearest, distance = platform, squared
+			end
+		end
+	end
+	return nearest
 end
 
 ---------------------------------------------------------------------
@@ -1240,11 +1487,15 @@ function MapBuilder.BuildArena()
 		spawns.Name = Config.ItemSpawnFolderName
 		spawns.Parent = workspace
 	end
-	MapBuilder.CurrentMap = "Arena"
+	setCurrentMap("Arena")
 	return { MapId = "Arena" }
 end
 
-MapBuilder.Rotation = { "Arena", "Shibuya", "Park" }
+MapBuilder.Rotation = {}
+for _, info in ipairs(rotation) do
+	table.insert(MapBuilder.Rotation, info.Id)
+end
+MapBuilder.AllMaps = table.clone(MapBuilder.Rotation) -- 全マップの並び（テストで順番を戻すとき用）
 
 local BUILDERS = {
 	Arena = function()
@@ -1257,6 +1508,11 @@ local BUILDERS = {
 		return MapBuilder.BuildPark()
 	end,
 }
+for id in pairs(dungeonBuilders) do
+	BUILDERS[id] = function()
+		return buildDungeon(id)
+	end
+end
 
 -- 呼ぶたびに次のマップを作る。最初のマップはサーバーごとにランダム
 -- （すぐ遊ぶは 1 試合ごとにサーバーが変わるので、毎回同じマップにならないように）。
