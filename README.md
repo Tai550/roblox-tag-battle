@@ -6,12 +6,14 @@
 ## ゲームの説明
 
 1. **待機**: 2人以上そろうと、15秒のインターミッションが始まります。人数が足りない間は画面に「あと○人」と出ます。
-2. **鬼の選出**: 参加者の中からランダムに1人が鬼になります。
-3. **ラウンド（120秒）**: 鬼が逃げる人にタッチすると、タッチされた人が次の鬼になります。
+2. **試合時間の投票**: インターミッション中に、試合時間（1分／3分／5分）を投票で決めます。最多票の時間が採用され、同数のときと誰も投票しなかったときは3分になります。
+3. **鬼の選出**: 参加者の中からランダムに1人が鬼になります。
+4. **ラウンド（投票で決まった時間）**: 鬼が逃げる人にタッチすると、タッチされた人が次の鬼になります。
    - 鬼になった直後の3秒間はタッチできません（タッチ返し防止）。
    - 鬼は少し足が速くなります（WalkSpeed 20。通常は16）。
-4. **結果表示**: ラウンド中に一度も鬼にならずに逃げ切った人が勝ちです。
-5. 待機に戻り、これを繰り返します。
+   - **エリアが縮みます**: ピンクの円柱の壁で示されるエリアが、試合時間の80%をかけて半径18まで縮み続けます。エリアの外に出続けると専用スタミナが減り、0になるとエリアの中へ戻されます（脱落にはなりません）。
+5. **結果表示**: ラウンド中に一度も鬼にならずに逃げ切った人が勝ちです。
+6. 待機に戻り、これを繰り返します。
 
 ラウンド中に入ってきた人は、次のラウンドから参加します（それまでは観戦扱い）。
 ラウンド中に人数が2人を下回ったら、そのラウンドは中止して待機に戻ります（勝ちは記録されません）。
@@ -27,10 +29,15 @@
 
 ※ 記録はサーバーにいる間だけです（DataStore での保存はしていません）。
 
-## バトルアイテム
+## バトルアイテムとデッキ
 
-ラウンド中、マップの出現ポイントに10秒ごとにランダムで1つ出てきます（同時に最大3つ）。
-触れると拾えます。持てるのは1つだけです（ゲームパス「ダブルアイテム」を持っていると2つまで。枠が空いていれば拾えます）。
+アイテムは全6種あります。各プレイヤーはその中から3つを選んで**デッキ**を作ります（画面左下の「デッキ」ボタン。選んでいない人のデッキは ダッシュ／シールド／ワープ です）。
+
+ラウンド中、出現ポイントに10秒ごとに**アイテムボックス**が1つ出てきます（同時に最大3つ。縮小エリアの内側にだけ出ます）。
+ボックスに触れると、**自分のデッキの中からランダムで1つ**が手に入ります。手に入れたアイテムには**15秒の使用期限**があり、過ぎると消えます。
+持てるのは1つだけです（ゲームパス「ダブルアイテム」を持っていると2つまで。枠が空いていれば拾えます）。
+
+※ ショップで買う「アイテムボックス」は今までどおりで、全アイテムの中からランダムに1つ手に入り、使用期限はありません。
 
 | アイテム | 効果 | 鬼が使えるか |
 |---|---|---|
@@ -38,6 +45,8 @@
 | スモーク | 鬼の画面を3秒間まっ白にする | 使えない（自分に効くため） |
 | シールド | 1回だけタッチを防ぐ（10秒で消える）。防いだ直後1.5秒は続けてタッチされない | 使えない |
 | ワープ | ランダムな出現ポイントへ瞬間移動する | 使える |
+| スター | 4秒間、鬼にタッチされなくなる | 使えない |
+| バナナ | 足元に置く。置いた本人以外の人が踏むと、1.2秒間すべる（置いてから20秒で消える） | 使える |
 
 ## 遊び方（操作）
 
@@ -48,6 +57,9 @@
   - 1枠目を使うと、2枠目のアイテムが1枠目に繰り上がります。
 - 画面左の**ショップ**ボタンで、課金商品の一覧を開けます（[課金](#課金) を参照）。
 - 画面上部に「今のフェーズ」「残り時間」「自分の役割（鬼／逃げる人／観戦中）」が出ます。
+- インターミッション中は、画面上の**投票ボタン**（1分／3分／5分）で試合時間を投票できます。
+- 画面左下の**デッキ**ボタンで、ボックスから出るアイテムの組み合わせ（3つ）をいつでも変えられます。
+- ラウンド中は画面右上に「エリアの大きさ」とエリア外スタミナが出ます。エリアの外にいると警告が出ます。
 
 ## ファイル構成
 
@@ -58,18 +70,21 @@ src/
     Config.lua                  設定モジュール（時間・速度・アイテム定義）★数字はここで変える
   server/                     → ServerScriptService.Server
     Main.server.lua             起動スクリプト（各モジュールを初期化してラウンドを回す）
-    RoundManager.lua            ラウンド進行、鬼の選出、タッチ判定
-    ItemManager.lua             アイテムの出現・拾う処理・効果
+    RoundManager.lua            ラウンド進行、鬼の選出、タッチ判定、試合時間の投票集計
+    ItemManager.lua             ボックスの出現・拾う処理・アイテムの効果
     GameState.lua               ラウンドとプレイヤーの状態、移動速度の決定
     Leaderstats.lua             「逃げ切り」「鬼タッチ」の記録
     Remotes.lua                 RemoteEvent の作成
     Monetization.lua            課金：レシート処理（アイテムボックス）、Game Pass の所有確認
     SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
+    ZoneManager.lua             縮小エリア（中心・半径の計算、壁、エリア外スタミナ）
+    DeckManager.lua             デッキ構築（選択の検証、デッキからの抽選）
   client/                     → StarterPlayer.StarterPlayerScripts.Client
     HUD.client.lua              役割・残り時間・人数待ち・結果・お知らせの表示
     ItemControls.client.lua     アイテムボタンとキー入力、効果の残り時間表示
     SmokeEffect.client.lua      スモークを受けたときの白い画面
     Shop.client.lua             ショップ画面（開くボタンと商品一覧、購入ダイアログの表示）
+    MatchUI.client.lua          試合時間の投票、デッキ構築、縮小エリアとスタミナの表示
 ```
 
 ファイル名の `.server.lua` は Script、`.client.lua` は LocalScript、それ以外の `.lua` は ModuleScript になります。
@@ -77,7 +92,7 @@ src/
 ### 通信と判定の考え方
 
 - RemoteEvent はサーバー起動時に `ReplicatedStorage.Remotes` フォルダに自動で作られます（Studio で用意する必要はありません）。
-- クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）と「Game Pass の所有状態を送って」（`PassUpdate`）だけです。何を持っているか、使えるか、効果がどうなるか、課金の付与は、すべてサーバーが決めます。
+- クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）、「Game Pass の所有状態を送って」（`PassUpdate`）、「試合時間への投票」（`DurationVote`、秒数だけ）、「選んだデッキ」（`DeckSelect`、アイテム Id のリスト）です。集計・検証・所持・効果・課金の付与は、すべてサーバーが決めます。
 - タッチ判定はサーバーが鬼と逃げる人の距離（`Config.TagDistance`、初期値5スタッド）を0.1秒ごとに測って行います。
 
 ## Roblox Studio での開き方
@@ -113,11 +128,14 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `Remotes` | `src/server/Remotes.lua` |
 | ServerScriptService › Server | ModuleScript `Monetization` | `src/server/Monetization.lua` |
 | ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
+| ServerScriptService › Server | ModuleScript `ZoneManager` | `src/server/ZoneManager.lua` |
+| ServerScriptService › Server | ModuleScript `DeckManager` | `src/server/DeckManager.lua` |
 | StarterPlayer › StarterPlayerScripts | Folder `Client` | |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `HUD` | `src/client/HUD.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `ItemControls` | `src/client/ItemControls.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `SmokeEffect` | `src/client/SmokeEffect.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `Shop` | `src/client/Shop.client.lua` |
+| StarterPlayer › StarterPlayerScripts › Client | LocalScript `MatchUI` | `src/client/MatchUI.client.lua` |
 
 ### テストのしかた
 
@@ -131,6 +149,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
    - アイテムは Part の中心から3スタッド上に出ます。
    - 目印用の Part は `Anchored = true`、`CanCollide = false`、`Transparency = 1` にしておくと邪魔になりません。
 4. ワープの移動先にも、この出現ポイントが使われます。
+5. 縮小エリアの中心は出現ポイントの平均、開始半径は「中心から一番遠いポイントまでの距離 + 15」（50〜120の範囲）で決まります。遊ばせたい範囲の外周にポイントを置くと、エリアの大きさもそれに合います。
 
 `ItemSpawns` フォルダがない、または中に Part がない場合でも、エラーにはならず、原点付近（`Config.FallbackSpawnCenter` のまわり）にアイテムが出ます。そのとき Output に警告が1回だけ出ます。
 
@@ -142,8 +161,13 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 |---|---|---|
 | 最低人数 | `Config.MinPlayers` | 2 |
 | 待機時間 | `Config.IntermissionTime` | 15 |
-| ラウンド時間 | `Config.RoundTime` | 120 |
+| 試合時間の候補 / 既定値 | `Config.MatchDurations` / `Config.DefaultDuration` | 60・180・300秒 / 180秒 |
 | 結果表示の時間 | `Config.ResultsTime` | 6 |
+| エリアの最後の半径 | `Config.ZoneEndRadius` | 18 |
+| エリアの開始半径の下限・上限 | `Config.ZoneStartRadiusMin` / `Config.ZoneStartRadiusMax` | 50 / 120 |
+| エリア外スタミナの減り・回復 | `Config.ZoneDrainPerSecond` / `Config.ZoneRegenPerSecond` | 12 / 25（最大100） |
+| デッキの数 / 既定のデッキ | `Config.DeckSize` / `Config.DefaultDeck` | 3 / ダッシュ・シールド・ワープ |
+| ボックスで得たアイテムの使用期限 | `Config.BoxExpireTime` | 15秒 |
 | 通常の速さ / 鬼の速さ | `Config.NormalWalkSpeed` / `Config.TaggerWalkSpeed` | 16 / 20 |
 | 鬼になった直後のタッチ無効時間 | `Config.TagCooldown` | 3 |
 | タッチになる距離 | `Config.TagDistance` | 5 |
@@ -158,6 +182,8 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 - `Config.Items.Smoke.Duration`: 鬼の画面が白くなる時間（3秒）
 - `Config.Items.Shield.Duration` / `GraceTime`: シールドが残る時間（10秒）と、防いだ直後の無敵時間（1.5秒）
 - `Config.Items.Warp.HeightOffset`: ワープ先の高さ
+- `Config.Items.Star.Duration`: スターのタッチ無効時間（4秒）
+- `Config.Items.Banana.SlipTime` / `SlipSpeed` / `Duration`: すべる時間（1.2秒）と速さ、置いたバナナが消えるまでの時間（20秒）
 - 各アイテムの `DisplayName`（表示名）、`Description`（説明文）、`Color`（色）、`SpawnWeight`（出やすさ。0 にするとそのアイテムは出なくなる）、`CanTaggerUse`（鬼が使えるか）
 
 ## 課金

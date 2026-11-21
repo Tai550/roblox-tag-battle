@@ -15,9 +15,12 @@ local UseItem = Remotes:WaitForChild("UseItem")
 local localPlayer = Players.LocalPlayer
 
 local heldItems = {}        -- 持っているアイテムの Id のリスト（サーバーから届いたもの）
+local heldExpireLeft = {}   -- 枠ごとの使用期限の残り秒（サーバーから届いたもの。0 は期限なし）
+local expireReceivedAt = 0  -- 使用期限情報を受け取った時刻（残り秒の表示を進めるため）
 local maxSlots = Config.BaseItemSlots
 local dashEndsAt = 0
 local shieldEndsAt = 0
+local starEndsAt = 0
 local lastRequest = 0
 
 ---------------------------------------------------------------------
@@ -85,12 +88,26 @@ local function useHint(slot)
 	return "[" .. Config.GetSlotKeyLabel(slot) .. "] で使う"
 end
 
+-- 枠の使用期限の残り秒（受け取った値から経過分を引いて表示用に進める）
+local function expireLeftFor(slot)
+	local left = heldExpireLeft[slot] or 0
+	if left <= 0 then
+		return 0
+	end
+	return math.max(0, left - (os.clock() - expireReceivedAt))
+end
+
 local function refreshButton()
 	for slot, button in ipairs(slotButtons) do
 		button.Visible = slot <= maxSlots
 		local def = Config.GetItem(heldItems[slot])
 		if def then
-			button.Text = def.DisplayName .. "\n" .. useHint(slot)
+			local nameLine = def.DisplayName
+			local expireLeft = expireLeftFor(slot)
+			if expireLeft > 0 then
+				nameLine = nameLine .. string.format("（あと%d秒）", math.ceil(expireLeft))
+			end
+			button.Text = nameLine .. "\n" .. useHint(slot)
 			button.BackgroundColor3 = def.Color
 			button.TextColor3 = Color3.fromRGB(20, 20, 20)
 		else
@@ -114,6 +131,9 @@ local function refreshStatus()
 	if shieldEndsAt > now then
 		table.insert(lines, string.format("シールド %.1f秒", shieldEndsAt - now))
 	end
+	if starEndsAt > now then
+		table.insert(lines, string.format("スター %.1f秒", starEndsAt - now))
+	end
 	statusLabel.Text = table.concat(lines, "\n")
 end
 
@@ -129,6 +149,13 @@ ItemUpdate.OnClientEvent:Connect(function(info)
 			end
 		end
 	end
+	heldExpireLeft = {}
+	if type(info.HeldExpireLeft) == "table" then
+		for index, left in ipairs(info.HeldExpireLeft) do
+			heldExpireLeft[index] = tonumber(left) or 0
+		end
+	end
+	expireReceivedAt = os.clock()
 	local slots = tonumber(info.MaxSlots)
 	if slots then
 		maxSlots = math.clamp(math.floor(slots), 1, #slotButtons)
@@ -136,6 +163,7 @@ ItemUpdate.OnClientEvent:Connect(function(info)
 	local now = os.clock()
 	dashEndsAt = now + (tonumber(info.DashTimeLeft) or 0)
 	shieldEndsAt = now + (tonumber(info.ShieldTimeLeft) or 0)
+	starEndsAt = now + (tonumber(info.StarTimeLeft) or 0)
 	refreshButton()
 	refreshStatus()
 end)
@@ -186,8 +214,9 @@ end)
 
 refreshButton()
 
--- 効果の残り時間表示を定期的に更新
+-- 効果の残り時間表示と、使用期限のカウントダウンを定期的に更新
 while true do
 	refreshStatus()
+	refreshButton()
 	task.wait(0.1)
 end
