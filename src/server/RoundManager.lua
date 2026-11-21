@@ -57,63 +57,69 @@ local function countAdmittedPlayers()
 end
 
 ---------------------------------------------------------------------
--- 試合時間の投票
+-- 試合時間・マップの投票
 ---------------------------------------------------------------------
 
 local votes = {}          -- [Player] = 投票した秒数
-local voteCounts = {}     -- [秒数] = 票数（表示用）
-local displayDuration = Config.DefaultDuration -- 表示用の「今の決定時間」
-
-for _, duration in ipairs(Config.MatchDurations) do
-	voteCounts[duration] = 0
+local mapVotes = {}       -- [Player] = 投票したマップ Id
+local voteDeadline
+local mapIds = {}
+for _, map in ipairs(Config.MatchMaps) do
+	table.insert(mapIds, map.Id)
 end
 
--- 投票を集計する（計算だけの関数。テストからも呼べる）。
--- 戻り値: 決まった秒数, { [秒数] = 票数 }
--- 最多票を採用する。同数が複数あるときと、投票がゼロのときは DefaultDuration。
-function RoundManager.TallyVotes(voteMap)
+local function tallyVotes(voteMap, candidates, fallback)
 	local counts = {}
-	for _, duration in ipairs(Config.MatchDurations) do
-		counts[duration] = 0
+	for _, candidate in ipairs(candidates) do
+		counts[candidate] = 0
 	end
-	for _, duration in pairs(voteMap) do
-		if counts[duration] ~= nil then
-			counts[duration] = counts[duration] + 1
+	for _, candidate in pairs(voteMap) do
+		if counts[candidate] ~= nil then
+			counts[candidate] += 1
 		end
 	end
 
+	local chosen = fallback
 	local maxCount = 0
-	for _, duration in ipairs(Config.MatchDurations) do
-		if counts[duration] > maxCount then
-			maxCount = counts[duration]
-		end
-	end
-
-	local chosen = Config.DefaultDuration
-	if maxCount > 0 then
-		local leaders = {}
-		for _, duration in ipairs(Config.MatchDurations) do
-			if counts[duration] == maxCount then
-				table.insert(leaders, duration)
-			end
-		end
-		if #leaders == 1 then
-			chosen = leaders[1]
+	for _, candidate in ipairs(candidates) do
+		local count = counts[candidate]
+		if count > maxCount then
+			maxCount = count
+			chosen = candidate
+		elseif count == maxCount then
+			chosen = fallback
 		end
 	end
 	return chosen, counts
 end
 
+function RoundManager.TallyVotes(voteMap)
+	return tallyVotes(voteMap, Config.MatchDurations, Config.DefaultDuration)
+end
+
+function RoundManager.TallyMapVotes(voteMap)
+	return tallyVotes(voteMap, mapIds, MapBuilder.GetNextMapId())
+end
+
+local displayDuration, voteCounts = RoundManager.TallyVotes(votes)
+local _, mapVoteCounts = RoundManager.TallyMapVotes(mapVotes)
+
 local function refreshVoteDisplay()
 	displayDuration, voteCounts = RoundManager.TallyVotes(votes)
 end
 
+local function refreshMapVoteDisplay()
+	local _, counts = RoundManager.TallyMapVotes(mapVotes)
+	mapVoteCounts = counts
+end
+
+local function canVote(player)
+	return GameState.Phase == "Intermission" and voteDeadline ~= nil and GameState.Now() < voteDeadline
+		and not startRequested and not isBot(player) and canParticipate(player)
+end
+
 local function onDurationVote(player, durationArg)
-	if isBot(player) or not canParticipate(player) then
-		return
-	end
-	-- 投票できるのはインターミッション中だけ。値も Config の候補にあるものだけ
-	if GameState.Phase ~= "Intermission" then
+	if not canVote(player) then
 		return
 	end
 	local duration = tonumber(durationArg)
@@ -132,6 +138,15 @@ local function onDurationVote(player, durationArg)
 	end
 	votes[player] = duration -- 投票し直したら上書き
 	refreshVoteDisplay()
+	broadcastState()
+end
+
+local function onMapVote(player, id)
+	if not canVote(player) or type(id) ~= "string" or not mapVoteCounts[id] then
+		return
+	end
+	mapVotes[player] = id
+	refreshMapVoteDisplay()
 	broadcastState()
 end
 
@@ -171,6 +186,7 @@ broadcastState = function()
 		Message = GameState.Message,
 		ChosenDuration = displayDuration,
 		VoteCounts = countsForClient,
+		MapVoteCounts = mapVoteCounts,
 	})
 end
 
@@ -359,14 +375,17 @@ local function runWaiting()
 	end
 end
 
--- 人数が足りなくなったら false を返す
+-- 人数が足りなくなったら nil を返す
 local function runIntermission()
 	GameState.Phase = "Intermission"
 	GameState.PlayersNeeded = 0
 	GameState.Message = "まもなく鬼ごっこが始まります"
 	votes = {} -- 投票はインターミッションごとにリセット
+	mapVotes = {}
 	refreshVoteDisplay()
+	refreshMapVoteDisplay()
 	local endTime = GameState.Now() + Config.IntermissionTime
+	voteDeadline = endTime
 	while true do
 		local left = endTime - GameState.Now()
 		applyNextMap()
@@ -374,16 +393,19 @@ local function runIntermission()
 			break
 		end
 		if countAdmittedPlayers() < Config.MinPlayers then
-			return false
+			voteDeadline = nil
+			return nil
 		end
 		GameState.TimeLeft = left
 		broadcastState()
 		task.wait(math.min(1, left))
 	end
 	-- 投票を確定する
+	voteDeadline = nil
 	GameState.ChosenDuration = RoundManager.TallyVotes(votes)
 	displayDuration = GameState.ChosenDuration
-	return true
+	local chosenMap = RoundManager.TallyMapVotes(mapVotes)
+	return chosenMap
 end
 
 local function moveToSpawn(player, spawn, offsetX, offsetZ)
@@ -491,7 +513,7 @@ function RoundManager.CheckSkyFalls()
 end
 
 -- ラウンド本体。戻り値: 最後まで終わったら true、人数不足で中止したら false
-local function runRound()
+local function runRound(chosenMap)
 	local minimum = startRequested and 1 or Config.MinPlayers
 	startRequested = false
 	endRequested = false
@@ -517,7 +539,7 @@ local function runRound()
 
 	local previousMap = MapBuilder.CurrentMap
 	if not mapPrepared then
-		MapBuilder.BuildNextRound()
+		MapBuilder.BuildRoundMap(chosenMap)
 		Remotes.Notify:FireAllClients("次のマップ：" .. MapBuilder.GetCurrentMapInfo().Name)
 	end
 	mapPrepared = false
@@ -703,6 +725,7 @@ end
 
 function RoundManager.Init()
 	Remotes.DurationVote.OnServerEvent:Connect(onDurationVote)
+	Remotes.MapVote.OnServerEvent:Connect(onMapVote)
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in ipairs(Players:GetPlayers()) do
 		watchPlayer(player)
@@ -717,7 +740,9 @@ function RoundManager.Init()
 		GameState.Eliminated[player] = nil
 		GameState.ClearData(player)
 		votes[player] = nil
+		mapVotes[player] = nil
 		refreshVoteDisplay()
+		refreshMapVoteDisplay()
 		-- 鬼が抜けた場合の交代はラウンドのループ側で行う
 	end)
 end
@@ -725,8 +750,9 @@ end
 function RoundManager.Run()
 	while true do
 		runWaiting()
-		if runIntermission() then
-			local completed = runRound()
+		local chosenMap = runIntermission()
+		if chosenMap then
+			local completed = runRound(chosenMap)
 			if completed == nil then
 				task.wait(1) -- キャラクターの読み込み待ち。待機からやり直す
 			else

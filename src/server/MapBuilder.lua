@@ -1,8 +1,8 @@
 -- MapBuilder: マップをコードで生成する（ServerScriptService.Server.MapBuilder）
 --
--- MapBuilder.Build() は渋谷風の街を作る（サーバー起動時・1ラウンド目）。
--- MapBuilder.BuildPark() は広いパークを作る（2ラウンド目）。
--- MapBuilder.BuildNextRound() は呼ぶたびに渋谷 → パーク → 洞窟 → 氷床 → 痺れる → 落下 → 渋谷 … と入れ替える。
+-- MapBuilder.Build() は渋谷風の街を作る（サーバー起動時にも使用）。
+-- MapBuilder.BuildPark() は広いパークを作る。
+-- MapBuilder.BuildNextRound() は渋谷 → パーク → 洞窟 → 氷床 → 痺れる → 落下 → 渋谷 … と入れ替える。
 -- 各マップは Workspace に次を作る。
 --   Workspace.Map        … 地面・障害物・外周の透明な壁・SpawnLocation
 --   Workspace.ItemSpawns … アイテムの出現ポイント。ItemManager / ZoneManager がそのまま使う
@@ -29,18 +29,12 @@ MapBuilder.CurrentMap = nil
 MapBuilder.CaveWallGroup = "CaveInnerWall"
 MapBuilder.PhaseGroup = "CavePhasing"
 
-local rotation = {
-	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
-	{ Id = "Park", Name = "パーク", Gimmick = "None" },
-	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
-	{ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" },
-	{ Id = "Volt", Name = "痺れるダンジョン", Gimmick = "Volt", ExclusiveItemId = "Insulate" },
-	{ Id = "Sky", Name = "落下ダンジョン", Gimmick = "None", ExclusiveItemId = "SafetyLine" },
-}
-
+local rotation = Config.MatchMaps
 local mapInfo = {}
-for _, info in ipairs(rotation) do
-	mapInfo[info.Id] = table.freeze(info)
+local mapIndex = {}
+for index, info in ipairs(rotation) do
+	mapInfo[info.Id] = info
+	mapIndex[info.Id] = index
 end
 
 function MapBuilder.GetCurrentMapInfo()
@@ -1452,18 +1446,32 @@ end
 -- 起動時の Build() では進めず、最初のラウンドも渋谷から始める。
 local mapTurn = 0
 
-function MapBuilder.BuildNextRound(fromCurrentMap)
-	if fromCurrentMap and mapTurn == 0 then
-		mapTurn = 1 -- 起動時に表示されている渋谷から次へ進む
+function MapBuilder.GetNextMapId(fromCurrentMap)
+	local turn = mapTurn
+	if fromCurrentMap and turn == 0 then
+		turn = 1 -- 起動時に表示されている渋谷から次へ進む
 	end
-	mapTurn = mapTurn % #rotation + 1
-	local id = rotation[mapTurn].Id
+	return rotation[turn % #rotation + 1].Id
+end
+
+-- 投票で選んだマップから、次回のローテーションを続ける。
+function MapBuilder.BuildRoundMap(id)
+	local index = mapIndex[id]
+	assert(index, "Unknown round map: " .. tostring(id))
+	local summary
 	if id == "Shibuya" then
-		return MapBuilder.Build()
+		summary = MapBuilder.Build()
 	elseif id == "Park" then
-		return MapBuilder.BuildPark()
+		summary = MapBuilder.BuildPark()
+	else
+		summary = buildDungeon(id)
 	end
-	return buildDungeon(id)
+	mapTurn = index
+	return summary
+end
+
+function MapBuilder.BuildNextRound(fromCurrentMap)
+	return MapBuilder.BuildRoundMap(MapBuilder.GetNextMapId(fromCurrentMap))
 end
 
 return MapBuilder

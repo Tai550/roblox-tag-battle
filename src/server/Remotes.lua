@@ -9,6 +9,7 @@
 --   PassUpdate   (サーバー → 本人)  Game Pass の所有状態（ショップの「所有済み」表示用）
 --                (クライアント → サーバー) 引数なし。「今の所有状態を送って」というお願い
 --   DurationVote (クライアント → サーバー) 試合時間への投票（引数は秒数）。集計はサーバー
+--   MapVote      (クライアント → サーバー) マップへの投票（引数はマップ Id）。集計はサーバー
 --   DeckSelect   (クライアント → サーバー) 選んだデッキ（アイテム Id のリスト）。検証はサーバー
 --   DeckUpdate   (サーバー → 本人)  今の自分のデッキ
 --   ZoneUpdate   (サーバー → 本人)  縮小エリアの半径と、自分のエリア外スタミナ・内外判定
@@ -18,7 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
 	"StateUpdate", "ItemUpdate", "UseItem", "SmokeEffect", "Notify", "PassUpdate",
-	"DurationVote", "DeckSelect", "DeckUpdate", "ZoneUpdate", "RankUp", "AdminRequest",
+	"DurationVote", "MapVote", "DeckSelect", "DeckUpdate", "ZoneUpdate", "RankUp", "AdminRequest",
 }
 
 local folder = ReplicatedStorage:FindFirstChild("Remotes")

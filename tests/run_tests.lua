@@ -116,6 +116,30 @@ do
 		and deckConfirm.Size.XOffset >= layout.MinTouchSize and deckConfirm.Size.YOffset >= layout.MinTouchSize
 		and deckConfirm.Position.XScale == 0.5 and deckConfirm.Position.YOffset == -layout.EdgeMargin)
 
+	local allMapButtonsFit = #Config.MatchMaps == 6 and votePanel.Size.XOffset <= -2 * layout.EdgeMargin
+	for _, map in ipairs(Config.MatchMaps) do
+		local button = votePanel:FindFirstChild("MapVote" .. map.Id)
+		allMapButtonsFit = allMapButtonsFit and button ~= nil and button.Size.YOffset >= layout.MinTouchSize
+			and (matchGui.AbsoluteSize.X - 2 * layout.EdgeMargin) * button.Size.XScale + button.Size.XOffset >= layout.MinTouchSize
+			and button.Position.YOffset + button.Size.YOffset <= votePanel.Size.YOffset
+	end
+	check("6つのマップ投票ボタンはスマホ向け寸法を満たす", allMapButtonsFit)
+	local sentMap
+	local realFireServer = Remotes.MapVote.FireServer
+	Remotes.MapVote.FireServer = function(_, id) sentMap = id end
+	local stateEvent = Remotes.StateUpdate.OnClientEvent
+	local parkButton = votePanel:FindFirstChild("MapVotePark")
+	stateEvent:_Fire({ Phase = "Intermission", MapVoteCounts = { Park = 2 } })
+	local beforeSelection = parkButton.BackgroundColor3
+	parkButton.Activated:_Fire()
+	stateEvent:_Fire({ Phase = "Intermission", MapVoteCounts = { Park = 2 } })
+	check("マップのボタンは票数と自分の選択を表示し、Idを送る", votePanel.Visible
+		and sentMap == "Park" and parkButton.Text == "パーク\n2票"
+		and parkButton.BackgroundColor3.B > beforeSelection.B)
+	stateEvent:_Fire({ Phase = "Round" })
+	check("試合中は時間とマップの投票パネルが非表示", not votePanel.Visible)
+	Remotes.MapVote.FireServer = realFireServer
+
 	local stats = playerGui:FindFirstChild("TagHUD"):FindFirstChild("RoundStats")
 	player:SetAttribute("RoundTags", 2)
 	player:SetAttribute("RoundCaught", 1)
@@ -1674,10 +1698,19 @@ do
 	local realGetPlayers, realFill = players.GetPlayers, BotManager.Fill
 	local realWait, realNow = RT.task.wait, GameState.Now
 	local now = 100
+	RoundManager.Init()
 	players.GetPlayers = function() return humans end
 	BotManager.Fill = function() end -- 逃走者と最後の捕獲対象を人間1人に固定する。
 	RT.task.wait = coroutine.yield
 	GameState.Now = function() return now end
+
+	local realBroadcast = Remotes.StateUpdate.FireAllClients
+	local state
+	Remotes.StateUpdate.FireAllClients = function(_, update) state = update end
+	local mapVote = Remotes.MapVote.OnServerEvent
+	local durationVote = Remotes.DurationVote.OnServerEvent
+	local noVotes = RoundManager.TallyMapVotes({})
+	check("マップが無投票ならローテーションの次を選ぶ", noVotes == MapBuilder.GetNextMapId())
 
 	local round = coroutine.create(RoundManager.Run)
 	local function advance(seconds)
@@ -1688,7 +1721,24 @@ do
 	advance(0)
 	check("合間は前ラウンドの値を表示する", GameState.Phase == "Intermission"
 		and humans[1]:GetAttribute("RoundRP") == 42)
-	advance(Config.IntermissionTime)
+	durationVote:_Fire(humans[1], 60)
+	mapVote:_Fire(humans[1], "Shibuya")
+	mapVote:_Fire(humans[1], "Park")
+	mapVote:_Fire(humans[2], "Park")
+	mapVote:_Fire(humans[2], "invalid")
+	check("選び直しは最後の1票だけ数え、時間の票は独立して残る",
+		state.MapVoteCounts.Shibuya == 0 and state.MapVoteCounts.Park == 2
+		and state.VoteCounts["60"] == 1)
+	local beforeBot = state
+	mapVote:_Fire({ IsBot = true }, "Ice")
+	check("ボットはマップに投票できない", state == beforeBot and state.MapVoteCounts.Ice == 0)
+	now += Config.IntermissionTime
+	mapVote:_Fire(humans[1], "Ice")
+	check("締め切りに達した後のマップ投票は数えない", state == beforeBot)
+	advance(0)
+	check("最多票を得たマップでラウンドを開始する", MapBuilder.CurrentMap == "Park"
+		and GameState.ChosenDuration == 60)
+
 	check("ラウンド開始で両プレイヤーのラウンド属性が0に戻る", GameState.Phase == "Round"
 		and humans[1]:GetAttribute("RoundTags") == 0 and humans[1]:GetAttribute("RoundCaught") == 0
 		and humans[1]:GetAttribute("RoundRP") == 0 and humans[2]:GetAttribute("RoundTags") == 0
@@ -1702,7 +1752,13 @@ do
 		and survivor:GetAttribute("RoundRP") == 20 and RankManager.Get(survivor).RP - before == 20)
 
 	advance(Config.ResultsTime)
+	local rotationMap = MapBuilder.GetNextMapId()
+	check("次のインターミッションでは前回のマップ票をリセットする", state.MapVoteCounts.Park == 0)
+	mapVote:_Fire(humans[1], "Park")
+	mapVote:_Fire(humans[2], "Ice")
 	advance(Config.IntermissionTime)
+	check("マップの最多票が同数ならローテーションの次で開始する", MapBuilder.CurrentMap == rotationMap)
+
 	local tagger = GameState.Tagger
 	local runner = tagger == humans[1] and humans[2] or humans[1]
 	local taggerRoot, runnerRoot = GameState.GetRootPart(tagger), GameState.GetRootPart(runner)
@@ -1716,11 +1772,23 @@ do
 		GameState.Phase == "Results" and tagger:GetAttribute("RoundTags") == 1
 		and tagger:GetAttribute("RoundRP") == expected and RankManager.Get(tagger).RP - before == expected)
 
+	advance(Config.ResultsTime)
+	mapVote:_Fire(humans[1], "Shibuya")
+	local adminMap = MapBuilder.GetNextMapId(true)
+	assert(adminMap ~= "Shibuya")
+	assert(RoundManager.RequestNextMap())
+	advance(Config.IntermissionTime)
+	check("選ばれたマップより管理者の次マップ操作を優先する", GameState.Phase == "Round"
+		and MapBuilder.CurrentMap == adminMap)
+	assert(RoundManager.RequestEnd())
+	advance(0)
+
 	table.clear(humans)
 	advance(Config.ResultsTime)
 	coroutine.close(round)
 	players.GetPlayers, BotManager.Fill = realGetPlayers, realFill
 	RT.task.wait, GameState.Now = realWait, realNow
+	Remotes.StateUpdate.FireAllClients = realBroadcast
 end
 
 ---------------------------------------------------------------------
@@ -1897,6 +1965,14 @@ do
 	coroutine.close(loop)
 	RT.task.wait = realWait
 	Config.BotsEnabled = botsOriginallyEnabled
+end
+
+do
+	local result = MapBuilder.BuildRoundMap("Volt")
+	check("指定したマップを生成してWorkspaceのマップとギミック属性を設定する",
+		result.MapId == "Volt" and MapBuilder.CurrentMap == "Volt"
+		and RT.workspace:GetAttribute("CurrentMap") == "Volt"
+		and RT.workspace:GetAttribute("CurrentGimmick") == "Volt")
 end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))

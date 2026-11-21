@@ -18,6 +18,15 @@ Config.ResultsTime = 6           -- 結果表示の秒数
 Config.MatchDurations = { 60, 180, 300 } -- 選べる試合時間（秒）: 1分・3分・5分
 Config.DefaultDuration = 180     -- 投票が割れたとき・無投票のときの試合時間（秒）
 
+Config.MatchMaps = table.freeze({
+	table.freeze({ Id = "Shibuya", Name = "渋谷", Gimmick = "None" }),
+	table.freeze({ Id = "Park", Name = "パーク", Gimmick = "None" }),
+	table.freeze({ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" }),
+	table.freeze({ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" }),
+	table.freeze({ Id = "Volt", Name = "痺れるダンジョン", VoteLabel = "痺れる", Gimmick = "Volt", ExclusiveItemId = "Insulate" }),
+	table.freeze({ Id = "Sky", Name = "落下ダンジョン", VoteLabel = "落下", Gimmick = "None", ExclusiveItemId = "SafetyLine" }),
+})
+
 ---------------------------------------------------------------------
 -- 移動速度
 ---------------------------------------------------------------------
