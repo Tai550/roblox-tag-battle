@@ -62,6 +62,19 @@ RT.UDim2 = {
 
 local CFrameMT = {}
 CFrameMT.__index = CFrameMT
+
+function CFrameMT:PointToObjectSpace(point)
+	local offset = point - self.Position
+	local x, y, z = offset.X, offset.Y, offset.Z
+	local cx, sx = math.cos(self.RotX), math.sin(self.RotX)
+	local cy, sy = math.cos(self.RotY), math.sin(self.RotY)
+	local cz, sz = math.cos(self.RotZ), math.sin(self.RotZ)
+	y, z = cx * y + sx * z, -sx * y + cx * z
+	x, z = cy * x - sy * z, sy * x + cy * z
+	x, y = cz * x + sz * y, -sz * x + cz * y
+	return RT.Vector3.new(x, y, z)
+end
+
 -- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
 CFrameMT.__mul = function(a, b)
 	return setmetatable({
@@ -71,7 +84,7 @@ CFrameMT.__mul = function(a, b)
 		RotX = (b and b.RotX) or 0,
 		RotY = (b and b.RotY) or 0,
 		RotZ = (b and b.RotZ) or 0,
-		LookVector = RT.Vector3.new(0, 0, -1),
+		LookVector = b.LookVector,
 		Position = RT.Vector3.new(a.X or 0, a.Y or 0, a.Z or 0),
 	}, CFrameMT)
 end
@@ -89,6 +102,7 @@ RT.CFrame = {
 		}, CFrameMT)
 	end,
 	Angles = function(rx, ry, rz)
+		local pitch, yaw = rx or 0, ry or 0
 		return setmetatable({
 			X = 0,
 			Y = 0,
@@ -96,7 +110,7 @@ RT.CFrame = {
 			RotX = rx or 0,
 			RotY = ry or 0,
 			RotZ = rz or 0,
-			LookVector = RT.Vector3.new(0, 0, -1),
+			LookVector = RT.Vector3.new(-math.sin(yaw), math.sin(pitch) * math.cos(yaw), -math.cos(pitch) * math.cos(yaw)),
 			Position = RT.Vector3.new(0, 0, 0),
 		}, CFrameMT)
 	end,

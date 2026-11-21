@@ -208,7 +208,25 @@ local function awardForTag(tagger, runner)
 	end
 end
 
-local function tryTag()
+local function isWithinTagReach(origin, character)
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local localOrigin = part.CFrame:PointToObjectSpace(origin)
+			local halfSize = part.Size * 0.5
+			local closest = Vector3.new(
+				math.clamp(localOrigin.X, -halfSize.X, halfSize.X),
+				math.clamp(localOrigin.Y, -halfSize.Y, halfSize.Y),
+				math.clamp(localOrigin.Z, -halfSize.Z, halfSize.Z)
+			)
+			if (localOrigin - closest).Magnitude <= Config.TagTouchDistance then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function RoundManager.TryTag()
 	local tagger = GameState.Tagger
 	if not tagger then
 		return
@@ -225,10 +243,10 @@ local function tryTag()
 		return
 	end
 
+	local origin = taggerRoot.Position + taggerRoot.CFrame.LookVector * Config.TagReachForward
 	for _, runner in ipairs(GameState.ParticipantList()) do
 		if runner ~= tagger and GameState.IsAlive(runner) then
-			local runnerRoot = GameState.GetRootPart(runner)
-			if runnerRoot and (runnerRoot.Position - taggerRoot.Position).Magnitude <= Config.TagDistance then
+			if isWithinTagReach(origin, runner.Character) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
 					-- シールドで防いだ直後なのでタッチ無効
@@ -469,7 +487,7 @@ local function runRound()
 		end
 		replaceMissingTagger()
 
-		tryTag()
+		RoundManager.TryTag()
 		BotManager.Tick()
 		ItemManager.Tick()
 		ZoneManager.Tick()

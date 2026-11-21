@@ -1401,6 +1401,129 @@ do
 	GameState.Phase = "Waiting"
 end
 
+---------------------------------------------------------------------
+-- タッチ判定：パーツの表面と既存の交代条件
+---------------------------------------------------------------------
+
+do
+	local CFrame = RT.CFrame
+	local now = 100
+	local realNow = GameState.Now
+	GameState.Now = function() return now end
+	GameState.Phase = "Round"
+
+	local function place(part, pose)
+		part.CFrame = pose
+		part.Position = pose.Position
+	end
+
+	local function makePlayer(id, pose)
+		local player = RT.Instance.new("Player")
+		player.UserId = id
+		player.DisplayName = "Tag test " .. id
+		local character = RT.Instance.new("Model")
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		place(root, pose)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = character
+		return player, root
+	end
+
+	local tagger, taggerRoot = makePlayer(16001, CFrame.new(0, 0, 0))
+	local runner, runnerRoot = makePlayer(16002, CFrame.new(0, 0, -6) * CFrame.Angles(0, math.pi, 0))
+	local data = GameState.GetData(runner)
+	local function resetTagger(target)
+		GameState.Participants = { [tagger] = true, [target] = true }
+		GameState.Tagger = tagger
+		GameState.TaggerSince = now - Config.TagCooldown
+		GameState.BeenTagger = { [tagger] = true }
+	end
+	local function tryTag(target)
+		RoundManager.TryTag()
+		return GameState.Tagger == target
+	end
+
+	local arm = RT.Instance.new("Part")
+	arm.Name = "Arm"
+	place(arm, CFrame.new(0, 0, -3.25))
+	arm.Parent = runner.Character
+	resetTagger(runner)
+	local taggerRP = RankManager.Get(tagger).RP
+	local runnerRP = RankManager.Get(runner).RP
+	local taggedCount = RankManager.Get(runner).Tagged
+	check("正面から腕に届けば中心間が旧しきい値の5スタッドを超えても交代する",
+		(runnerRoot.Position - taggerRoot.Position).Magnitude > 5 and tryTag(runner))
+	check("タッチでRPと回数が加算され、新しい鬼のクールダウンが始まる",
+		RankManager.Get(tagger).RP == taggerRP + Config.RankPoints.Tag
+		and RankManager.Get(runner).RP == runnerRP + Config.RankPoints.Caught
+		and RankManager.Get(runner).Tagged == taggedCount + 1
+		and GameState.TaggerSince == now)
+	arm:Destroy()
+
+	local accessory = RT.Instance.new("Accessory")
+	accessory.Parent = runner.Character
+	local handle = RT.Instance.new("MeshPart")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 1, 3)
+	handle.Parent = accessory
+	place(handle, CFrame.new(2.7, 0, -1.6))
+	resetTagger(runner)
+	check("横のアクセサリは表面が届かなければ交代しない", not tryTag(runner))
+	place(handle, CFrame.new(2.7, 0, -1.6) * CFrame.Angles(0, math.pi / 2, 0))
+	check("横のアクセサリは回転して表面が届けば交代する", tryTag(runner))
+	accessory:Destroy()
+
+	resetTagger(runner)
+	RT.Instance.new("ForceField").Parent = runner.Character
+	check("相手のパーツが離れていればForceFieldがあっても交代しない", not tryTag(runner))
+	place(runnerRoot, CFrame.new(0, 0, -3))
+	check("相手の背後からでも表面が届けば交代する", tryTag(runner))
+
+	resetTagger(runner)
+	GameState.TaggerSince = now
+	check("鬼になった直後は手が届いても交代しない", not tryTag(runner))
+	GameState.TaggerSince = now - Config.TagCooldown
+	data.StarUntil = now + 1
+	data.ShieldUntil = now + 5
+	check("スター中はタッチが無効でシールドも残る", not tryTag(runner) and data.ShieldUntil == now + 5)
+	data.StarUntil = 0
+	check("シールドがタッチを防ぎ、無敵時間が始まる", not tryTag(runner)
+		and data.ShieldUntil == 0 and data.InvulnerableUntil == now + Config.Items.Shield.GraceTime)
+	check("シールド後の無敵中は手が届いても交代しない", not tryTag(runner))
+	now = data.InvulnerableUntil
+	check("無敵終了後は届いていれば交代する", tryTag(runner))
+
+	BotManager.Fill({ tagger, runner })
+	local bot = BotManager.GetActive()[1]
+	local botRoot = GameState.GetRootPart(bot)
+	local botArm = bot.Character:FindFirstChild("Right Arm")
+	-- ボットの右腕の横から、腕だけに届く位置でタッチする。
+	local armPosition = botArm.Position
+	place(taggerRoot, CFrame.new(armPosition.X + 3.2, armPosition.Y, armPosition.Z)
+		* CFrame.Angles(0, math.pi / 2, 0))
+	resetTagger(bot)
+	check("生成したボットの腕に届けば鬼が交代する",
+		(botRoot.Position - taggerRoot.Position).Magnitude > Config.TagReachForward + Config.TagTouchDistance
+		and tryTag(bot))
+
+	TaggerLook.Follow(nil)
+	BotManager.DespawnAll()
+	for _, player in ipairs({ tagger, runner }) do
+		GameState.ClearData(player)
+		player.Character:Destroy()
+	end
+	GameState.Participants = {}
+	GameState.BeenTagger = {}
+	GameState.Tagger = nil
+	GameState.TaggerSince = 0
+	GameState.Now = realNow
+	GameState.Phase = "Waiting"
+end
+
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))
 if failed > 0 then
 	error("テストが失敗しました")

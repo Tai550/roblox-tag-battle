@@ -9,6 +9,7 @@
 2. **試合時間の投票**: インターミッション中に、試合時間（1分／3分／5分）を投票で決めます。最多票の時間が採用され、同数のときと誰も投票しなかったときは3分になります。
 3. **鬼の選出**: 参加者の中からランダムに1人が鬼になります。
 4. **ラウンド（投票で決まった時間）**: 鬼が逃げる人にタッチすると、タッチされた人が次の鬼になります。
+   - 鬼の手が届く範囲で、相手の体のどこか（アクセサリも含む）に触れるとタッチ成立です。
    - 鬼になった直後の3秒間はタッチできません（タッチ返し防止）。
    - 鬼は少し足が速くなります（WalkSpeed 20。通常は16）。
    - 鬼のキャラクターは少し赤みがかった色になり、体に薄い赤い光（輪郭つきの Highlight）が付きます。鬼でなくなると元の色に戻ります。リスポーンしても、鬼のあいだは付け直されます。
@@ -149,7 +150,7 @@ src/
 - RemoteEvent はサーバー起動時に `ReplicatedStorage.Remotes` フォルダに自動で作られます（Studio で用意する必要はありません）。
 - クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）、「Game Pass の所有状態を送って」（`PassUpdate`）、「試合時間への投票」（`DurationVote`、秒数だけ）、「選んだデッキ」（`DeckSelect`、アイテム Id のリスト）です。集計・検証・所持・効果・課金の付与は、すべてサーバーが決めます。
 - 段位が上がったときだけ、サーバーがその人に `RankUp`（新しい段位名）を送ります。段位と RP の常時表示は leaderstats を読むだけで、専用の取得リクエストはありません。
-- タッチ判定はサーバーが鬼と逃げる人の距離（`Config.TagDistance`、初期値5スタッド）を0.1秒ごとに測って行います。
+- サーバーは0.1秒ごとに、鬼の胸の少し前にある起点から相手の各パーツの箱の最近接点までの距離を測ります。手が届く範囲は `Config.TagReachForward` と `Config.TagTouchDistance` で調整できます。
 
 ## Roblox Studio での開き方
 
@@ -280,7 +281,8 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ボックスで得たアイテムの使用期限 | `Config.BoxExpireTime` | 15秒 |
 | 通常の速さ / 鬼の速さ | `Config.NormalWalkSpeed` / `Config.TaggerWalkSpeed` | 16 / 20 |
 | 鬼になった直後のタッチ無効時間 | `Config.TagCooldown` | 3 |
-| タッチになる距離 | `Config.TagDistance` | 5 |
+| タッチ判定の起点を鬼の正面に出す距離（スタッド） | `Config.TagReachForward` | 1.6 |
+| 起点から相手のパーツまでの許容距離（スタッド） | `Config.TagTouchDistance` | 1.4 |
 | アイテムの出現間隔 / 同時最大数 | `Config.ItemSpawnInterval` / `Config.MaxItemsOnMap` | 10 / 3 |
 | アイテム使用キー（枠ごと） | `Config.ItemSlotKeys`（表示名は `Config.ItemSlotKeyLabels`） | 1枠目 E / X、2枠目 Q / Y |
 | 通常の所持枠 / ダブルアイテムの所持枠 | `Config.BaseItemSlots` / `Config.Monetization.DoubleItem.ItemSlots` | 1 / 2 |
