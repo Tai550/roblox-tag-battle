@@ -13,6 +13,11 @@ Vector3MT.__index = function(self, key)
 	if key == "Magnitude" then
 		return math.sqrt(self.X * self.X + self.Y * self.Y + self.Z * self.Z)
 	end
+	if key == "Dot" then
+		return function(a, b)
+			return a.X * b.X + a.Y * b.Y + a.Z * b.Z
+		end
+	end
 	if key == "Unit" then
 		local m = math.sqrt(self.X * self.X + self.Y * self.Y + self.Z * self.Z)
 		if m == 0 then
@@ -83,7 +88,7 @@ function CFrameMT:PointToObjectSpace(point)
 	return RT.Vector3.new(x, y, z)
 end
 
--- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
+-- 平行移動を合成し、回転の検証用に右辺の角度を保持する。
 CFrameMT.__add = function(frame, offset)
 	local position = frame.Position + offset
 	local moved = table.clone(frame)
@@ -92,15 +97,23 @@ CFrameMT.__add = function(frame, offset)
 	return setmetatable(moved, CFrameMT)
 end
 CFrameMT.__mul = function(a, b)
+	local x, y, z = b.X, b.Y, b.Z
+	local cx, sx = math.cos(a.RotX), math.sin(a.RotX)
+	local cy, sy = math.cos(a.RotY), math.sin(a.RotY)
+	local cz, sz = math.cos(a.RotZ), math.sin(a.RotZ)
+	x, y = cz * x - sz * y, sz * x + cz * y
+	x, z = cy * x + sy * z, -sy * x + cy * z
+	y, z = cx * y - sx * z, sx * y + cx * z
+	local position = a.Position + RT.Vector3.new(x, y, z)
 	return setmetatable({
-		X = a.X or 0,
-		Y = a.Y or 0,
-		Z = a.Z or 0,
+		X = position.X,
+		Y = position.Y,
+		Z = position.Z,
 		RotX = (b and b.RotX) or 0,
 		RotY = (b and b.RotY) or 0,
 		RotZ = (b and b.RotZ) or 0,
 		LookVector = b.LookVector,
-		Position = RT.Vector3.new(a.X or 0, a.Y or 0, a.Z or 0),
+		Position = position,
 	}, CFrameMT)
 end
 RT.CFrame = {
@@ -133,6 +146,12 @@ RT.CFrame = {
 		}, CFrameMT)
 	end,
 }
+
+function RT.CFrame.lookAt(position, target)
+	local frame = RT.CFrame.new(position)
+	frame.LookVector = (target - position).Unit
+	return frame
+end
 
 ---------------------------------------------------------------------
 -- Enum（値は文字列で代用。比較に使われない前提）
@@ -232,11 +251,19 @@ function instanceMethods.GetPivot(self)
 	local root = self:FindFirstChild("HumanoidRootPart")
 	return RT.CFrame.new(root.Position.X, root.Position.Y, root.Position.Z)
 end
+function instanceMethods.GetBoundingBox(self)
+	return self:GetPivot(), RT.Vector3.new(2, 5, 2)
+end
+function instanceMethods.GetPartBoundsInBox(self, frame, size, params)
+	return self._bounds and self._bounds(frame, size, params) or {}
+end
 function instanceMethods.PivotTo(self, pivot)
 	local root = self:FindFirstChild("HumanoidRootPart")
 	if root then
 		root.CFrame = pivot
 		root.Position = pivot.Position
+	elseif self.ClassName == "Model" then
+		self.WorldPivot = pivot
 	end
 end
 function instanceMethods.FindFirstChild(self, name, recursive)
@@ -382,10 +409,12 @@ local instanceMT = {
 		if method then
 			return method
 		end
-		if key == "OnServerEvent" or key == "OnClientEvent" or key == "Activated" or key == "InputBegan" then
+		if key == "Activated" or key == "InputBegan" then
 			return fakeEvent
 		end
-		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded" then
+		if key == "OnServerEvent" or key == "OnClientEvent" or key == "Touched"
+			or key == "Heartbeat" or key == "PostSimulation" or key == "DescendantAdded"
+			or key == "CharacterAdded" or key == "CharacterRemoving" then
 			local signals = rawget(self, "_signals")
 			if not signals then
 				signals = {}
@@ -442,7 +471,7 @@ local playersService = {
 	GetPlayerFromCharacter = function(_, _)
 		return nil
 	end,
-	PlayerAdded = fakeEvent,
+	PlayerAdded = makeSignal(),
 	PlayerRemoving = makeSignal(),
 }
 
@@ -486,6 +515,30 @@ local function makeDataStore()
 		end
 		records[tostring(key)] = cloneData(value)
 	end
+	function store:RemoveAsync(key)
+		self:SetAsync(key, nil)
+	end
+	function store:ListKeysAsync(_, pageSize)
+		local keys = {}
+		for key in pairs(records) do
+			table.insert(keys, key)
+		end
+		table.sort(keys)
+		local start = 1
+		local pages = { IsFinished = #keys <= pageSize }
+		function pages:GetCurrentPage()
+			local page = {}
+			for index = start, math.min(start + pageSize - 1, #keys) do
+				table.insert(page, { KeyName = keys[index] })
+			end
+			return page
+		end
+		function pages:AdvanceToNextPageAsync()
+			start += pageSize
+			self.IsFinished = start + pageSize > #keys
+		end
+		return pages
+	end
 	function store:UpdateAsync(key, transform)
 		if RT.DataStoreShouldFail then
 			error("DataStore の更新に失敗しました")
@@ -523,6 +576,7 @@ local dataStoreService = {
 
 local collisionGroups = {}
 local collisions = {}
+local nextGuid = 0
 local services = {
 	Lighting = { Brightness = 2 },
 	PhysicsService = {
@@ -538,6 +592,19 @@ local services = {
 	Players = playersService,
 	ReplicatedStorage = replicatedStorage,
 	DataStoreService = dataStoreService,
+	HttpService = {
+		GenerateGUID = function()
+			nextGuid += 1
+			return "test-guid-" .. nextGuid
+		end,
+	},
+	TextService = {
+		FilterStringAsync = function(_, text)
+			return { GetNonChatStringForBroadcastAsync = function()
+				return "[filtered] " .. text
+			end }
+		end,
+	},
 }
 
 RT.workspace = RT.Instance.new("Workspace")
@@ -562,7 +629,11 @@ RT.workspace.Raycast = function(self, origin, direction, params)
 	if params and params.FilterType == RT.Enum.RaycastFilterType.Include then
 		return nil
 	end
-	return { Position = RT.Vector3.new(origin.X, 0, origin.Z) }
+	return {
+		Position = RT.Vector3.new(origin.X, 0, origin.Z),
+		Normal = RT.Vector3.new(0, 1, 0),
+		Instance = { CanCollide = true },
+	}
 end
 
 RT.game = {

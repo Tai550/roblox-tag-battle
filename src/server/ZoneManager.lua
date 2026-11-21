@@ -4,6 +4,7 @@
 -- エリアの外に出続けると専用スタミナ（ZoneStamina）が減り、0 になると
 -- 中央へ強制送還される。送還は Config.ZoneMaxReturns 回まで。その次は脱落（観戦）。
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -107,6 +108,10 @@ end
 
 function ZoneManager.GetRadius()
 	return currentRadius
+end
+
+function ZoneManager.IsShrunk()
+	return active and currentRadius < startRadius
 end
 
 -- 今のエリアの内側かどうか。エリアが動いていない間は常に true（制限なし）
@@ -217,6 +222,90 @@ local function respawnInside(player)
 		y = hit.Position.Y + Config.ItemHeightOffset
 	end
 	character:PivotTo(CFrame.new(x, y, z))
+end
+
+function ZoneManager.WarpToCenter(player)
+	local character = player.Character
+	local root = GameState.GetRootPart(player)
+	if not active or not character or not root then
+		return false
+	end
+
+	local excluded = { character }
+	if wallModel then
+		table.insert(excluded, wallModel)
+	end
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other.Character then
+			table.insert(excluded, other.Character)
+		end
+	end
+	for _, other in ipairs(GameState.ParticipantList()) do
+		if other.Character then
+			table.insert(excluded, other.Character)
+		end
+	end
+
+	local ray = RaycastParams.new()
+	ray.FilterType = Enum.RaycastFilterType.Exclude
+	ray.FilterDescendantsInstances = excluded
+	ray.RespectCanCollide = true
+	ray.CollisionGroup = root.CollisionGroup
+	local overlap = OverlapParams.new()
+	overlap.FilterType = Enum.RaycastFilterType.Exclude
+	overlap.FilterDescendantsInstances = { character }
+	overlap.CollisionGroup = root.CollisionGroup
+
+	local candidates = { center }
+	if skySpawnPoints then
+		for _, point in ipairs(skySpawnPoints) do
+			table.insert(candidates, point.Position)
+		end
+	end
+	local searchRadius = math.min(Config.ZoneReturnRadius, currentRadius)
+	for radius = 4, searchRadius, 4 do
+		for index = 0, 7 do
+			local angle = index * math.pi / 4
+			table.insert(candidates, center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius))
+		end
+	end
+	local function distance(position)
+		local offset = position - center
+		return offset.X * offset.X + offset.Z * offset.Z
+	end
+	table.sort(candidates, function(a, b)
+		return distance(a) < distance(b)
+	end)
+
+	local bounds, size = character:GetBoundingBox()
+	local pivot = character:GetPivot()
+	local clearance = 0.1
+	for _, candidate in ipairs(candidates) do
+		if not ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, candidate) then
+			continue
+		end
+		local from = candidate + Vector3.new(0, Config.RespawnRayHeight, 0)
+		local hit = workspace:Raycast(from, Vector3.new(0, -Config.RespawnRayHeight * 2, 0), ray)
+		if not hit or not hit.Instance.CanCollide or hit.Normal.Y < 0.5 then
+			continue
+		end
+		local boxPosition = hit.Position + Vector3.new(0, size.Y / 2 + clearance, 0)
+		local occupied = false
+		local offset = boxPosition - bounds.Position
+		for _, part in ipairs(workspace:GetPartBoundsInBox(bounds + offset, size, overlap)) do
+			local model = part:FindFirstAncestorOfClass("Model")
+			if part.CanCollide or (model and model:FindFirstChildOfClass("Humanoid")) then
+				occupied = true
+				break
+			end
+		end
+		if not occupied then
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			character:PivotTo(pivot + offset)
+			return true
+		end
+	end
+	return false
 end
 
 ---------------------------------------------------------------------

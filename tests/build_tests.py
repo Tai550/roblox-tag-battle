@@ -18,6 +18,7 @@ MODULES = [
     ("src/shared/Config.lua", "Config"),
     ("src/shared/UILayout.lua", "UILayout"),
     ("src/shared/BeastModels.lua", "BeastModels"),
+    ("src/lobby/server/BeastFollower.lua", "BeastFollower"),
     ("src/shared/RouletteVisual.lua", "RouletteVisual"),
     ("src/server/GameState.lua", "GameState"),
     ("src/server/Remotes.lua", "Remotes"),
@@ -29,12 +30,17 @@ MODULES = [
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),
     ("src/server/MapBuilder.lua", "MapBuilder"),
+    ("src/server/VoltGimmicks.lua", "VoltGimmicks"),
     ("src/server/TaggerLook.lua", "TaggerLook"),
     ("src/server/BotManager.lua", "BotManager"),
     ("src/server/RoundManager.lua", "RoundManager"),
+    ("src/serverlib/AdminService.lua", "AdminService"),
+    ("src/server/AdminManager.lua", "AdminManager"),
+    ("src/lobby/server/LobbyAdmin.lua", "LobbyAdmin"),
+    ("src/lobby/server/LobbyTrade.lua", "LobbyTrade"),
 ]
 
-CLIENTS = ()  # 試合の画面は MatchHUD に一本化したので、古い画面のテストはしない
+CLIENTS = ("Slide",)
 
 PRELUDE = """-- [test] Roblox API mock prelude
 local __RT = require("./mockenv")
@@ -105,6 +111,16 @@ def main():
     os.makedirs(BUILD)
     write_arena_fixture(arena_parts, arena_items)
     shutil.copy(os.path.join(ROOT, "tests", "mockenv.lua"), os.path.join(BUILD, "mockenv.lua"))
+    # Run the lobby queue tick with a mock clock, without booting the lobby or its polling loop.
+    with open(os.path.join(ROOT, "src/lobby/server/Main.server.lua"), encoding="utf-8") as f:
+        lobby = f.read()
+    queue_start = lobby.index("local queue = {}")
+    queue_end = lobby.index("task.spawn(function()\n\twhile true do\n\t\tqueueTick()", queue_start)
+    with open(os.path.join(BUILD, "LobbyQueue.lua"), "w", encoding="utf-8") as f:
+        f.write('local Vector3 = require("./mockenv").Vector3\n')
+        f.write("return function(Config, Players, loaded, quickPad, padText, QueueUpdate, os)\n")
+        f.write(lobby[queue_start:queue_end])
+        f.write("return queueTick, function() return departAt end\nend\n")
     for rel_path, name in MODULES:
         with open(os.path.join(ROOT, rel_path), encoding="utf-8") as f:
             source = f.read()

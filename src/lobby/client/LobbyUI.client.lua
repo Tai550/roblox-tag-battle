@@ -48,7 +48,8 @@ Music.Play("Lobby")
 local gui = Instance.new("ScreenGui")
 gui.Name = "LobbyUI"
 gui.ResetOnSpawn = false
-gui.Parent = localPlayer:WaitForChild("PlayerGui")
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+gui.Parent = playerGui
 UILayout.ApplySafeArea(gui)
 
 local function corner(parent, radius)
@@ -125,6 +126,8 @@ local deckButton = button(menu, "デッキ", UDim2.new(1, 0, 0, 44), UDim2.new(0
 local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50))
 local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100))
 local rouletteButton = button(menu, "ルーレット", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150))
+local tradeButton = button(menu, "召喚獣交換", UDim2.fromOffset(108, UILayout.MinTouchSize),
+	UDim2.fromOffset(126, 0), BrandColors.Secondary)
 local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 200), BrandColors.Accent)
 soloButton.MouseButton1Click:Connect(function()
 	SoloPlay:FireServer()
@@ -137,11 +140,16 @@ queueLabel.TextXAlignment = Enum.TextXAlignment.Center
 queueLabel.TextStrokeTransparency = 0.3
 
 -- お知らせ
-local toast = label(gui, "", UDim2.new(0, 460, 0, 26), UDim2.new(0.5, 0, 0, 8), 16, WHITE, true)
+local toast = label(gui, "", UDim2.new(1, -2 * UILayout.EdgeMargin, 0, 26), UDim2.new(0.5, 0, 0, 8), 16, WHITE, true)
 toast.AnchorPoint = Vector2.new(0.5, 0)
 toast.TextXAlignment = Enum.TextXAlignment.Center
 toast.TextStrokeTransparency = 0.3
 toast.TextTransparency = 1
+toast.TextWrapped = true
+toast.AutomaticSize = Enum.AutomaticSize.Y
+local toastSize = Instance.new("UISizeConstraint")
+toastSize.MaxSize = Vector2.new(460, math.huge)
+toastSize.Parent = toast
 local toastToken = 0
 local function showToast(text)
 	toastToken = toastToken + 1
@@ -187,11 +195,29 @@ local shopPanel = makePanel("ショップ")
 local roomPanel = makePanel("友達部屋")
 local roulettePanel = makePanel("デイリールーレット")
 local beastPanel = makePanel("召喚獣ガチャ")
-local panels = { deckPanel, shopPanel, roomPanel, roulettePanel, beastPanel }
+local tradePanel = makePanel("召喚獣交換")
+local panels = { deckPanel, shopPanel, roomPanel, roulettePanel, beastPanel, tradePanel }
+
+local function syncPanelVisibility()
+	for _, panel in ipairs(panels) do
+		if panel.Visible then
+			playerGui:SetAttribute("LobbyPanelOpen", true)
+			return
+		end
+	end
+	playerGui:SetAttribute("LobbyPanelOpen", nil)
+end
+for _, panel in ipairs(panels) do
+	panel:GetPropertyChangedSignal("Visible"):Connect(syncPanelVisibility)
+end
 
 local function open(panel)
+	if playerGui:GetAttribute("LobbyAdminOpen") then
+		return
+	end
+	local show = not panel.Visible
 	for _, other in ipairs(panels) do
-		other.Visible = other == panel and not panel.Visible
+		other.Visible = other == panel and show
 	end
 end
 deckButton.MouseButton1Click:Connect(function()
@@ -238,6 +264,166 @@ local function tierTag(def)
 end
 
 ---------------------------------------------------------------------
+-- 召喚獣交換
+---------------------------------------------------------------------
+
+local renderTrade
+do
+	local action = Remotes:WaitForChild("TradeAction")
+	local list = scrollList(tradePanel, 48, 12)
+	local state = { Phase = "idle" }
+	local targetId, beastId, message
+	local rowIndex
+
+	local function beastName(id)
+		return Config.Beasts[id].DisplayName
+	end
+
+	local function textRow(text, height)
+		rowIndex += 1
+		local row = label(list, text, UDim2.new(1, -12, 0, height or 26), UDim2.new(), 16, WHITE, true)
+		row.LayoutOrder = rowIndex
+	end
+
+	local function actionRow(text, color, callback)
+		rowIndex += 1
+		local row = button(list, text, UDim2.new(1, -12, 0, UILayout.MinTouchSize), UDim2.new(), color)
+		row.LayoutOrder = rowIndex
+		row.TextWrapped = true
+		row.Activated:Connect(callback)
+	end
+
+	local function chooseBeast(excludedId)
+		textRow("出す召喚獣を選ぶ")
+		local hasOffer = false
+		for _, id in ipairs(Config.BeastOrder) do
+			if myData.Beasts[id] and id ~= excludedId then
+				hasOffer = true
+				actionRow(beastName(id), beastId == id and GOLD or BrandColors.Secondary, function()
+					beastId = id
+					renderTrade()
+				end)
+			end
+		end
+		if not hasOffer then
+			textRow("出せる召喚獣がいません")
+		end
+	end
+
+	renderTrade = function()
+		if not tradePanel.Visible then
+			return
+		end
+		for _, child in ipairs(list:GetChildren()) do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		rowIndex = 0
+		if message then
+			textRow(message, 44)
+		end
+		if state.Phase == "idle" then
+			textRow("同じロビーにいる相手を選ぶ")
+			local hasPartner = false
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= localPlayer then
+					hasPartner = true
+					actionRow(player.DisplayName .. " (@" .. player.Name .. ")",
+						targetId == player.UserId and GOLD or BrandColors.Secondary, function()
+							targetId = player.UserId
+							renderTrade()
+						end)
+				end
+			end
+			if not hasPartner then
+				textRow("交換できる相手がいません")
+				return
+			end
+			chooseBeast()
+			if targetId and Players:GetPlayerByUserId(targetId) and beastId and myData.Beasts[beastId] then
+				actionRow("申し込む", GOLD, function()
+					action:FireServer("request", targetId, beastId)
+				end)
+			end
+		elseif state.Phase == "offered" then
+			textRow(state.From .. " → " .. state.To .. "　" .. beastName(state.OfferA), 48)
+			if state.IsSender then
+				textRow("相手の応答を待っています")
+			else
+				actionRow("断る", BrandColors.Secondary, function()
+					action:FireServer("cancel", state.Id)
+				end)
+				chooseBeast(state.OfferA)
+				if state.BlockedReason then
+					textRow(state.BlockedReason, 48)
+				elseif beastId and beastId ~= state.OfferA and myData.Beasts[beastId] then
+					actionRow("この獣で返す", GOLD, function()
+						action:FireServer("offer", state.Id, beastId)
+					end)
+				end
+			end
+		else
+			textRow(state.From .. "の " .. beastName(state.OfferA) .. "\n⇄ " ..
+				state.To .. "の " .. beastName(state.OfferB), 60)
+			if state.Phase == "saving" then
+				textRow("交換を保存しています")
+			elseif state.BlockedReason then
+				textRow(state.BlockedReason, 48)
+			elseif state.Confirmed then
+				textRow("相手の決定を待っています")
+			else
+				actionRow("決定", GOLD, function()
+					action:FireServer("confirm", state.Id)
+				end)
+			end
+		end
+		if state.Phase ~= "idle" and (state.Phase ~= "offered" or state.IsSender) then
+			actionRow("やめる", BrandColors.Secondary, function()
+				action:FireServer("cancel", state.Id)
+			end)
+		end
+	end
+
+	tradeButton.Activated:Connect(function()
+		open(tradePanel)
+	end)
+	tradePanel:GetPropertyChangedSignal("Visible"):Connect(renderTrade)
+	Players.PlayerAdded:Connect(renderTrade)
+	Players.PlayerRemoving:Connect(function(player)
+		if targetId == player.UserId then
+			targetId = nil
+		end
+		task.defer(renderTrade)
+	end)
+	Remotes:WaitForChild("TradeUpdate").OnClientEvent:Connect(function(nextState, notice)
+		if nextState then
+			local incoming = nextState.Phase == "offered" and not nextState.IsSender
+			local changedPhase = state.Phase ~= nextState.Phase
+			if nextState.Id ~= state.Id then
+				beastId = nil
+			end
+			state = nextState
+			if changedPhase then
+				list.CanvasPosition = Vector2.zero
+			end
+			if incoming and not tradePanel.Visible then
+				open(tradePanel)
+				if not tradePanel.Visible then
+					showToast("召喚獣の交換申し込みが届きました")
+				end
+			end
+			tradeButton.Text = state.Phase == "idle" and "召喚獣交換" or "交換を確認"
+		end
+		message = notice
+		if notice and not tradePanel.Visible then
+			showToast(notice)
+		end
+		renderTrade()
+	end)
+end
+
+---------------------------------------------------------------------
 -- 召喚獣ガチャ
 ---------------------------------------------------------------------
 
@@ -279,8 +465,8 @@ for index, id in ipairs(Config.BeastOrder) do
 	local equip = button(row, "", UDim2.fromOffset(76, UILayout.MinTouchSize),
 		UDim2.new(1, -82, 0.5, -UILayout.MinTouchSize / 2), BrandColors.Secondary)
 	equip.Activated:Connect(function()
-		if myData.Beasts[id] and myData.EquippedBeast ~= id then
-			EquipBeast:FireServer(id)
+		if myData.Beasts[id] then
+			EquipBeast:FireServer(myData.EquippedBeast == id and "" or id)
 		end
 	end)
 	equipButtons[id] = equip
@@ -290,8 +476,8 @@ local function renderBeasts()
 	for id, equip in pairs(equipButtons) do
 		local owned = myData.Beasts[id] == true
 		local equipped = myData.EquippedBeast == id
-		equip.Text = equipped and "装備中" or (owned and "装備する" or "未所持")
-		equip.Interactable = owned and not equipped
+		equip.Text = equipped and "装備解除" or (owned and "装備する" or "未所持")
+		equip.Interactable = owned
 		equip.BackgroundColor3 = equipped and GOLD or (owned and BrandColors.Secondary or DARK)
 		equip.TextColor3 = equipped and DARK or WHITE
 	end
@@ -714,6 +900,7 @@ DataUpdate.OnClientEvent:Connect(function(data)
 	renderDeck()
 	renderShop()
 	renderBeasts()
+	renderTrade()
 end)
 
 QueueUpdate.OnClientEvent:Connect(function(info)

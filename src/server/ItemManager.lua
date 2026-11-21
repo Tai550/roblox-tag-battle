@@ -768,6 +768,11 @@ handlers.Flash = function(player, def, data)
 end
 
 local function setSneakVisual(player, on, def)
+	local effect = GameState.GetData(player).BeastVisibility
+	if effect then
+		effect.SneakChanged = true
+		return
+	end
 	local character = player.Character
 	if not character then
 		return
@@ -904,14 +909,19 @@ handlers.Radar = function(player, def, data)
 	return true
 end
 
+local function freezeParticipant(player, untilTime)
+	local data = GameState.GetData(player)
+	data.FrozenUntil = math.max(data.FrozenUntil, untilTime)
+	GameState.RefreshSpeed(player)
+	sendItemUpdate(player)
+end
+
 handlers.TimeStop = function(player, def, data)
 	local hit = false
 	for tagger in pairs(GameState.Taggers) do
 		if GameState.IsAlive(tagger) then
-			GameState.GetData(tagger).FrozenUntil = GameState.Now() + def.Duration
-			GameState.RefreshSpeed(tagger)
+			freezeParticipant(tagger, GameState.Now() + def.Duration)
 			Remotes.NotifyPlayer(tagger, player.DisplayName .. " のタイムストップで動けない！")
-			sendItemUpdate(tagger)
 			hit = true
 		end
 	end
@@ -1145,6 +1155,203 @@ function ItemManager.TryIsisJump(player)
 	end
 end
 
+-- 今使えるアイテムの中からランダムに1つ選ぶ（鬼には鬼が使えるアイテムだけ）
+local function pickBoxItemFor(player)
+	local isTagger = GameState.IsTagger(player)
+	local itemId = pickRandomItemId(Config.ItemOrder, function(def)
+		return not def.ExclusiveMap and (def.CanTaggerUse or not isTagger)
+	end)
+	return itemId or pickRandomItemId(Config.ItemOrder, function(def)
+		return not def.ExclusiveMap
+	end)
+end
+
+local function hideDescendant(effect, child)
+	local property, hidden
+	if child:IsA("BasePart") or child:IsA("Decal") or child:IsA("Texture") then
+		property, hidden = "Transparency", 1
+	elseif child:IsA("Humanoid") then
+		property, hidden = "DisplayDistanceType", Enum.HumanoidDisplayDistanceType.None
+	elseif child:IsA("Highlight") or child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam")
+		or child:IsA("Light") or child:IsA("Fire") or child:IsA("Smoke") or child:IsA("Sparkles")
+		or child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
+		property, hidden = "Enabled", false
+	end
+	if property and not effect.Original[child] then
+		effect.Original[child] = { Property = property, Value = child[property] }
+		child[property] = hidden
+	end
+end
+
+local function makeDecoy(character)
+	local archivable = character.Archivable
+	character.Archivable = true
+	local decoy = character:Clone()
+	character.Archivable = archivable
+	if not decoy then
+		return nil
+	end
+	decoy.Name = "MaatDecoy"
+	for _, child in ipairs(decoy:GetDescendants()) do
+		if child:IsA("BasePart") then
+			child.Anchored = true
+			child.CanCollide = false
+			child.CanTouch = false
+			child.CanQuery = false
+		elseif child:IsA("Humanoid") then
+			child.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+			child.EvaluateStateMachine = false
+		elseif child:IsA("LuaSourceContainer") or child:IsA("Tool") or child:IsA("ForceField") then
+			child:Destroy()
+		end
+	end
+	decoy.Parent = workspace
+	return decoy
+end
+
+local function startBeastVisibility(player, data, root, decoy)
+	local character = player.Character
+	local effect = {
+		Character = character,
+		Until = data.BeastEffectUntil,
+		Original = {},
+		Decoy = decoy and makeDecoy(character) or nil,
+	}
+	if effect.Decoy then
+		data.BeastDecoyPosition = root.Position
+		data.BeastDecoyUntil = effect.Until
+	end
+	data.BeastVisibility = effect
+	effect.Connection = character.DescendantAdded:Connect(function(child)
+		hideDescendant(effect, child)
+	end)
+	for _, child in ipairs(character:GetDescendants()) do
+		hideDescendant(effect, child)
+	end
+end
+
+local function endBeastVisibility(player, data)
+	local effect = data.BeastVisibility
+	if not effect then
+		return
+	end
+	effect.Connection:Disconnect()
+	data.BeastVisibility = nil
+	data.BeastDecoyPosition = nil
+	data.BeastDecoyUntil = nil
+	for child, original in pairs(effect.Original) do
+		child[original.Property] = original.Value
+	end
+	if effect.Decoy then
+		effect.Decoy:Destroy()
+	end
+	if effect.SneakChanged and effect.Character == player.Character then
+		setSneakVisual(player, data.SneakUntil > GameState.Now(), Config.Items.Sneak)
+	end
+end
+
+local function endGlide(data)
+	if data.BeastGlideCharacter then
+		data.BeastGlideCharacter:SetAttribute("BeastGlideVelocity", nil)
+		data.BeastGlideCharacter = nil
+	end
+	data.BeastGlideUntil = 0
+	data.BeastGlideAirborne = nil
+end
+
+local function endProne(player, data)
+	if data.BeastProneUntil > 0 then
+		data.BeastProneUntil = 0
+		GameState.ApplyDownPose(player, GameState.IsDowned(player))
+		GameState.RefreshSpeed(player)
+	end
+end
+
+function ItemManager.ClearBeastEffects(player)
+	local data = GameState.GetData(player)
+	endBeastVisibility(player, data)
+	endGlide(data)
+	endProne(player, data)
+	data.BeastChargeHits = nil
+	if data.BeastUsed == "Amun" and data.InvulnerableUntil == data.BeastEffectUntil then
+		data.InvulnerableUntil = 0
+	end
+	if data.BeastUsed == "Amun" or data.BeastUsed == "Maat" or data.BeastUsed == "Geb"
+		or data.BeastUsed == "Apis" or data.BeastUsed == "Nut" then
+		data.BeastEffectUntil = 0
+		GameState.RefreshSpeed(player)
+	end
+end
+
+local function horizontalForward(root)
+	local look = root.CFrame.LookVector
+	local forward = Vector3.new(look.X, 0, look.Z)
+	return forward.Magnitude > 0.01 and forward.Unit or Vector3.new(0, 0, -1)
+end
+
+local function knockBack(root, otherRoot, def)
+	local offset = otherRoot.Position - root.Position
+	local flat = Vector3.new(offset.X, 0, offset.Z)
+	local direction = flat.Magnitude > 0.01 and flat.Unit or horizontalForward(root)
+	otherRoot.AssemblyLinearVelocity = direction * def.KnockbackSpeed + Vector3.new(0, def.KnockbackUpSpeed, 0)
+	otherRoot:SetAttribute("BeastKnockback", (otherRoot:GetAttribute("BeastKnockback") or 0) + 1)
+end
+
+local function knockBackNearby(player, root, def, taggersOnly)
+	if taggersOnly and GameState.IsTagger(player) then
+		return
+	end
+	for _, other in ipairs(GameState.ParticipantList()) do
+		if other ~= player and (not taggersOnly or GameState.IsTagger(other)) and GameState.IsAlive(other) then
+			local otherRoot = GameState.GetRootPart(other)
+			if otherRoot and (otherRoot.Position - root.Position).Magnitude <= def.Radius then
+				knockBack(root, otherRoot, def)
+			end
+		end
+	end
+end
+
+local function stunNearestForward(player, root, def)
+	if GameState.IsTagger(player) then
+		return
+	end
+	local nearest, best = nil, def.Range
+	local forward = horizontalForward(root)
+	for _, tagger in ipairs(GameState.TaggerList()) do
+		local otherRoot = GameState.GetRootPart(tagger)
+		if otherRoot and GameState.IsParticipant(tagger) and GameState.IsAlive(tagger) then
+			local offset = otherRoot.Position - root.Position
+			local distance = offset.Magnitude
+			if distance > 0 and distance <= best and offset.Unit:Dot(forward) >= def.ForwardDot then
+				nearest, best = tagger, distance
+			end
+		end
+	end
+	if nearest then
+		GameState.ApplyStun(nearest, def.StunTime)
+	end
+end
+
+function ItemManager.TryBeastChargeHit(player, tagger, now)
+	local data = GameState.GetData(player)
+	local hits = data.BeastChargeHits
+	if not hits or data.BeastEffectUntil <= now or GameState.IsTagger(player)
+		or data.FrozenUntil > now or GameState.IsDowned(player) or GameState.IsStunned(player) then
+		return false
+	end
+	if (hits[tagger] or 0) > now then
+		return true
+	end
+	local root, otherRoot = GameState.GetRootPart(player), GameState.GetRootPart(tagger)
+	local def = Config.Beasts.Apis
+	if root and otherRoot and (otherRoot.Position - root.Position).Magnitude <= def.Radius then
+		knockBack(root, otherRoot, def)
+		hits[tagger] = now + def.HitCooldown
+		return true
+	end
+	return false
+end
+
 function ItemManager.UseBeast(player)
 	if not active or GameState.Phase ~= "Round" or not Remotes.IsRealPlayer(player)
 		or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
@@ -1159,11 +1366,15 @@ function ItemManager.UseBeast(player)
 	if not def or not root or data.BeastUsed or data.FrozenUntil > now then
 		return false
 	end
-	if id ~= "Hathor" and (GameState.IsDowned(player) or GameState.IsStunned(player)) then
+	if id ~= "Hathor" and id ~= "Bes" and (GameState.IsDowned(player) or GameState.IsStunned(player)) then
+		return false
+	end
+	if id == "Atum" and not ZoneManager.WarpToCenter(player) then
 		return false
 	end
 	data.BeastUsed = id
 	data.BeastEffectUntil = def.Duration > 0 and now + def.Duration or 0
+	Remotes.NotifyPlayer(player, def.DisplayName .. " を召喚！")
 
 	if id == "Bastet" or id == "Horus" then
 		GameState.RefreshSpeed(player)
@@ -1175,7 +1386,7 @@ function ItemManager.UseBeast(player)
 			end
 		end
 		Remotes.RadarEffect:FireClient(player, targets, def.Duration, true)
-	elseif def.Radius then
+	elseif id == "Sobek" or id == "Ra" or id == "Sekhmet" then
 		local isTagger = GameState.IsTagger(player)
 		for _, other in ipairs(GameState.ParticipantList()) do
 			if GameState.IsTagger(other) ~= isTagger and GameState.IsAlive(other) then
@@ -1208,18 +1419,56 @@ function ItemManager.UseBeast(player)
 				+ Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 		end
 		GameState.RefreshSpeed(player)
-	elseif id == "Hathor" then
+	elseif id == "Hathor" or id == "Bes" then
 		GameState.ClearStun(player)
 		GameState.ClearDown(player)
-		data.ZoneStamina = Config.ZoneStaminaMax
+		if id == "Hathor" then
+			data.ZoneStamina = Config.ZoneStaminaMax
+		else
+			data.InvulnerableUntil = math.max(data.InvulnerableUntil, data.BeastEffectUntil)
+		end
 		GameState.RefreshSpeed(player)
 	elseif id == "Set" then
 		swapWithOpponent(player)
+	elseif id == "Geb" then
+		data.BeastProneUntil = data.BeastEffectUntil
+		GameState.ApplyDownPose(player, true)
+		GameState.StopStunnedMovement(player)
+		GameState.RefreshSpeed(player)
+	elseif id == "Nut" then
+		local forward = horizontalForward(root)
+		data.BeastGlideUntil = data.BeastEffectUntil
+		data.BeastGlideCharacter = player.Character
+		player.Character:SetAttribute("BeastGlideVelocity", forward * def.GlideSpeed)
+		root.AssemblyLinearVelocity = forward * def.LaunchSpeed + Vector3.new(0, def.LaunchUpSpeed, 0)
+	elseif id == "Taweret" or id == "Hapy" then
+		knockBackNearby(player, root, def, id == "Taweret")
+	elseif id == "Maat" or id == "Amun" then
+		startBeastVisibility(player, data, root, id == "Maat")
+		if id == "Amun" then
+			data.InvulnerableUntil = math.max(data.InvulnerableUntil, data.BeastEffectUntil)
+			GameState.RefreshSpeed(player)
+		end
+	elseif id == "Serqet" then
+		stunNearestForward(player, root, def)
+	elseif id == "Apis" then
+		data.BeastChargeHits = {}
+		GameState.RefreshSpeed(player)
+	elseif id == "Apophis" then
+		for _, other in ipairs(GameState.ParticipantList()) do
+			if other ~= player and GameState.IsAlive(other) then
+				freezeParticipant(other, data.BeastEffectUntil)
+			end
+		end
+	elseif id == "Ptah" then
+		local itemId = DeckManager.PickFromDeck(player) or pickBoxItemFor(player)
+		if not itemId or not ItemManager.GrantItem(player, itemId) then
+			Remotes.NotifyPlayer(player, "プタハからアイテムを受け取れませんでした")
+		end
 	end
 	local model = BeastModels.Build(id, root.CFrame * CFrame.new(3, -2, 0), 0.4)
 	model.Parent = workspace
 	roundModels[model] = now + Config.BeastModelDuration
-	Remotes.NotifyPlayer(player, def.DisplayName .. " を召喚！")
 	sendItemUpdate(player)
 	return true
 end
@@ -1233,10 +1482,13 @@ local function onUseItem(player, slotArg)
 			return
 		end
 	end
-	if GameState.IsDowned(player) then
+	if GameState.IsDowned(player) or GameState.IsProne(player) then
 		return
 	end
 	local data = GameState.GetData(player)
+	if data.FrozenUntil > GameState.Now() then
+		return
+	end
 	local now = GameState.Now()
 	if now - data.LastUseTime < Config.UseItemCooldown then
 		return
@@ -1325,10 +1577,51 @@ function ItemManager.Tick()
 				data.IsisJumpSpent = nil
 			end
 		end
+		local visibility = data.BeastVisibility
+		if visibility then
+			if visibility.Character ~= player.Character or not GameState.IsAlive(player) then
+				ItemManager.ClearBeastEffects(player)
+			elseif visibility.Until <= now then
+				endBeastVisibility(player, data)
+			end
+		end
+		if data.BeastProneUntil > 0 then
+			if data.BeastProneUntil <= now or not GameState.IsAlive(player) then
+				endProne(player, data)
+			else
+				GameState.StopStunnedMovement(player)
+			end
+		end
+		if data.BeastGlideUntil > 0 then
+			local humanoid = GameState.GetHumanoid(player)
+			local airborne = humanoid and humanoid.FloorMaterial == Enum.Material.Air
+			if data.BeastGlideUntil <= now or data.BeastGlideCharacter ~= player.Character
+				or not GameState.IsAlive(player) or data.FrozenUntil > now or GameState.IsDowned(player)
+				or GameState.IsStunned(player) or (data.BeastGlideAirborne and not airborne) then
+				endGlide(data)
+				data.BeastEffectUntil = now
+			elseif airborne then
+				data.BeastGlideAirborne = true
+				local root = GameState.GetRootPart(player)
+				if root and root.AssemblyLinearVelocity.Y < 0 then
+					local forward = player.Character:GetAttribute("BeastGlideVelocity")
+					root.AssemblyLinearVelocity = forward + Vector3.new(0,
+						math.max(root.AssemblyLinearVelocity.Y, -Config.Beasts.Nut.FallSpeed), 0)
+				end
+			end
+		end
+		if data.BeastChargeHits and data.BeastEffectUntil > now and GameState.IsAlive(player) then
+			for _, tagger in ipairs(GameState.TaggerList()) do
+				if GameState.IsParticipant(tagger) and GameState.IsAlive(tagger) then
+					ItemManager.TryBeastChargeHit(player, tagger, now)
+				end
+			end
+		end
 		local beastExpired = data.BeastEffectUntil > 0 and data.BeastEffectUntil <= now
 		local beastSlowExpired = data.BeastSlowUntil > 0 and data.BeastSlowUntil <= now
 		if beastExpired or beastSlowExpired then
 			if beastExpired then
+				data.BeastChargeHits = nil
 				data.BeastEffectUntil = 0
 			end
 			if beastSlowExpired then
@@ -1373,8 +1666,8 @@ function ItemManager.Tick()
 			GameState.RefreshSpeed(player)
 			sendItemUpdate(player)
 		end
-		if data.FrozenUntil > 0 and data.FrozenUntil <= now then
-			data.FrozenUntil = 0
+		if data.FrozenUntil > 0 and (data.FrozenUntil <= now or not GameState.IsAlive(player)) then
+			GameState.ClearFreeze(player)
 			GameState.RefreshSpeed(player)
 			sendItemUpdate(player)
 		end
@@ -1448,6 +1741,7 @@ end
 
 -- 復活したときにシールド・スターの見た目を付け直す
 function ItemManager.OnCharacterAdded(player)
+	ItemManager.ClearBeastEffects(player)
 	ItemManager.EndPhase(player)
 	if GameState.IsDowned(player) then
 		GameState.ApplyDownPose(player, true)
@@ -1494,17 +1788,6 @@ local function notifyBoxResult(player, itemId, replacedId)
 	Remotes.NotifyPlayer(player, text)
 end
 
--- 今使えるアイテムの中からランダムに1つ選ぶ（鬼には鬼が使えるアイテムだけ）
-local function pickBoxItemFor(player)
-	local isTagger = GameState.IsTagger(player)
-	local itemId = pickRandomItemId(Config.ItemOrder, function(def)
-		return not def.ExclusiveMap and (def.CanTaggerUse or not isTagger)
-	end)
-	return itemId or pickRandomItemId(Config.ItemOrder, function(def)
-		return not def.ExclusiveMap
-	end)
-end
-
 -- アイテムボックスの中身を必ず渡す。戻り値: 渡した（または予約した）アイテムの Id。失敗時 nil
 --   ラウンド中の参加者 → その場で持ち物に入れる（いっぱいなら入れ替え）
 --   それ以外（待機中・観戦中など）→ 予約して、次のラウンド開始時に渡す
@@ -1514,9 +1797,13 @@ function ItemManager.GrantItem(player, itemId)
 		return false
 	end
 	if active and GameState.Phase == "Round" and GameState.IsParticipant(player) then
-		addToInventory(player, itemId)
+		local replaced = addToInventory(player, itemId)
 		sendItemUpdate(player)
-		Remotes.NotifyPlayer(player, Config.Items[itemId].DisplayName .. " を受け取りました")
+		local message = Config.Items[itemId].DisplayName .. " を受け取りました"
+		if replaced then
+			message ..= "（" .. Config.Items[replaced].DisplayName .. " と入れ替え）"
+		end
+		Remotes.NotifyPlayer(player, message)
 	else
 		table.insert(GameState.GetData(player).PendingItems, itemId)
 		Remotes.NotifyPlayer(player, Config.Items[itemId].DisplayName .. " は次の試合で届きます")
@@ -1637,6 +1924,8 @@ function ItemManager.Stop()
 	end
 
 	for player in pairs(GameState.AllData()) do
+		ItemManager.ClearBeastEffects(player)
+		GameState.ClearFreeze(player)
 		ItemManager.EndPhase(player)
 		GameState.ClearStun(player)
 		GameState.ClearDown(player)

@@ -24,6 +24,7 @@ local BotManager = require(script.Parent:WaitForChild("BotManager"))
 local RankManager = require(script.Parent:WaitForChild("RankManager"))
 local TaggerLook = require(script.Parent:WaitForChild("TaggerLook"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
+local VoltGimmicks = require(script.Parent:WaitForChild("VoltGimmicks"))
 
 local RoundManager = {}
 
@@ -264,6 +265,8 @@ local function hasInitialRunner()
 end
 
 local function removeParticipant(player)
+	ItemManager.ClearBeastEffects(player)
+	GameState.ClearFreeze(player)
 	GameState.Participants[player] = nil
 	GameState.Uncaught[player] = nil
 end
@@ -479,7 +482,8 @@ end
 
 local function tryTagFor(tagger, role, now)
 	if now - role.Since < Config.TagCooldown or not GameState.IsAlive(tagger)
-		or GameState.IsDowned(tagger) then
+		or GameState.IsDowned(tagger) or GameState.IsProne(tagger) or GameState.IsStunned(tagger)
+		or GameState.GetData(tagger).FrozenUntil > now then
 		return
 	end
 	local taggerRoot = GameState.GetRootPart(tagger)
@@ -493,7 +497,8 @@ local function tryTagFor(tagger, role, now)
 			and not RoundManager.IsTagBackBlocked(runner, role.NoTagBack) then
 			if isWithinTagReach(origin, runner.Character) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
 				local data = GameState.GetData(runner)
-				if data.InvulnerableUntil > now then
+				if data.InvulnerableUntil > now or data.BeastProneUntil > now
+					or ItemManager.TryBeastChargeHit(runner, tagger, now) then
 					-- シールドの猶予時間または召喚獣の加護でタッチ無効
 				elseif GameState.HasStar(runner) then
 					-- スターの効果中なのでタッチ無効
@@ -764,7 +769,9 @@ local function runRound()
 	RoundManager.SelectInitialTaggers()
 	ItemManager.DeliverPendingItems()
 
-	local endTime = GameState.Now() + duration
+	local startedAt = GameState.Now()
+	VoltGimmicks.Start(startedAt)
+	local endTime = startedAt + duration
 	local nextBroadcast = 0
 
 	while true do
@@ -793,6 +800,7 @@ local function runRound()
 
 		reconcileTaggers()
 
+		VoltGimmicks.Tick(now)
 		RoundManager.TryTag()
 		ItemManager.Tick()
 		ZoneManager.Tick()
@@ -813,6 +821,8 @@ local function runRound()
 
 		task.wait(Config.TagCheckInterval)
 	end
+
+	VoltGimmicks.Stop()
 
 	-- 結果を作る
 	local entries = {}
@@ -945,6 +955,10 @@ local function onCharacterAdded(player, character)
 end
 
 local function watchPlayer(player)
+	player.CharacterRemoving:Connect(function()
+		ItemManager.ClearBeastEffects(player)
+		GameState.ClearFreeze(player)
+	end)
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
 	end)

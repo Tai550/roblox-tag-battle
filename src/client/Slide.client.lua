@@ -11,6 +11,8 @@ local participant = false
 local bootsUntil = 0
 local previous
 local lastRoot
+local lastKnockback
+local lastStun
 local fallenHumanoid
 
 remotes:WaitForChild("StateUpdate").OnClientEvent:Connect(function(state)
@@ -53,17 +55,38 @@ RunService.PostSimulation:Connect(function(dt)
 		previous = nil
 		return
 	end
+	local stun = character and character:GetAttribute("StunUntil")
+	local stunSequence = character and character:GetAttribute("StunSequence")
+	if lastStun ~= stunSequence then
+		lastStun = stunSequence
+		previous = nil
+	end
+	if stun and stun > workspace:GetServerTimeNow() then
+		previous = nil
+		return
+	end
+	local glide = character and character:GetAttribute("BeastGlideVelocity")
+	if glide and root and humanoid and humanoid.Health > 0 then
+		local velocity = root.AssemblyLinearVelocity
+		if humanoid.FloorMaterial == Enum.Material.Air and velocity.Y < 0 then
+			root.AssemblyLinearVelocity = glide + Vector3.new(0, math.max(velocity.Y, -Config.Beasts.Nut.FallSpeed), 0)
+		end
+		previous = nil
+		return
+	end
 	if not participant or workspace:GetAttribute("CurrentGimmick") ~= "Ice"
-		or not root or not humanoid or humanoid.Health <= 0
+		or not root or root.Anchored or not humanoid or humanoid.Health <= 0
 		or bootsUntil > workspace:GetServerTimeNow() then
 		previous = nil
 		return
 	end
 
 	local actual = root.AssemblyLinearVelocity
-	if lastRoot ~= root then
+	local knockback = root:GetAttribute("BeastKnockback")
+	if lastRoot ~= root or lastKnockback ~= knockback then
 		previous = nil
 		lastRoot = root
+		lastKnockback = knockback
 	end
 	local horizontal = previous or Vector3.new(actual.X, 0, actual.Z)
 	previous = Config.IceVelocity(horizontal, humanoid.MoveDirection, humanoid.WalkSpeed, dt)

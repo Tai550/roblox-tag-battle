@@ -12,6 +12,9 @@
       "$className": "ServerScriptService",
       "Server": {
         "$path": "src/server",
+        "AdminService": {
+          "$path": "src/serverlib/AdminService.lua"
+        },
         "PlayerDataStore": {
           "$path": "src/serverlib/PlayerDataStore.lua"
         }

@@ -11,6 +11,7 @@
 -- メモリ上のデータで遊べるようにする（保存はされない）。
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
@@ -23,6 +24,8 @@ local SAVE_FAILED = "データを保存できませんでした。もう一度�
 local store = nil        -- DataStore（初めて使うときに取得する）
 local storeFailed = false
 local cache = {}         -- [Player] = データ
+local activeWrites = {}  -- [UserId] = 通常の保存件数
+local trading = {}       -- [UserId] = 交換の保存中
 
 ---------------------------------------------------------------------
 -- 計算だけの関数（テストからも呼べる）
@@ -67,6 +70,9 @@ function PlayerDataStore.Normalize(raw)
 	end
 	if type(data.EquippedBeast) == "string" and result.Beasts[data.EquippedBeast] then
 		result.EquippedBeast = data.EquippedBeast
+	end
+	if type(data.BeastTradeId) == "string" then
+		result.BeastTradeId = data.BeastTradeId
 	end
 	return result
 end
@@ -184,7 +190,8 @@ local function keyFor(player)
 end
 
 -- transform(データ) でデータを書き換えて保存する。成功したら新しいデータを返す
-local function update(player, transform)
+local function write(player, transform, memoryData)
+	local wasCached = cache[player] ~= nil
 	local ds = getStore()
 	if ds then
 		for attempt = 1, RETRIES do
@@ -197,13 +204,20 @@ local function update(player, transform)
 						data.RouletteAt = current.RouletteAt
 						data.RouletteStock = current.RouletteStock
 					end
-					transform(data)
+					if transform(data) == false then
+						return nil
+					end
 					return data
 				end)
 			end)
 			if ok then
+				if result == nil then
+					return nil
+				end
 				local data = PlayerDataStore.Normalize(result)
-				cache[player] = data
+				if cache[player] or (not wasCached and not memoryData) then
+					cache[player] = data
+				end
 				return data
 			end
 			if useStudioMemory(result) then
@@ -217,19 +231,193 @@ local function update(player, transform)
 		end
 	end
 	-- DataStore が使えない環境ではメモリ上だけ更新する
-	local data = PlayerDataStore.Get(player)
-	transform(data)
+	local current = cache[player]
+	local data = PlayerDataStore.Normalize(current or memoryData)
+	if transform(data) == false then
+		return nil
+	end
+	if current or (not wasCached and not memoryData) then
+		cache[player] = data
+	end
 	return data
+end
+
+local function update(player, transform)
+	local userId = player.UserId
+	if trading[userId] then
+		return nil, SAVE_FAILED
+	end
+	activeWrites[userId] = (activeWrites[userId] or 0) + 1
+	local data, reason = write(player, transform)
+	local remaining = activeWrites[userId] - 1
+	activeWrites[userId] = remaining > 0 and remaining or nil
+	return data, reason
+end
+
+local pendingTrades = {}
+local readOptions = Instance.new("DataStoreGetOptions")
+readOptions.UseCache = false
+
+local function journalCall(operation)
+	for attempt = 1, RETRIES do
+		local ok, result = pcall(function()
+			local journal = game:GetService("DataStoreService"):GetDataStore("BeastTradePendingV1")
+			return operation(journal)
+		end)
+		if ok then
+			return true, result
+		end
+		if useStudioMemory(result) then
+			break
+		end
+		warn("[PlayerDataStore] 交換ログの操作に失敗: " .. tostring(result))
+		if attempt < RETRIES then
+			task.wait(attempt)
+		end
+	end
+	return false
+end
+
+local function tradeKey(id)
+	return "trade_" .. id
+end
+
+local function setTradeStage(record, stage, isActive)
+	return journalCall(function(journal)
+		return journal:UpdateAsync(tradeKey(record.Id), function(current)
+			if not current then
+				return nil
+			end
+			if current.Stage == "committed" or current.Stage == "rollback" then
+				return current
+			end
+			if stage ~= "rollback" and (os.time() >= current.ExpiresAt or (isActive and not isActive())) then
+				return nil
+			end
+			record.Stage = stage
+			return record
+		end)
+	end)
+end
+
+local function clearTradeIndex(player, id)
+	return journalCall(function(journal)
+		-- UpdateAsync の nil は更新取り消し。空の値で予約を解放する。
+		journal:UpdateAsync(keyFor(player), function(current)
+			if current == id then
+				return false
+			end
+			return nil
+		end)
+	end)
+end
+
+local function clearTrade(record)
+	-- ログ削除に失敗した場合、次の Load で再試行できるよう索引を残す。
+	local removed = journalCall(function(journal)
+		journal:RemoveAsync(tradeKey(record.Id))
+	end)
+	if not removed then
+		return
+	end
+	for _, side in ipairs(record.Sides) do
+		if clearTradeIndex(side, record.Id) and pendingTrades[side.UserId] == record.Id then
+			pendingTrades[side.UserId] = nil
+		end
+	end
+end
+
+local function restoreTrade(record, players)
+	if not getStore() then
+		return false
+	end
+	local restored = true
+	for index, side in ipairs(record.Sides) do
+		if not side.Before then
+			continue
+		end
+		local player = players and players[index]
+		if not player then
+			for cached in pairs(cache) do
+				if cached.UserId == side.UserId then
+					player = cached
+					break
+				end
+			end
+		end
+		local data = write(player or side, function(fresh)
+			if fresh.BeastTradeId == record.Id then
+				fresh.BeastTradeId = nil
+				fresh.Beasts[side.Outgoing] = side.Before.OwnedOutgoing
+				fresh.Beasts[side.Incoming] = side.Before.OwnedIncoming or nil
+				if side.Before.Equipped == side.Outgoing and fresh.EquippedBeast == nil then
+					fresh.EquippedBeast = side.Outgoing
+				end
+			end
+		end, {})
+		restored = data ~= nil and not storeFailed and restored
+	end
+	return restored
+end
+
+local function recoverTrade(player)
+	if not getStore() then
+		return
+	end
+	local ok, id = journalCall(function(journal)
+		return journal:GetAsync(keyFor(player), readOptions)
+	end)
+	if not ok then
+		pendingTrades[player.UserId] = not storeFailed and true or nil
+		return
+	end
+	pendingTrades[player.UserId] = id or nil
+	if not id then
+		return
+	end
+	local read, record = journalCall(function(journal)
+		return journal:GetAsync(tradeKey(id), readOptions)
+	end)
+	if not read then
+		return
+	end
+	if not record then
+		if clearTradeIndex(player, id) then
+			pendingTrades[player.UserId] = nil
+		end
+		return
+	end
+	if record.Stage ~= "committed" and record.Stage ~= "rollback" then
+		if os.time() < record.ExpiresAt then
+			return
+		end
+		local changed
+		changed, record = setTradeStage(record, "rollback")
+		if not changed or not record then
+			return
+		end
+	end
+	if record.Stage == "committed" or restoreTrade(record) then
+		clearTrade(record)
+	end
+end
+
+function PlayerDataStore.IsTradePending(player)
+	return trading[player.UserId] or pendingTrades[player.UserId] ~= nil
 end
 
 -- 参加したときに読み込む
 function PlayerDataStore.Load(player)
+	while trading[player.UserId] do
+		task.wait()
+	end
+	recoverTrade(player)
 	local ds = getStore()
 	local data = nil
 	if ds then
 		for attempt = 1, RETRIES do
 			local ok, result = pcall(function()
-				return ds:GetAsync(keyFor(player))
+				return ds:GetAsync(keyFor(player), readOptions)
 			end)
 			if ok then
 				data = PlayerDataStore.Normalize(result)
@@ -382,15 +570,37 @@ function PlayerDataStore.DrawBeast(player)
 	return result, result == nil and "コインが足りません" or nil, data
 end
 
+-- 管理者から付与された召喚獣を所持品に加える。
+function PlayerDataStore.GrantBeast(player, id)
+	if type(id) ~= "string" or not Config.Beasts[id] then
+		return false, "召喚獣を確認してください"
+	end
+	local duplicate
+	local data, saveError = update(player, function(fresh)
+		duplicate = fresh.Beasts[id] == true
+		fresh.Beasts[id] = true
+	end)
+	if not data then
+		return false, saveError
+	end
+	if duplicate then
+		return false, "この召喚獣はすでに所持しています"
+	end
+	return true
+end
+
 function PlayerDataStore.SetEquippedBeast(player, id)
 	local current = PlayerDataStore.Get(player)
-	if type(id) ~= "string" or not current.Beasts[id] then
+	local unequip = id == ""
+	if type(id) ~= "string" or (not unequip and not current.Beasts[id]) then
 		return false, current
 	end
 	local equipped = false
 	local data, saveError = update(player, function(fresh)
-		equipped = fresh.Beasts[id] == true
-		if equipped then
+		equipped = unequip or fresh.Beasts[id] == true
+		if unequip then
+			fresh.EquippedBeast = nil
+		elseif equipped then
 			fresh.EquippedBeast = id
 		end
 	end)
@@ -398,6 +608,163 @@ function PlayerDataStore.SetEquippedBeast(player, id)
 		return false, current, saveError
 	end
 	return equipped, data
+end
+
+local DUPLICATE_BEAST = "受け取る召喚獣を既に所持しているため交換できません"
+
+function PlayerDataStore.TradeBeasts(playerA, idA, playerB, idB, isActive)
+	local userA, userB = playerA.UserId, playerB.UserId
+	if userA == userB or idA == idB or type(idA) ~= "string" or type(idB) ~= "string"
+		or not Config.Beasts[idA] or not Config.Beasts[idB] then
+		return false, "交換する相手と召喚獣を確認してください"
+	end
+	if PlayerDataStore.IsTradePending(playerA) or PlayerDataStore.IsTradePending(playerB)
+		or activeWrites[userA] or activeWrites[userB] then
+		return false, "データの保存または交換の復元中です"
+	end
+	trading[userA], trading[userB] = true, true
+
+	local players = { playerA, playerB }
+	local record = {
+		Id = HttpService:GenerateGUID(false),
+		Stage = "preparing",
+		ExpiresAt = os.time() + 120,
+		Sides = {
+			{ UserId = userA, Outgoing = idA, Incoming = idB },
+			{ UserId = userB, Outgoing = idB, Incoming = idA },
+		},
+	}
+	local missing = "交換に出した召喚獣を所持していません"
+
+	local function snapshot(side, data)
+		if data.Beasts[side.Incoming] then
+			return DUPLICATE_BEAST
+		end
+		if not data.Beasts[side.Outgoing] then
+			return missing
+		end
+		side.Before = {
+			OwnedOutgoing = true,
+			OwnedIncoming = false,
+			Equipped = data.EquippedBeast,
+		}
+	end
+
+	local ds = getStore()
+	local function exchange(side, player)
+		local rejected
+		local data, reason = write(player, function(fresh)
+			if fresh.BeastTradeId == record.Id then
+				return
+			end
+			if ds and (os.time() >= record.ExpiresAt or (isActive and not isActive())) then
+				return false
+			end
+			if fresh.Beasts[side.Incoming] then
+				rejected = DUPLICATE_BEAST
+				return false
+			end
+			if not fresh.Beasts[side.Outgoing] then
+				rejected = missing
+				return false
+			end
+			if fresh.EquippedBeast ~= side.Before.Equipped then
+				rejected = "装備が変更されました。もう一度お試しください"
+				return false
+			end
+			if fresh.EquippedBeast == side.Outgoing then
+				fresh.EquippedBeast = nil
+			end
+			fresh.Beasts[side.Outgoing] = nil
+			fresh.Beasts[side.Incoming] = true
+			fresh.BeastTradeId = record.Id
+		end)
+		return data, reason or rejected
+	end
+
+	local journalStarted = false
+	local function saveTrade()
+		if not ds then
+			if not game:GetService("RunService"):IsStudio() then
+				return false, SAVE_FAILED
+			end
+			for index, side in ipairs(record.Sides) do
+				local reason = snapshot(side, PlayerDataStore.Get(players[index]))
+				if reason then
+					return false, reason
+				end
+			end
+			if isActive and not isActive() then
+				return false, SAVE_FAILED
+			end
+			for index, side in ipairs(record.Sides) do
+				exchange(side, players[index])
+			end
+			return true
+		end
+
+		journalStarted = true
+		local created = journalCall(function(journal)
+			journal:SetAsync(tradeKey(record.Id), record)
+		end)
+		if not created then
+			return false, SAVE_FAILED
+		end
+		for _, side in ipairs(record.Sides) do
+			local ok, id = journalCall(function(journal)
+				return journal:UpdateAsync(keyFor(side), function(current)
+					if os.time() >= record.ExpiresAt or (current and current ~= record.Id) then
+						return nil
+					end
+					return record.Id
+				end)
+			end)
+			if not ok or id == record.Id then
+				pendingTrades[side.UserId] = record.Id
+			end
+			if not ok or id ~= record.Id then
+				return false, "未完了の交換があるため交換できません"
+			end
+		end
+		for _, side in ipairs(record.Sides) do
+			local ok, fresh = pcall(ds.GetAsync, ds, keyFor(side), readOptions)
+			if not ok then
+				return false, SAVE_FAILED
+			end
+			local reason = snapshot(side, PlayerDataStore.Normalize(fresh))
+			if reason then
+				return false, reason
+			end
+		end
+		local prepared, logged = setTradeStage(record, "applying")
+		if not prepared or not logged or logged.Stage ~= "applying" then
+			return false, SAVE_FAILED
+		end
+		for index, side in ipairs(record.Sides) do
+			local saved, reason = exchange(side, players[index])
+			if not saved or storeFailed then
+				return false, reason or SAVE_FAILED
+			end
+		end
+		if isActive and not isActive() then
+			return false, SAVE_FAILED
+		end
+		return true
+	end
+
+	local saved, reason = saveTrade()
+	if journalStarted then
+		local ok, logged = setTradeStage(record, saved and "committed" or "rollback", isActive)
+		if ok and not logged and saved then
+			ok, logged = setTradeStage(record, "rollback")
+		end
+		saved = ok and logged ~= nil and logged.Stage == "committed"
+		if saved or (ok and logged and logged.Stage == "rollback" and restoreTrade(logged, players)) then
+			clearTrade(logged)
+		end
+	end
+	trading[userA], trading[userB] = nil, nil
+	return saved, not saved and (reason or SAVE_FAILED) or nil
 end
 
 return PlayerDataStore

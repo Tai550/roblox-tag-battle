@@ -29,6 +29,8 @@ local function newData()
 	return {
 		BeastEffectUntil = 0,    -- BeastUsed に使用済みの Id を記録する
 		BeastSlowUntil = 0,
+		BeastProneUntil = 0,
+		BeastGlideUntil = 0,
 		HeldItems = {},           -- 持っているアイテムの Id のリスト（古い順。枠数は GetItemSlots）
 		HeldExpireAt = {},        -- HeldItems と同じ並びの使用期限（時刻）。0 は期限なし（購入アイテム）
 		PendingItems = {},        -- ラウンド外に買ったアイテム（次のラウンド開始時に渡す）
@@ -67,10 +69,20 @@ function GameState.GetData(player)
 	return data
 end
 
+local function releaseFrozenRoot(data)
+	if data.FrozenRoot then
+		data.FrozenRoot.Anchored = data.FrozenRootWasAnchored
+		data.FrozenRoot = nil
+		data.FrozenRootWasAnchored = nil
+	end
+end
+
 -- ラウンドの区切りで持ち物・効果を消す。
 -- ただし購入で予約済みのアイテム（PendingItems）は消さない（買ったのに失う状態を作らない）
 function GameState.ResetData(player)
+	GameState.ClearStun(player)
 	local data = GameState.GetData(player)
+	releaseFrozenRoot(data)
 	local fresh = newData()
 	fresh.LastUseTime = data.LastUseTime
 	fresh.PendingItems = data.PendingItems
@@ -79,6 +91,10 @@ function GameState.ResetData(player)
 end
 
 function GameState.ClearData(player)
+	local data = playerData[player]
+	if data then
+		releaseFrozenRoot(data)
+	end
 	playerData[player] = nil
 	GameState.ClearPasses(player)
 end
@@ -190,7 +206,12 @@ function GameState.IsDowned(player)
 	return GameState.GetData(player).DownUntil > GameState.Now()
 end
 
+function GameState.IsProne(player)
+	return GameState.GetData(player).BeastProneUntil > GameState.Now()
+end
+
 function GameState.ApplyDownPose(player, downed)
+	downed = downed or GameState.IsProne(player)
 	local character = player.Character
 	if character then
 		character:SetAttribute("BananaDowned", downed and true or nil)
@@ -233,7 +254,7 @@ function GameState.ClearDown(player)
 		data.DownUntil = 0
 		GameState.ApplyDownPose(player, false)
 		GameState.RefreshSpeed(player)
-	elseif player.Character then
+	elseif player.Character and not GameState.IsProne(player) then
 		player.Character:SetAttribute("BananaDowned", nil)
 	end
 end
@@ -260,7 +281,13 @@ end
 
 function GameState.ApplyStun(player, duration)
 	local data = GameState.GetData(player)
-	data.StunUntil = math.max(data.StunUntil, GameState.Now() + duration)
+	local now = GameState.Now()
+	data.StunUntil = math.max(data.StunUntil, now + duration)
+	local character = player.Character
+	if character then
+		character:SetAttribute("StunUntil", workspace:GetServerTimeNow() + data.StunUntil - now)
+		character:SetAttribute("StunSequence", (character:GetAttribute("StunSequence") or 0) + 1)
+	end
 	GameState.RefreshSpeed(player)
 	GameState.StopStunnedMovement(player)
 end
@@ -274,14 +301,24 @@ end
 
 function GameState.ClearStun(player)
 	GameState.GetData(player).StunUntil = 0
+	if player.Character then
+		player.Character:SetAttribute("StunUntil", nil)
+	end
+end
+
+function GameState.ClearFreeze(player)
+	local data = GameState.GetData(player)
+	data.FrozenUntil = 0
+	releaseFrozenRoot(data)
 end
 
 function GameState.RefreshSpeed(player)
+	local data = GameState.GetData(player)
 	local humanoid = GameState.GetHumanoid(player)
 	if not humanoid then
+		releaseFrozenRoot(data)
 		return
 	end
-	local data = GameState.GetData(player)
 	local now = GameState.Now()
 	local speed = Config.NormalWalkSpeed
 	if GameState.Phase == "Round" and GameState.IsTagger(player) then
@@ -313,10 +350,23 @@ function GameState.RefreshSpeed(player)
 	if data.SlowUntil > now then
 		speed = math.min(speed, Config.Items.Glue.SlowSpeed)
 	end
-	if data.FrozenUntil > now then
+	local frozen = data.FrozenUntil > now
+	local root = frozen and GameState.GetRootPart(player) or nil
+	if data.FrozenRoot ~= root then
+		releaseFrozenRoot(data)
+		if root then
+			data.FrozenRoot = root
+			data.FrozenRootWasAnchored = root.Anchored == true
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+			root.Anchored = true
+		end
+	end
+	if frozen then
+		humanoid.Jump = false
 		speed = 0
 	end
-	local immobilized = GameState.IsStunned(player) or GameState.IsDowned(player)
+	local immobilized = GameState.IsStunned(player) or GameState.IsDowned(player) or data.BeastProneUntil > now
 	if immobilized then
 		humanoid.Jump = false
 		speed = 0
@@ -332,7 +382,7 @@ function GameState.RefreshSpeed(player)
 	if beast and beast.JumpMultiplier then
 		jump = math.max(jump, Config.NormalJumpHeight * beast.JumpMultiplier)
 	end
-	if data.FrozenUntil > now or immobilized then
+	if frozen or immobilized then
 		jump = 0
 	end
 	humanoid.JumpHeight = jump

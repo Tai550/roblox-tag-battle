@@ -45,10 +45,26 @@ Config.MatchMaps = {
 -- 移動速度
 ---------------------------------------------------------------------
 Config.NormalWalkSpeed = 16      -- 逃げる人・観戦中の人の WalkSpeed
-Config.IceSlideDecay = 0.55      -- 入力を離したときの減衰率（1/秒）。小さいほど長く滑る
-Config.IceSlideSteering = 2.2    -- 入力方向への追従率（1/秒）。小さいほど曲がるときも滑る
+Config.IceSlideDecay = 0.25      -- 入力を離したときの減衰率（1/秒）。小さいほど長く滑る
+Config.IceSlideSteering = 1.1    -- 入力方向への追従率（1/秒）。小さいほど曲がるときも滑る
 Config.VoltStunTime = 1.2
 Config.VoltRecoveryTime = 2
+Config.VoltFloorSafeTime = 4
+Config.VoltFloorWarningTime = 1
+Config.VoltFloorActiveTime = 1.5
+Config.VoltFloorHitHeight = 7
+-- 縮小前の座標と幅・奥行き。中央は常に帯電床の範囲外。
+Config.VoltFloorAreas = {
+	{ X = -57, Z = -26, Width = 48, Depth = 44 },
+	{ X = -57, Z = 26, Width = 48, Depth = 44 },
+	{ X = 57, Z = -26, Width = 48, Depth = 44 },
+	{ X = 57, Z = 26, Width = 48, Depth = 44 },
+}
+Config.VoltLightningInterval = 5
+Config.VoltLightningWarningTime = 1
+Config.VoltLightningRadius = 10
+Config.VoltLightningFlashTime = 0.3
+Config.VoltLightningHeight = 36
 Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
 
 Config.TaggerWalkSpeed = 20      -- 鬼の WalkSpeed
@@ -100,7 +116,7 @@ Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの
 Config.ZoneShrinkStartRatio = 0.3  -- 試合時間のこの割合までは縮まない（最初は広く遊べる）
 Config.ZoneShrinkEndRatio = 0.85   -- 試合時間のこの割合で最後の半径まで縮みきる
 Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
-Config.ZoneDrainPerSecond = 9      -- エリア外で1秒に減るスタミナ（0 まで約11秒）
+Config.ZoneDrainPerSecond = 18     -- エリア外で1秒に減るスタミナ（0 まで約5.5秒）
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
 Config.ZoneWallHeight = 60         -- 壁の高さ
@@ -191,12 +207,12 @@ Config.RankPoints = {
 ---------------------------------------------------------------------
 Config.BotSpeedMultiplierCap = 1.15
 Config.BotStrengthByTier = {
-	{ SpeedMultiplier = 1.00, RepathInterval = 1.40 }, -- 1 ブロンズ
-	{ SpeedMultiplier = 1.03, RepathInterval = 1.20 }, -- 2 シルバー
-	{ SpeedMultiplier = 1.06, RepathInterval = 1.00 }, -- 3 ゴールド
-	{ SpeedMultiplier = 1.09, RepathInterval = 0.80 }, -- 4 プラチナ
-	{ SpeedMultiplier = 1.12, RepathInterval = 0.65 }, -- 5 ダイヤ
-	{ SpeedMultiplier = 1.15, RepathInterval = 0.50 }, -- 6 マスター
+	{ SpeedMultiplier = 1.00, RepathInterval = 1.05 }, -- 1 ブロンズ
+	{ SpeedMultiplier = 1.03, RepathInterval = 0.90 }, -- 2 シルバー
+	{ SpeedMultiplier = 1.06, RepathInterval = 0.75 }, -- 3 ゴールド
+	{ SpeedMultiplier = 1.09, RepathInterval = 0.65 }, -- 4 プラチナ
+	{ SpeedMultiplier = 1.12, RepathInterval = 0.55 }, -- 5 ダイヤ
+	{ SpeedMultiplier = 1.15, RepathInterval = 0.45 }, -- 6 マスター
 }
 
 -- ボットの判断に使う距離（スタッド）と時間（秒）
@@ -204,7 +220,7 @@ Config.BotItemSeekDistance = 40   -- この距離以内の宝箱を取りに行�
 Config.BotItemSafeDistance = 30   -- 鬼がこれより近いときは宝箱を諦めて逃げる
 Config.BotZoneEdgeRatio = 0.85    -- 半径のこの割合より外なら、内側へ戻る
 Config.BotFleeDistance = 28       -- 鬼から離れるとき、この先を目標にする
-Config.BotDashDistance = 45       -- 逃げ中、鬼がこの距離以内ならダッシュを使う
+Config.BotDashDistance = 32       -- 逃げ中、鬼がこの距離以内ならダッシュを使う
 Config.BotShieldDistance = 18     -- 鬼がこの距離以内ならシールドを使う
 Config.BotStarDistance = 18       -- 鬼がこの距離以内ならスターを使う
 Config.BotWarpDistance = 14       -- 相手がこの距離以内ならワープを使う
@@ -212,6 +228,30 @@ Config.BotBananaDistance = 16     -- 相手がこの距離以内ならバナナ�
 Config.BotStuckSpeed = 0.75       -- これより遅い（スタッド/秒）状態が続くと行き詰まり
 Config.BotStuckTime = 0.7         -- 行き詰まりとみなすまでの秒数（超えたらジャンプ）
 Config.BotWaypointReach = 3.5     -- 経路の点にこの距離まで近づいたら次の点へ進む
+
+Config.BotDecisionInterval = 0.09 -- 通常のラウンド更新（0.1 秒）ごとに目標を見直す
+Config.BotSoloRepathInterval = 0.8
+Config.BotRepathMinInterval = 0.25 -- 目標変更で経路を引き直す場合の下限
+Config.BotRepathGoalShift = 6
+Config.BotPredictionTime = 0.25
+Config.BotPredictionMaxDistance = 6
+Config.BotProgressTimeout = 2.4
+Config.BotProgressDistance = 0.75
+Config.BotElevatedThreshold = 3
+Config.BotJumpWaypointReach = 2.5
+Config.BotApproachDirections = 8
+Config.BotApproachStep = 3
+Config.BotApproachRadius = 15
+Config.BotApproachReach = 2
+Config.BotApproachTimeout = 1.6
+Config.BotApproachJumpTime = 0.85
+Config.BotApproachProbeHeight = 4
+Config.BotApproachProbeDepth = 24
+Config.BotZoneInwardRatio = 0.55
+Config.BotShrunkZoneEdgeRatio = 0.72
+Config.BotShrunkZoneInwardRatio = 0.42
+Config.BotShrunkZoneFleeBias = 0.30
+Config.BotTaggerDashDistance = 24
 
 -- 累計 RP から段位テーブルを返す。該当がなければ nil。
 function Config.TierForRP(rp)
@@ -510,72 +550,147 @@ Config.Tiers = {
 }
 
 Config.BeastOrder = {
-	"Bastet", "Thoth", "Khepri", "Hathor", "Sobek", "Sekhmet", "Isis",
-	"Horus", "Osiris", "Set", "Anubis", "Ra",
+	"Bastet", "Thoth", "Khepri", "Hathor", "Geb", "Nut", "Bes", "Taweret",
+	"Sobek", "Sekhmet", "Isis", "Maat", "Serqet", "Apis",
+	"Horus", "Osiris", "Set", "Atum", "Apophis", "Hapy",
+	"Anubis", "Ra", "Amun", "Ptah",
 }
+Config.BeastTradeTimeout = 60
 Config.BeastDrawCost = 100
 Config.BeastDuplicateRefund = 40
 Config.BeastModelDuration = 3
+Config.LobbyBeastFollower = {
+	BlockSize = 0.33,
+	FollowDistance = 4,
+	FollowRate = 7, -- 1/秒
+	BobAmplitude = 0.10,
+	BobFrequency = 1.2, -- Hz
+	SnapDistance = 24,
+	GroundClearance = 0.15,
+	GroundProbeAbove = 4,
+	GroundProbeBelow = 24,
+	SettleDistance = 0.01,
+}
 Config.Beasts = {
 	Bastet = {
-		DisplayName = "バステト", Tier = "B", Weight = 15,
+		DisplayName = "バステト", Tier = "B", Weight = 7,
 		Description = "8秒間、ゾーンのスタミナが減らず、少し速くなる",
 		Duration = 8, SpeedMultiplier = 1.15,
 	},
 	Thoth = {
-		DisplayName = "トト", Tier = "B", Weight = 15,
+		DisplayName = "トト", Tier = "B", Weight = 7,
 		Description = "5秒間、全員の姿が壁越しに見える",
 		Duration = 5,
 	},
 	Sobek = {
-		DisplayName = "セベク", Tier = "A", Weight = 8,
+		DisplayName = "セベク", Tier = "A", Weight = 5,
 		Description = "周囲12スタッドの相手を1.5秒間転倒させる",
 		Duration = 1.5, Radius = 12,
 	},
 	Sekhmet = {
-		DisplayName = "セクメト", Tier = "A", Weight = 8,
+		DisplayName = "セクメト", Tier = "A", Weight = 5,
 		Description = "周囲12スタッドの相手を4秒間遅くする",
 		Duration = 4, Radius = 12, SpeedMultiplier = 0.6,
 	},
 	Horus = {
-		DisplayName = "ホルス", Tier = "S", Weight = 4,
+		DisplayName = "ホルス", Tier = "S", Weight = 2,
 		Description = "6秒間、速く走れて高く跳べる",
 		Duration = 6, SpeedMultiplier = 1.5, JumpMultiplier = 2,
 	},
 	Anubis = {
-		DisplayName = "アヌビス", Tier = "SS", Weight = 2,
+		DisplayName = "アヌビス", Tier = "SS", Weight = 0.5,
 		Description = "前方へワープし、3秒間タッチされない",
 		Duration = 3, WarpDistance = 20,
 	},
 	Khepri = {
-		DisplayName = "ケプリ", Tier = "B", Weight = 15,
+		DisplayName = "ケプリ", Tier = "B", Weight = 7,
 		Description = "前方に飛び出し、8秒間ダッシュする",
 		Duration = 8, LaunchSpeed = 45,
 	},
 	Hathor = {
-		DisplayName = "ハトホル", Tier = "B", Weight = 15,
+		DisplayName = "ハトホル", Tier = "B", Weight = 7,
 		Description = "転倒・スタンから復帰し、ゾーンのスタミナを全回復する",
 		Duration = 0,
 	},
 	Isis = {
-		DisplayName = "イシス", Tier = "A", Weight = 8,
+		DisplayName = "イシス", Tier = "A", Weight = 5,
 		Description = "6秒間、二段ジャンプができ、落下ダンジョンでは落ちても近くの足場に戻る",
 		Duration = 6,
 	},
 	Osiris = {
-		DisplayName = "オシリス", Tier = "S", Weight = 4,
+		DisplayName = "オシリス", Tier = "S", Weight = 2,
 		Description = "10秒間タッチされても鬼にならない",
 		Duration = 10,
 	},
 	Set = {
-		DisplayName = "セト", Tier = "S", Weight = 4,
+		DisplayName = "セト", Tier = "S", Weight = 2,
 		Description = "地上の相手をランダムに1人選び、安全な位置で入れ替わる",
 		Duration = 0,
 	},
 	Ra = {
-		DisplayName = "ラー", Tier = "SS", Weight = 2,
+		DisplayName = "ラー", Tier = "SS", Weight = 0.5,
 		Description = "周囲15スタッドの相手全員を2秒間スタンさせる",
 		Duration = 2, Radius = 15,
+	},
+	Geb = {
+		DisplayName = "ゲブ", Tier = "B", Weight = 7,
+		Description = "3秒間伏せて動けなくなるが、鬼にタッチされない",
+		Duration = 3,
+	},
+	Nut = {
+		DisplayName = "ヌト", Tier = "B", Weight = 7,
+		Description = "高く舞い上がり、ゆっくり降下しながら前方へ滑空する",
+		Duration = 4, LaunchSpeed = 38, LaunchUpSpeed = 64, FallSpeed = 12, GlideSpeed = 32,
+	},
+	Bes = {
+		DisplayName = "ベス", Tier = "B", Weight = 7,
+		Description = "転倒・スタンから復帰し、2秒間タッチされない",
+		Duration = 2,
+	},
+	Taweret = {
+		DisplayName = "タウエレト", Tier = "B", Weight = 7,
+		Description = "周囲10スタッドの鬼を押しのける",
+		Duration = 0, Radius = 10, KnockbackSpeed = 48, KnockbackUpSpeed = 14,
+	},
+	Maat = {
+		DisplayName = "マアト", Tier = "A", Weight = 5,
+		Description = "その場に分身を残して6秒間透明になる。ボットは分身を狙う",
+		Duration = 6,
+	},
+	Serqet = {
+		DisplayName = "セルケト", Tier = "A", Weight = 5,
+		Description = "前方20スタッド以内で最も近い鬼を3秒間スタンさせる",
+		Duration = 0, Range = 20, ForwardDot = 0.5, StunTime = 3,
+	},
+	Apis = {
+		DisplayName = "アピス", Tier = "A", Weight = 5,
+		Description = "5秒間、速く走りながら近くの鬼を弾き飛ばす",
+		Duration = 5, SpeedMultiplier = 1.45, Radius = 3.5, KnockbackSpeed = 55, KnockbackUpSpeed = 16, HitCooldown = 0.75,
+	},
+	Atum = {
+		DisplayName = "アトゥム", Tier = "S", Weight = 2,
+		Description = "ゾーンの中心へワープする",
+		Duration = 0,
+	},
+	Apophis = {
+		DisplayName = "アペプ", Tier = "S", Weight = 2,
+		Description = "4秒間、自分以外の参加者を止める",
+		Duration = 4,
+	},
+	Hapy = {
+		DisplayName = "ハピ", Tier = "S", Weight = 2,
+		Description = "周囲14スタッドの参加者全員を外向きに押し流す",
+		Duration = 0, Radius = 14, KnockbackSpeed = 76, KnockbackUpSpeed = 22,
+	},
+	Amun = {
+		DisplayName = "アメン", Tier = "SS", Weight = 0.5,
+		Description = "10秒間透明になり、タッチされず、少し速くなる",
+		Duration = 10, SpeedMultiplier = 1.15,
+	},
+	Ptah = {
+		DisplayName = "プタハ", Tier = "SS", Weight = 0.5,
+		Description = "デッキからランダムにアイテムを1つ手に入れる",
+		Duration = 0,
 	},
 }
 
@@ -675,6 +790,7 @@ Config.QuickMaxPlayers = 8            -- 自動で始まる部屋の最大人数
 Config.QuickCountdown = 12            -- 2人そろってから出発までの秒数
 Config.QuickFullCountdown = 4         -- 満員になったら出発までの秒数
 Config.QuickPadRadius = 9             -- 「すぐ遊ぶ」パッドの半径（この中に立つと参加）
+Config.QuickPadExitGrace = 2          -- パッドの外に出てから参加を取り消すまでの秒数
 Config.MatchArrivalTimeout = 25       -- 試合サーバーで全員の到着を待つ最大秒数
 Config.FriendRoomCodeLength = 4       -- 友達部屋の合言葉の桁数
 Config.FriendRoomLifetime = 3 * 60 * 60 -- 合言葉が有効な秒数

@@ -18,6 +18,9 @@ local UserService = game:GetService("UserService")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
 local RouletteBoard = require(script.Parent:WaitForChild("RouletteBoard"))
+local BeastFollower = require(script.Parent:WaitForChild("BeastFollower"))
+local LobbyTrade = require(script.Parent:WaitForChild("LobbyTrade"))
+local LobbyAdmin = require(script.Parent:WaitForChild("LobbyAdmin"))
 
 ---------------------------------------------------------------------
 -- 通信（RemoteEvent）
@@ -35,6 +38,8 @@ local OpenBeasts = remote("OpenBeasts")
 local DrawBeast = remote("DrawBeast")
 local BeastResult = remote("BeastResult")
 local EquipBeast = remote("EquipBeast")
+local TradeAction = remote("TradeAction")
+local TradeUpdate = remote("TradeUpdate")
 local DataUpdate = remote("DataUpdate")     -- サーバー → 本人: コイン・持ち物・デッキ
 local QueueUpdate = remote("QueueUpdate")   -- サーバー → 全員: すぐ遊ぶの待ち人数と残り秒
 local Notify = remote("Notify")             -- サーバー → 本人: 短いお知らせ
@@ -47,6 +52,7 @@ local SoloPlay = remote("SoloPlay")         -- 本人 → サーバー: ひと�
 local SpinRoulette = remote("SpinRoulette") -- 本人 → サーバー: ルーレットを回したい
 local RouletteResult = remote("RouletteResult") -- サーバー → 本人: 当たった景品の番号（失敗時は nil）
 local RouletteSpinVisual = remote("RouletteSpinVisual") -- サーバー → 全員: 回転演出と停止時刻
+local AdminRequest = remote("AdminRequest")
 remoteFolder.Parent = ReplicatedStorage
 
 local function notify(player, text)
@@ -55,7 +61,7 @@ local function notify(player, text)
 	end
 end
 
-local rankRP = {}        -- [Player] = 累計 RP（試合サーバーが保存したもの）
+local rankRP = {}        -- [Player] = 累計 RP
 local sentStock = {}     -- [Player] = 最後に送ったルーレットの回数
 
 local function sendData(player)
@@ -76,7 +82,7 @@ local function sendData(player)
 end
 
 ---------------------------------------------------------------------
--- 段位（読むだけ。RP を増やして保存するのは試合サーバーの RankManager）
+-- 段位とランキング用データ
 ---------------------------------------------------------------------
 
 local rankStore = nil
@@ -106,6 +112,21 @@ local function showRank(player)
 	end
 end
 
+local function writeLeaderboard(key, rp)
+	if not leaderboardStore then
+		return false
+	end
+	local ok, err = pcall(function()
+		leaderboardStore:UpdateAsync(key, function(old)
+			return math.max(nonNegativeInt(old), rp)
+		end)
+	end)
+	if not ok then
+		warn("[Lobby] ランキングへの保存に失敗", key, err)
+	end
+	return ok
+end
+
 local function loadRank(player)
 	if not rankStore then
 		return
@@ -123,13 +144,8 @@ local function loadRank(player)
 	rankRP[player] = type(stored) == "table" and nonNegativeInt(stored.RP) or 0
 	showRank(player)
 	-- 試合に出たことがある人（段位の記録がある人）は、ランキングにも載せる（以前の記録の取りこみ）
-	if type(stored) == "table" and leaderboardStore then
-		local rp = rankRP[player]
-		pcall(function()
-			leaderboardStore:UpdateAsync(tostring(player.UserId), function(old)
-				return math.max(nonNegativeInt(old), rp)
-			end)
-		end)
+	if type(stored) == "table" then
+		writeLeaderboard(tostring(player.UserId), rankRP[player])
 	end
 end
 
@@ -139,8 +155,55 @@ end
 
 local loaded = {}
 local beastRequest = {}
+local trade = LobbyTrade.new({
+	Timeout = Config.BeastTradeTimeout,
+	Now = os.clock,
+	FindPlayer = function(userId)
+		return Players:GetPlayerByUserId(userId)
+	end,
+	IsLoaded = function(player)
+		return loaded[player] == true
+	end,
+	Owns = function(player, id)
+		return PlayerDataStore.Get(player).Beasts[id] == true
+	end,
+	Send = function(player, state, message)
+		TradeUpdate:FireClient(player, state, message)
+	end,
+	Save = PlayerDataStore.TradeBeasts,
+	IsTradePending = PlayerDataStore.IsTradePending,
+	Refresh = function(player)
+		BeastFollower.SetEquipped(player, PlayerDataStore.Get(player).EquippedBeast)
+		sendData(player)
+	end,
+})
+TradeAction.OnServerEvent:Connect(trade.Handle)
+task.spawn(function()
+	while true do
+		task.wait(1)
+		trade.Tick()
+	end
+end)
+
+local checkAdmission = LobbyAdmin.Init({
+	Remote = AdminRequest,
+	Notify = Notify,
+	RankStore = rankStore,
+	WriteLeaderboard = writeLeaderboard,
+	SendData = sendData,
+	IsLoaded = function(player) return loaded[player] == true end,
+	GetRP = function(player) return rankRP[player] or 0 end,
+	ShowRP = function(player, rp)
+		rankRP[player] = math.max(rankRP[player] or 0, rp)
+		showRank(player)
+		sendData(player)
+	end,
+})
 
 local function onPlayerAdded(player)
+	if not checkAdmission(player) then
+		return
+	end
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
 	local rank = Instance.new("StringValue")
@@ -154,16 +217,19 @@ local function onPlayerAdded(player)
 	coins.Parent = stats
 	stats.Parent = player
 	showRank(player)
-	PlayerDataStore.Load(player)
+	local data = PlayerDataStore.Load(player)
 	if player.Parent ~= Players then
 		PlayerDataStore.Forget(player)
 		return
 	end
-	loaded[player] = true
 	loadRank(player)
-	if loaded[player] then
-		sendData(player)
+	if player.Parent ~= Players or player:GetAttribute("AdminAdmissionPending") == true then
+		PlayerDataStore.Forget(player)
+		return
 	end
+	loaded[player] = true
+	BeastFollower.SetEquipped(player, data.EquippedBeast)
+	sendData(player)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -172,7 +238,9 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerRemoving:Connect(function(player)
 	loaded[player] = nil
+	trade.Remove(player)
 	beastRequest[player] = nil
+	BeastFollower.Remove(player)
 	PlayerDataStore.Forget(player)
 	rankRP[player] = nil
 	sentStock[player] = nil
@@ -193,7 +261,7 @@ local function tooFast(player, seconds)
 end
 
 BuyItem.OnServerEvent:Connect(function(player, itemId)
-	if tooFast(player, 0.5) or type(itemId) ~= "string" then
+	if not loaded[player] or tooFast(player, 0.5) or type(itemId) ~= "string" then
 		return
 	end
 	local ok, reason = PlayerDataStore.BuyItem(player, itemId)
@@ -206,7 +274,7 @@ BuyItem.OnServerEvent:Connect(function(player, itemId)
 end)
 
 SetDeck.OnServerEvent:Connect(function(player, list)
-	if tooFast(player, 0.5) then
+	if not loaded[player] or tooFast(player, 0.5) then
 		return
 	end
 	local ok = PlayerDataStore.SetDeck(player, list)
@@ -303,13 +371,15 @@ EquipBeast.OnServerEvent:Connect(function(player, id)
 		return
 	end
 	beastRequest[player] = true
-	local ok, _, reason = PlayerDataStore.SetEquippedBeast(player, id)
+	local ok, data, reason = PlayerDataStore.SetEquippedBeast(player, id)
 	beastRequest[player] = nil
 	if loaded[player] then
-		sendData(player)
-		if not ok then
+		if ok then
+			BeastFollower.SetEquipped(player, data.EquippedBeast)
+		else
 			notify(player, reason or "持っている召喚獣を選んでください")
 		end
+		sendData(player)
 	else
 		PlayerDataStore.Forget(player)
 	end
@@ -322,7 +392,7 @@ end)
 local rouletteBoard = RouletteBoard.Create(spawn)
 local rouletteBusy = false
 SpinRoulette.OnServerEvent:Connect(function(player)
-	if rouletteBusy or tooFast(player, 1) then
+	if not loaded[player] or rouletteBusy or tooFast(player, 1) then
 		RouletteResult:FireClient(player, nil)
 		if rouletteBusy then
 			notify(player, "ルーレットが回転中です。止まってからまわしてね")
@@ -378,6 +448,11 @@ end)
 ---------------------------------------------------------------------
 
 local function canTeleport(players)
+	for _, player in ipairs(players) do
+		if not loaded[player] or player:GetAttribute("AdminAdmissionPending") == true then
+			return false
+		end
+	end
 	if RunService:IsStudio() then
 		for _, player in ipairs(players) do
 			notify(player, "Studio では試合サーバーへ移動できません（公開版で試してね）")
@@ -438,7 +513,7 @@ local function teleportToMatch(players, teleportData, accessCode)
 end
 
 SoloPlay.OnServerEvent:Connect(function(player)
-	if tooFast(player, 3) then
+	if not loaded[player] or tooFast(player, 3) then
 		return
 	end
 	notify(player, "ひとりモードへ移動します！")
@@ -472,8 +547,16 @@ padText.TextStrokeTransparency = 0.2
 padText.Parent = billboard
 
 local queue = {}          -- パッドに乗った順の Player
+local offPadSince = {}    -- [Player] = パッドの外と最初に判定した時刻
 local departAt = nil      -- 出発する時刻（2人そろったら決まる）
 local departing = false
+
+local function canQueue(player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	return player.Parent == Players and loaded[player] and player:GetAttribute("AdminAdmissionPending") ~= true
+		and humanoid and humanoid.Health > 0
+end
 
 local function onPad(player)
 	local character = player.Character
@@ -483,21 +566,30 @@ local function onPad(player)
 	end
 	local offset = root.Position - quickPad.Position
 	local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
-	return flat <= Config.QuickPadRadius and math.abs(offset.Y) <= 8
+	return flat <= Config.QuickPadRadius
 end
 
-local function refreshQueue()
-	-- パッドから降りた人・抜けた人を外す
+local function refreshQueue(now)
 	local kept = {}
 	for _, player in ipairs(queue) do
-		if player.Parent == Players and onPad(player) then
-			table.insert(kept, player)
+		if canQueue(player) then
+			if onPad(player) then
+				offPadSince[player] = nil
+			else
+				offPadSince[player] = offPadSince[player] or now
+			end
+			local since = offPadSince[player]
+			if not since or now - since < Config.QuickPadExitGrace then
+				table.insert(kept, player)
+				continue
+			end
 		end
+		offPadSince[player] = nil
 	end
 	queue = kept
 	-- 新しく乗った人を後ろに足す
 	for _, player in ipairs(Players:GetPlayers()) do
-		if onPad(player) and not table.find(queue, player) then
+		if not table.find(queue, player) and canQueue(player) and onPad(player) then
 			table.insert(queue, player)
 		end
 	end
@@ -507,9 +599,9 @@ local function queueTick()
 	if departing then
 		return
 	end
-	refreshQueue()
-	local count = math.min(#queue, Config.QuickMaxPlayers)
 	local now = os.clock()
+	refreshQueue(now)
+	local count = math.min(#queue, Config.QuickMaxPlayers)
 	if count < Config.MinPlayers then
 		departAt = nil
 	elseif count >= Config.QuickMaxPlayers then

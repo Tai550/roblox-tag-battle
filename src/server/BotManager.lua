@@ -1,7 +1,7 @@
 -- BotManager: 人数が足りないラウンドをボット（NPC）で補う
 -- ボットは Player ではなく { IsBot = true, ... } のテーブル。GameState の辞書キーに使う。
 -- 強さは人間の平均段位から表を引くだけ（機械学習ではない）。
--- 経路は PathfindingService。失敗したときと、サービスが無いときは MoveTo の直進に倒す。
+-- 経路は PathfindingService。高所への経路がなければ、台の縁からのジャンプを試す。
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,7 +23,7 @@ local COLOR_TORSO = Color3.fromRGB(168, 176, 188)
 local COLOR_LIMB = Color3.fromRGB(140, 148, 160)
 
 local activeBots = {}
-local roundRepathInterval = 1.4
+local roundRepathInterval = Config.BotStrengthByTier[1].RepathInterval
 
 ---------------------------------------------------------------------
 -- 補充人数と強さ（計算だけ。テストから呼ぶ）
@@ -111,11 +111,14 @@ function BotManager.ShouldUseItem(itemId, isTagger, distance)
 	if itemId == "Smoke" then
 		return false
 	end
-	if type(distance) ~= "number" then
+	if type(distance) ~= "number" or distance == math.huge then
 		return false
 	end
 	if itemId == "Dash" then
-		return isTagger ~= true and distance <= Config.BotDashDistance
+		if isTagger then
+			return distance >= Config.BotTaggerDashDistance
+		end
+		return distance <= Config.BotDashDistance
 	elseif itemId == "Shield" then
 		return isTagger ~= true and distance <= Config.BotShieldDistance
 	elseif itemId == "Star" then
@@ -158,21 +161,20 @@ local function clampInside(x, z, zx, zz, limit)
 	return zx + dx / dist * limit, zz + dz / dist * limit
 end
 
-local function inwardPoint(x, z, zx, zz, radius)
+local function inwardPoint(x, z, zx, zz, desired)
 	local dx = x - zx
 	local dz = z - zz
 	local dist = math.sqrt(dx * dx + dz * dz)
 	if dist < 0.001 then
 		return zx, zz
 	end
-	local desired = radius * 0.55
 	if dist <= desired then
 		return x, z
 	end
 	return zx + dx / dist * desired, zz + dz / dist * desired
 end
 
--- 次の目標（XZ だけ）。戻り値: goalX, goalZ, 理由（"zone" / "blind" / "chase" / "item" / "flee" / "idle"）
+-- 戻り値: goalX, goalZ, 理由, 対象（追跡またはアイテム）
 function BotManager.ChooseGoal(ctx)
 	local x = ctx.X or 0
 	local z = ctx.Z or 0
@@ -180,14 +182,16 @@ function BotManager.ChooseGoal(ctx)
 	local radius = ctx.ZoneRadius or 0
 	local zx = ctx.ZoneX or 0
 	local zz = ctx.ZoneZ or 0
+	local edgeRatio = ctx.ZoneShrunk and Config.BotShrunkZoneEdgeRatio or Config.BotZoneEdgeRatio
 
 	if zoneActive and ctx.Role ~= "Tagger" and radius > 0 then
 		local dx = x - zx
 		local dz = z - zz
 		local dist = math.sqrt(dx * dx + dz * dz)
-		local edge = radius * (Config.BotZoneEdgeRatio or 0.85)
+		local edge = radius * edgeRatio
 		if dist > edge then
-			local gx, gz = inwardPoint(x, z, zx, zz, radius)
+			local ratio = ctx.ZoneShrunk and Config.BotShrunkZoneInwardRatio or Config.BotZoneInwardRatio
+			local gx, gz = inwardPoint(x, z, zx, zz, radius * ratio)
 			return gx, gz, "zone"
 		end
 	end
@@ -198,7 +202,7 @@ function BotManager.ChooseGoal(ctx)
 		local gx = x + math.cos(angle) * reach
 		local gz = z + math.sin(angle) * reach
 		if zoneActive and radius > 0 then
-			gx, gz = clampInside(gx, gz, zx, zz, radius * (Config.BotZoneEdgeRatio or 0.85))
+			gx, gz = clampInside(gx, gz, zx, zz, radius * edgeRatio)
 		end
 		return gx, gz, "blind"
 	end
@@ -209,14 +213,15 @@ function BotManager.ChooseGoal(ctx)
 		for _, runner in ipairs(ctx.Runners or {}) do
 			local dx = (runner.X or 0) - x
 			local dz = (runner.Z or 0) - z
-			local d2 = dx * dx + dz * dz
+			local dy = (runner.Y or ctx.Y or 0) - (ctx.Y or 0)
+			local d2 = dx * dx + dy * dy + dz * dz
 			if d2 < best then
 				best = d2
 				nearest = runner
 			end
 		end
 		if nearest then
-			return nearest.X or x, nearest.Z or z, "chase"
+			return nearest.X or x, nearest.Z or z, "chase", nearest
 		end
 		return x, z, "idle"
 	end
@@ -244,7 +249,7 @@ function BotManager.ChooseGoal(ctx)
 			end
 		end
 		if nearest then
-			return nearest.X or x, nearest.Z or z, "item"
+			return nearest.X or x, nearest.Z or z, "item", nearest
 		end
 	end
 
@@ -255,7 +260,11 @@ function BotManager.ChooseGoal(ctx)
 		local gx = x + dx / taggerDist * reach
 		local gz = z + dz / taggerDist * reach
 		if zoneActive and radius > 0 then
-			gx, gz = clampInside(gx, gz, zx, zz, radius * (Config.BotZoneEdgeRatio or 0.85))
+			if ctx.ZoneShrunk then
+				gx = gx + (zx - gx) * Config.BotShrunkZoneFleeBias
+				gz = gz + (zz - gz) * Config.BotShrunkZoneFleeBias
+			end
+			gx, gz = clampInside(gx, gz, zx, zz, radius * edgeRatio)
 		end
 		return gx, gz, "flee"
 	end
@@ -544,95 +553,357 @@ local function moveTo(humanoid, position)
 	end
 end
 
-local function followPath(bot, humanoid, root, goal, now)
-	local sky = MapBuilder.CurrentMap == "Sky"
-	local need = bot.NextRepathAt == nil or now >= bot.NextRepathAt
-		or (not sky and bot.Waypoints == nil)
-	if need then
-		local target = goal
-		if sky then
-			local platform = MapBuilder.GetNearestSkyPlatform(goal)
-			if platform then
-				local top = platform.Position.Y + platform.Size.Y / 2
-				target = Vector3.new(goal.X, top, goal.Z)
-				if math.abs(goal.X - platform.Position.X) > platform.Size.X / 2 - 2
-					or math.abs(goal.Z - platform.Position.Z) > platform.Size.Z / 2 - 2 then
-					target = Vector3.new(platform.Position.X, top, platform.Position.Z)
-				end
-			end
-		end
-		bot.PathTarget = target
-		bot.Waypoints = computePath(root.Position, target)
-		if sky and not bot.Waypoints then
-			local nearest = MapBuilder.GetNearestSkyPlatform(root.Position)
-			bot.PathTarget = nearest and (nearest.Position + Vector3.new(0, nearest.Size.Y / 2, 0))
-				or root.Position
-		end
-		bot.WaypointIndex = 1
-		bot.NextRepathAt = now + roundRepathInterval
-	end
+local function horizontal(vector)
+	return Vector3.new(vector.X, 0, vector.Z)
+end
 
-	local target = sky and (bot.PathTarget or root.Position) or goal
-	local waypoints = bot.Waypoints
-	if waypoints then
-		local index = bot.WaypointIndex or 1
-		local reach = Config.BotWaypointReach or 3.5
-		while waypoints[index] do
-			local wp = waypoints[index]
-			local wpPos = wp.Position
-			if not wpPos then
-				index = index + 1
-			else
-				local dx = root.Position.X - wpPos.X
-				local dy = root.Position.Y - wpPos.Y
-				local dz = root.Position.Z - wpPos.Z
-				local dist = math.sqrt(dx * dx + dz * dz + (sky and 0 or dy * dy))
-				if dist <= reach then
-					if wp.Action == Enum.PathWaypointAction.Jump then
-						humanoid.Jump = true
+local function navigationQuery(bot)
+	local query = RaycastParams.new()
+	query.FilterType = Enum.RaycastFilterType.Exclude
+	query.RespectCanCollide = true
+	local excluded = { bot.Character }
+	for _, player in ipairs(GameState.ParticipantList()) do
+		if player ~= bot and player.Character then
+			table.insert(excluded, player.Character)
+		end
+	end
+	query.FilterDescendantsInstances = excluded
+	return query
+end
+
+local function groundAt(position, query)
+	local hit = workspace:Raycast(position, Vector3.new(0, -Config.BotApproachProbeDepth, 0), query)
+	return hit and hit.Position, hit and hit.Instance
+end
+
+function BotManager.PredictPosition(position, velocity)
+	if not velocity then
+		return position
+	end
+	local offset = horizontal(velocity) * Config.BotPredictionTime
+	if offset.Magnitude > Config.BotPredictionMaxDistance then
+		offset = offset.Unit * Config.BotPredictionMaxDistance
+	end
+	return position + offset
+end
+
+-- 比較する目標は一定時間固定する。逃げ手の移動自体をボットの進捗に数えない。
+function BotManager.UpdateProgress(bot, position, goal, now)
+	local reference = bot.ProgressGoal or goal
+	local distance = (position - reference).Magnitude
+	if bot.ProgressBest == nil or distance <= bot.ProgressBest - Config.BotProgressDistance then
+		bot.ProgressGoal = goal
+		bot.ProgressBest = (position - goal).Magnitude
+		bot.ProgressAt = now
+		return false
+	end
+	return now - bot.ProgressAt >= Config.BotProgressTimeout
+end
+
+local function clearProgress(bot)
+	bot.ProgressGoal = nil
+	bot.ProgressBest = nil
+	bot.ProgressAt = nil
+end
+
+-- 高所へは足場の高さが変わる縁を探す。地上での立て直しは周囲の通れる点を探す。
+local function approachCandidates(position, goal, jumpHeight, query, zoneCenter, zoneRadius)
+	local candidates = {}
+	local top = jumpHeight and groundAt(goal, query)
+	if jumpHeight and not top then
+		return candidates
+	end
+	local center = top or position
+	for index = 0, Config.BotApproachDirections - 1 do
+		local angle = index * 2 * math.pi / Config.BotApproachDirections
+		local direction = Vector3.new(math.cos(angle), 0, math.sin(angle))
+		if top then
+			local inside = top
+			for radius = Config.BotApproachStep, Config.BotApproachRadius, Config.BotApproachStep do
+				local sample = groundAt(top + direction * radius + Vector3.new(0, Config.BotApproachProbeHeight, 0), query)
+				if sample and top.Y - sample.Y >= Config.BotElevatedThreshold then
+					local rise = inside.Y - sample.Y
+					if rise <= jumpHeight then
+						table.insert(candidates, {
+							Position = sample,
+							Landing = inside,
+							Score = (position - sample).Magnitude + rise,
+							Index = index,
+						})
 					end
-					index = index + 1
-				else
-					target = wpPos
 					break
 				end
+				if not sample or math.abs(sample.Y - top.Y) >= Config.BotElevatedThreshold then
+					break
+				end
+				inside = sample
+			end
+		else
+			local offset = direction * (Config.BotApproachRadius / 2)
+			local sample = groundAt(center + offset + Vector3.new(0, Config.BotApproachProbeHeight, 0), query)
+			local insideZone = sample and (not zoneCenter or ZoneManager.IsInsideXZ(zoneCenter.X, zoneCenter.Z, zoneRadius, sample)
+				or horizontal(sample - zoneCenter).Magnitude < horizontal(position - zoneCenter).Magnitude)
+			if insideZone and not workspace:Raycast(position, offset, query) then
+				table.insert(candidates, {
+					Position = sample,
+					Score = (sample - goal).Magnitude,
+					Index = index,
+				})
 			end
 		end
-		bot.WaypointIndex = index
-		if waypoints[index] == nil then
-			bot.Waypoints = nil
-			target = sky and bot.PathTarget or goal
+	end
+	table.sort(candidates, function(a, b)
+		if a.Score == b.Score then
+			return a.Index < b.Index
 		end
+		return a.Score < b.Score
+	end)
+	return candidates
+end
+
+local function followWaypoints(bot, humanoid, root, target, sky)
+	local waypoints = bot.Waypoints
+	if waypoints then
+		local index = bot.WaypointIndex
+		local footY = root.Position.Y - humanoid.HipHeight - root.Size.Y / 2
+		while waypoints[index] do
+			local wp = waypoints[index]
+			local delta = root.Position - wp.Position
+			local jump = wp.Action == Enum.PathWaypointAction.Jump
+			local reach = jump and Config.BotJumpWaypointReach or Config.BotWaypointReach
+			if horizontal(delta).Magnitude > reach
+				or (not sky and math.abs(footY - wp.Position.Y) > Config.BotWaypointReach
+					and not (index == 1 and math.abs(delta.Y) <= Config.BotWaypointReach)) then
+				target = wp.Position
+				break
+			end
+			if jump then
+				humanoid.Jump = true
+			end
+			index += 1
+		end
+		bot.WaypointIndex = index
 	end
 	moveTo(humanoid, target)
 end
 
-local function distance3(a, b)
-	local dx = a.X - b.X
-	local dy = a.Y - b.Y
-	local dz = a.Z - b.Z
-	return math.sqrt(dx * dx + dy * dy + dz * dz)
+local function requestPath(bot, from, target, fallback, goal, candidate)
+	if bot.PathComputing then
+		return false
+	end
+	local generation = bot.PathGeneration
+	local roundData = GameState.GetData(bot)
+	bot.PathComputing = true
+	local function isCurrent()
+		return bot.Parent and GameState.Phase == "Round" and bot.PathGeneration == generation
+			and GameState.GetData(bot) == roundData
+	end
+	task.spawn(function()
+		local waypoints = computePath(from, target)
+		local usesFallback = not waypoints and fallback ~= nil
+		if usesFallback and isCurrent() then
+			waypoints = computePath(from, fallback)
+		end
+		bot.PathComputing = nil
+		if isCurrent() then
+			bot.PathResult = {
+				Waypoints = waypoints,
+				Target = usesFallback and fallback or target,
+				UsesFallback = usesFallback,
+				Goal = goal,
+				Candidate = candidate,
+			}
+		end
+	end)
+	return true
 end
 
-local function threatDistance(bot, pos)
-	local role = GameState.Taggers[bot]
-	if role then
-		local best = math.huge
-		for _, other in ipairs(GameState.ParticipantList()) do
-			if not GameState.IsTagger(other) and other ~= role.NoTagBack and GameState.IsAlive(other) then
-				local otherRoot = GameState.GetRootPart(other)
-				if otherRoot and otherRoot.Position then
-					local dist = distance3(pos, otherRoot.Position)
-					if dist < best then
-						best = dist
-					end
-				end
+local function cancelPath(bot)
+	bot.PathGeneration = (bot.PathGeneration or 0) + 1
+	bot.PathResult = nil
+	bot.Waypoints = nil
+end
+
+local function startRecovery(bot, humanoid, root, goal, elevated, now, query, zoneCenter, zoneRadius)
+	local jumpHeight = elevated and humanoid.JumpHeight
+	local attempts
+	if elevated then
+		local _, platform = groundAt(goal, query)
+		attempts = bot.ApproachAttempts
+		if not attempts or attempts.Platform ~= platform
+			or (attempts.Goal - goal).Magnitude >= Config.BotRepathGoalShift
+			or (attempts.Origin - root.Position).Magnitude >= Config.BotApproachRadius + Config.BotRepathGoalShift then
+			attempts = { Platform = platform, Goal = goal, Origin = root.Position, Failed = {} }
+			bot.ApproachAttempts = attempts
+		end
+		if attempts.Exhausted then
+			return false
+		end
+	end
+	local candidates = approachCandidates(root.Position, goal, jumpHeight, query, zoneCenter, zoneRadius)
+	if attempts then
+		for index = #candidates, 1, -1 do
+			if attempts.Failed[candidates[index].Index] then
+				table.remove(candidates, index)
 			end
 		end
-		return best
 	end
-	local _, distance = GameState.NearestTagger(pos)
-	return distance
+	if #candidates == 0 then
+		if attempts then
+			attempts.Exhausted = true
+		end
+		return false
+	end
+	bot.Recovery = {
+		Candidates = candidates,
+		Attempts = attempts,
+		Index = 1,
+		Goal = goal,
+		Deadline = now + Config.BotApproachTimeout,
+	}
+	cancelPath(bot)
+	return true
+end
+
+local function followRecovery(bot, humanoid, root, goal, now, sky)
+	local recovery = bot.Recovery
+	if not recovery then
+		return false
+	end
+	local candidate = recovery.Candidates[recovery.Index]
+	local footY = root.Position.Y - humanoid.HipHeight - root.Size.Y / 2
+	local reached = horizontal(root.Position - candidate.Position).Magnitude <= Config.BotApproachReach
+		and math.abs(footY - candidate.Position.Y) <= Config.BotWaypointReach
+	local landed = recovery.Jumping and humanoid.FloorMaterial ~= Enum.Material.Air
+		and footY >= candidate.Landing.Y - Config.BotApproachReach
+		and horizontal(root.Position - candidate.Landing).Magnitude <= Config.BotWaypointReach
+	if landed or (goal - recovery.Goal).Magnitude >= Config.BotRepathGoalShift then
+		bot.Recovery = nil
+		if landed then
+			bot.ApproachAttempts = nil
+		end
+	elseif now >= recovery.Deadline or (reached and not candidate.Landing) then
+		if recovery.Attempts then
+			recovery.Attempts.Failed[candidate.Index] = true
+		end
+		cancelPath(bot)
+		recovery.Index += 1
+		candidate = recovery.Candidates[recovery.Index]
+		if candidate then
+			recovery.Deadline = now + Config.BotApproachTimeout
+			recovery.Jumping = false
+			recovery.PathStarted = false
+		else
+			if recovery.Attempts then
+				recovery.Attempts.Exhausted = true
+			end
+			bot.Recovery = nil
+		end
+	elseif reached and not recovery.Jumping and humanoid.FloorMaterial ~= Enum.Material.Air then
+		recovery.Jumping = true
+		recovery.Deadline = now + Config.BotApproachJumpTime
+		humanoid.Jump = true
+	end
+	if not bot.Recovery then
+		cancelPath(bot)
+		bot.NextRepathAt = nil
+		clearProgress(bot)
+		return false
+	end
+	if recovery.Jumping then
+		moveTo(humanoid, candidate.Landing)
+	else
+		if candidate.Landing and not recovery.PathStarted then
+			recovery.PathStarted = requestPath(bot, root.Position, candidate.Position, nil, goal, candidate)
+		end
+		local result = bot.PathResult
+		if result then
+			bot.PathResult = nil
+			if result.Candidate == candidate
+				and (goal - result.Goal).Magnitude < Config.BotRepathGoalShift then
+				bot.Waypoints = result.Waypoints
+				bot.WaypointIndex = 1
+			end
+		end
+		followWaypoints(bot, humanoid, root, candidate.Position, sky)
+	end
+	return true
+end
+
+local function followPath(bot, humanoid, root, goal, actualGoal, reason, now, query, zoneCenter, zoneRadius)
+	local sky = MapBuilder.CurrentMap == "Sky"
+	local skyPlatform = sky and MapBuilder.GetNearestSkyPlatform(goal)
+	local rootPlatform = sky and MapBuilder.GetNearestSkyPlatform(root.Position)
+	local canRecover = not sky or (skyPlatform and skyPlatform == rootPlatform)
+	local elevated = reason == "chase" and actualGoal.Y - root.Position.Y >= Config.BotElevatedThreshold
+	if followRecovery(bot, humanoid, root, actualGoal, now, sky) then
+		return
+	end
+	local stalled = reason ~= "idle" and BotManager.UpdateProgress(bot, root.Position, actualGoal, now)
+	if stalled then
+		clearProgress(bot)
+		local recovered = elevated and canRecover
+			and startRecovery(bot, humanoid, root, actualGoal, true, now, query, zoneCenter, zoneRadius)
+		if not recovered and not elevated and not sky then
+			recovered = startRecovery(bot, humanoid, root, actualGoal, false, now, query, zoneCenter, zoneRadius)
+		end
+		if recovered then
+			followRecovery(bot, humanoid, root, actualGoal, now, sky)
+			return
+		end
+	end
+
+	if bot.PathComputing and bot.PathGoal and (goal - bot.PathGoal).Magnitude >= Config.BotRepathGoalShift then
+		-- いったん変更された目標への結果は、目標が元の位置へ戻っても採用しない。
+		bot.PathGeneration = (bot.PathGeneration or 0) + 1
+		bot.PathGoal = nil
+		bot.NextRepathAt = nil
+	end
+	local need = bot.NextRepathAt == nil or now >= bot.NextRepathAt
+		or (bot.PathGoal and now >= bot.RepathAllowedAt and (bot.GoalChanged
+			or (goal - bot.PathGoal).Magnitude >= Config.BotRepathGoalShift))
+	if need and not bot.PathComputing and not bot.PathResult then
+		local target = goal
+		if skyPlatform and reason ~= "chase" and reason ~= "item" then
+			local top = skyPlatform.Position.Y + skyPlatform.Size.Y / 2
+			target = Vector3.new(goal.X, top, goal.Z)
+			if math.abs(goal.X - skyPlatform.Position.X) > skyPlatform.Size.X / 2 - 2
+				or math.abs(goal.Z - skyPlatform.Position.Z) > skyPlatform.Size.Z / 2 - 2 then
+				target = Vector3.new(skyPlatform.Position.X, top, skyPlatform.Position.Z)
+			end
+		end
+		local fallback = reason == "chase" and (target - actualGoal).Magnitude > 0 and actualGoal or nil
+		requestPath(bot, root.Position, target, fallback, goal)
+		bot.PathGoal = goal
+		bot.NextRepathAt = now + roundRepathInterval
+		bot.RepathAllowedAt = now + Config.BotRepathMinInterval
+		bot.GoalChanged = false
+	end
+	local result = bot.PathResult
+	if result then
+		bot.PathResult = nil
+		if not result.Candidate and (goal - result.Goal).Magnitude < Config.BotRepathGoalShift then
+			bot.Waypoints = result.Waypoints
+			bot.WaypointIndex = 1
+			bot.PathTarget = result.Target
+			bot.PathUsesActualGoal = result.UsesFallback
+			if not bot.Waypoints then
+				if elevated and canRecover
+					and startRecovery(bot, humanoid, root, actualGoal, true, now, query, zoneCenter, zoneRadius) then
+					followRecovery(bot, humanoid, root, actualGoal, now, sky)
+					return
+				end
+				if sky then
+					bot.PathTarget = rootPlatform and (rootPlatform.Position + Vector3.new(0, rootPlatform.Size.Y / 2, 0))
+						or root.Position
+				end
+			end
+		else
+			bot.NextRepathAt = nil
+		end
+	end
+	local target = sky and (bot.PathTarget or root.Position) or (bot.PathUsesActualGoal and actualGoal or goal)
+	followWaypoints(bot, humanoid, root, target, sky)
 end
 
 local function considerItems(bot, threat)
@@ -663,10 +934,33 @@ local function considerItems(bot, threat)
 	end
 end
 
+local function perceivedPosition(player, now)
+	local data = GameState.GetData(player)
+	if (data.BeastDecoyUntil or 0) > now then
+		return data.BeastDecoyPosition
+	end
+	if data.BeastUsed == "Amun" and data.BeastVisibility and data.BeastVisibility.Until > now then
+		return nil
+	end
+	local root = GameState.GetRootPart(player)
+	return root and root.Position, root and root.AssemblyLinearVelocity
+end
+
 local function think(bot, now)
 	local root = GameState.GetRootPart(bot)
 	local humanoid = GameState.GetHumanoid(bot)
-	if not root or not root.Position or not humanoid or GameState.IsStunned(bot) or GameState.IsDowned(bot) then
+	if not root or not root.Position or not humanoid or GameState.IsStunned(bot) or GameState.IsDowned(bot)
+		or GameState.GetData(bot).FrozenUntil > now then
+		bot.LastThink = nil
+		if bot.Recovery then
+			cancelPath(bot)
+			bot.Recovery = nil
+			bot.NextRepathAt = nil
+		end
+		clearProgress(bot)
+		return
+	end
+	if bot.LastThink and now - bot.LastThink < Config.BotDecisionInterval then
 		return
 	end
 	local pos = root.Position
@@ -716,34 +1010,48 @@ local function think(bot, now)
 	local runners = {}
 	local taggerX, taggerZ = nil, nil
 	local role = GameState.Taggers[bot]
+	local threat = math.huge
 	if not role then
-		local tagger = GameState.NearestTagger(pos)
-		local taggerRoot = GameState.GetRootPart(tagger)
-		if taggerRoot then
-			taggerX = taggerRoot.Position.X
-			taggerZ = taggerRoot.Position.Z
+		for tagger in pairs(GameState.Taggers) do
+			local position = GameState.IsAlive(tagger) and perceivedPosition(tagger, now)
+			if position then
+				local distance = (pos - position).Magnitude
+				if distance < threat then
+					threat = distance
+					taggerX, taggerZ = position.X, position.Z
+				end
+			end
 		end
 	end
-	for _, other in ipairs(GameState.ParticipantList()) do
-		-- タッチ返しできない相手は追いかけない
-		if other ~= bot and not GameState.IsTagger(other) and (not role or other ~= role.NoTagBack) and GameState.IsAlive(other) then
-			local otherRoot = GameState.GetRootPart(other)
-			if otherRoot and otherRoot.Position then
-				table.insert(runners, { X = otherRoot.Position.X, Z = otherRoot.Position.Z })
+	if role and not blind then
+		for _, other in ipairs(GameState.ParticipantList()) do
+			-- タッチ返しできない相手は追いかけない
+			if not GameState.IsTagger(other) and other ~= role.NoTagBack and GameState.IsAlive(other) then
+				local position, velocity = perceivedPosition(other, now)
+				if position then
+					table.insert(runners, {
+						X = position.X, Y = position.Y, Z = position.Z,
+						Position = position, Velocity = velocity, Player = other,
+					})
+				end
 			end
 		end
 	end
 
 	local boxes = {}
-	for _, position in ipairs(ItemManager.GetActiveBoxPositions()) do
-		table.insert(boxes, { X = position.X, Z = position.Z })
+	if not role then
+		for _, position in ipairs(ItemManager.GetActiveBoxPositions()) do
+			table.insert(boxes, { X = position.X, Z = position.Z, Position = position })
+		end
 	end
 
 	local zoneActive = ZoneManager.IsActive()
 	local center = ZoneManager.GetCenter()
-	local gx, gz = BotManager.ChooseGoal({
+	local radius = ZoneManager.GetRadius()
+	local gx, gz, reason, subject = BotManager.ChooseGoal({
 		Role = GameState.IsTagger(bot) and "Tagger" or "Runner",
 		X = pos.X,
+		Y = pos.Y,
 		Z = pos.Z,
 		TaggerX = taggerX,
 		TaggerZ = taggerZ,
@@ -752,14 +1060,60 @@ local function think(bot, now)
 		ZoneActive = zoneActive,
 		ZoneX = center and center.X or 0,
 		ZoneZ = center and center.Z or 0,
-		ZoneRadius = ZoneManager.GetRadius(),
+		ZoneRadius = radius,
+		ZoneShrunk = ZoneManager.IsShrunk(),
 		Blind = blind,
 		BlindAngle = bot.BlindAngle,
 	})
 
-	considerItems(bot, threatDistance(bot, pos))
-	followPath(bot, humanoid, root, Vector3.new(gx, pos.Y, gz), now)
-	if shouldJump then
+	local actualGoal = subject and subject.Position or Vector3.new(gx, pos.Y, gz)
+	local targetPlayer = subject and subject.Player
+	if reason ~= bot.GoalReason or targetPlayer ~= bot.GoalPlayer then
+		if bot.GoalReason then
+			bot.NextRepathAt = nil
+		end
+		bot.GoalReason, bot.GoalPlayer = reason, targetPlayer
+		bot.GoalChanged = true
+		bot.PathGoal = nil
+		bot.Recovery = nil
+		bot.ApproachAttempts = nil
+		bot.PathTarget = nil
+		bot.PathUsesActualGoal = false
+		cancelPath(bot)
+		clearProgress(bot)
+	end
+	if reason == "chase" then
+		threat = (pos - actualGoal).Magnitude
+	end
+	considerItems(bot, threat)
+	if reason == "idle" then
+		moveTo(humanoid, root.Position)
+		return
+	end
+	local query = navigationQuery(bot)
+	local goal = actualGoal
+	if reason == "chase" then
+		local predicted = BotManager.PredictPosition(actualGoal, subject.Velocity)
+		local offset = predicted - actualGoal
+		if offset.Magnitude > 0 and not workspace:Raycast(actualGoal, offset, query) then
+			if actualGoal.Y - pos.Y < Config.BotElevatedThreshold then
+				goal = predicted
+			else
+				local currentGround = groundAt(actualGoal, query)
+				local predictedGround = groundAt(predicted, query)
+				if currentGround and predictedGround
+					and math.abs(predictedGround.Y - currentGround.Y) < Config.BotElevatedThreshold then
+					goal = predicted
+				end
+			end
+		end
+	elseif not subject and MapBuilder.CurrentMap ~= "Sky" then
+		local ground = groundAt(actualGoal + Vector3.new(0, Config.BotApproachProbeHeight, 0), query)
+		goal = ground or actualGoal
+		actualGoal = goal
+	end
+	followPath(bot, humanoid, root, goal, actualGoal, reason, now, query, zoneActive and not role and center, radius)
+	if shouldJump and not bot.Recovery then
 		humanoid.Jump = true
 	end
 end
@@ -783,7 +1137,7 @@ end
 -- 歩かせるのをやめる（結果表示のあいだ、その場に止める）
 function BotManager.Halt()
 	for _, bot in ipairs(activeBots) do
-		bot.Waypoints = nil
+		cancelPath(bot)
 		local humanoid = GameState.GetHumanoid(bot)
 		if humanoid then
 			humanoid.WalkSpeed = 0
@@ -822,7 +1176,7 @@ end
 function BotManager.Fill(humans)
 	local list = humans or {}
 	local count = BotManager.CountToSpawn(#list)
-	local speed, interval = 1, 1.4
+	local speed, interval = BotManager.StrengthForTierIndex(1)
 	if count > 0 then
 		local indices = {}
 		for _, player in ipairs(list) do
@@ -855,7 +1209,7 @@ end
 -- ひとりモード用：count 体を出す。opts.SoloCap = true なら人より少し遅くする
 function BotManager.Spawn(count, opts)
 	BotManager.DespawnAll()
-	roundRepathInterval = 1.0
+	roundRepathInterval = Config.BotSoloRepathInterval
 	local spawnPart = findSpawnPart()
 	for index = 1, count do
 		local bot = createBot(index, count, spawnPart)
@@ -885,9 +1239,20 @@ game:GetService("RunService").Heartbeat:Connect(function(dt)
 		local humanoid = GameState.GetHumanoid(bot)
 		local root = GameState.GetRootPart(bot)
 		local data = GameState.GetData(bot)
-		if root and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
+		local stunSequence = bot.Character:GetAttribute("StunSequence")
+		if bot.IceStunSequence ~= stunSequence then
+			bot.IceStunSequence = stunSequence
+			bot.IceVelocity = nil
+		end
+		if root and not root.Anchored and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
+			and not GameState.IsStunned(bot)
 			and data.SpikeBootsUntil <= GameState.Now() and not GameState.IsDowned(bot) then
 			local actual = root.AssemblyLinearVelocity
+			local knockback = root:GetAttribute("BeastKnockback")
+			if bot.IceKnockback ~= knockback then
+				bot.IceVelocity = nil
+				bot.IceKnockback = knockback
+			end
 			local previous = bot.IceVelocity or Vector3.new(actual.X, 0, actual.Z)
 			bot.IceVelocity = Config.IceVelocity(previous, humanoid.MoveDirection, humanoid.WalkSpeed, dt)
 			root.AssemblyLinearVelocity = Vector3.new(bot.IceVelocity.X, actual.Y, bot.IceVelocity.Z)

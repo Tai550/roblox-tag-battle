@@ -1393,6 +1393,27 @@ local function buildVolt(map, scale)
 	local gray = Color3.fromRGB(72, 87, 103)
 	block(map, "MetalFloor", 0, -2, 0, 240, 4, 240, gray, metal, scale)
 	boundary(map, 120, 26, gray, metal, scale)
+	local effects = makeFolder(map, "VoltEffects")
+	local areas = makeFolder(effects, "FloorAreas")
+	for _, area in ipairs(Config.VoltFloorAreas) do
+		local part = block(areas, "VoltFloorArea", area.X, 0.06, area.Z, area.Width, 0.12, area.Depth,
+			gray, Enum.Material.Neon, scale)
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+		part.Transparency = 1
+	end
+	local diameter = Config.VoltLightningRadius * 2
+	local marker = makeColumn(effects, "LightningMarker", 0, 0.13, 0, 0.12, diameter,
+		Color3.fromRGB(255, 133, 25), Enum.Material.Neon)
+	local bolt = makeColumn(effects, "LightningBolt", 0, 0, 0, Config.VoltLightningHeight, 2,
+		Color3.fromRGB(214, 245, 255), Enum.Material.Neon)
+	for _, part in ipairs({ marker, bolt }) do
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+		part.Transparency = 1
+	end
 	local function hazard(x, y, z, sx, sy, sz, color)
 		local part = block(map, "VoltHazard", x, y, z, sx, sy, sz, color, Enum.Material.Neon, scale)
 		part.Touched:Connect(function(hit)
