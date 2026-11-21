@@ -9,6 +9,8 @@ RT.modules.Config = require("./.build/Config")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
+RT.modules.PlayerDataStore = require("./.build/PlayerDataStore")
+RT.modules.MatchSession = require("./.build/MatchSession")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
@@ -19,6 +21,7 @@ local ZoneManager = RT.modules.ZoneManager
 local DeckManager = RT.modules.DeckManager
 local ItemManager = RT.modules.ItemManager
 local RoundManager = RT.modules.RoundManager
+local PlayerDataStore = RT.modules.PlayerDataStore
 local Vector3 = RT.Vector3
 
 ---------------------------------------------------------------------
@@ -106,19 +109,19 @@ end
 ---------------------------------------------------------------------
 
 do
-	local okValid = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp" })
-	check("正しいデッキは通る", okValid == true)
-	local okDup = DeckManager.ValidateDeck({ "Dash", "Dash", "Warp" })
+	local okValid = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp", "Banana" })
+	check("正しいデッキ（4個）は通る", okValid == true)
+	local okDup = DeckManager.ValidateDeck({ "Dash", "Dash", "Warp", "Banana" })
 	check("重複は通らない", okDup == false)
-	local okCount = DeckManager.ValidateDeck({ "Dash", "Shield" })
+	local okCount = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp" })
 	check("数が違うと通らない", okCount == false)
-	local okUnknown = DeckManager.ValidateDeck({ "Dash", "Shield", "NoSuchItem" })
+	local okUnknown = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp", "NoSuchItem" })
 	check("存在しないアイテムは通らない", okUnknown == false)
 	local okType = DeckManager.ValidateDeck("Dash")
 	check("配列でないと通らない", okType == false)
 
-	-- 既定デッキから300回引いて、デッキ外が絶対に出ないこと
-	local fakePlayer = { Parent = {} }
+	-- 保存データのデッキから300回引いて、デッキ外が出ないこと
+	local fakePlayer = { Parent = {}, UserId = 1 }
 	local deckSet = {}
 	for _, itemId in ipairs(Config.DefaultDeck) do
 		deckSet[itemId] = true
@@ -137,32 +140,77 @@ do
 	for _ in pairs(seen) do
 		seenCount = seenCount + 1
 	end
-	check("300回引けばデッキの3種すべて出る", seenCount == 3)
+	check("300回引けばデッキの4種すべて出る", seenCount == 4)
+end
 
-	-- デッキを変更したら、その中からだけ出る
-	local okSet = DeckManager.SetDeck(fakePlayer, { "Smoke", "Star", "Banana" })
-	check("デッキ変更が受理される", okSet == true)
-	local changedSet = { Smoke = true, Star = true, Banana = true }
-	local allInChanged = true
-	for _ = 1, 300 do
-		local picked = DeckManager.PickFromDeck(fakePlayer)
-		if not changedSet[picked] then
-			allInChanged = false
+---------------------------------------------------------------------
+-- 4b. 保存データ：持っていないアイテムはデッキに入れられない・壊れたデータの修復
+---------------------------------------------------------------------
+
+do
+	local fresh = PlayerDataStore.Normalize(nil)
+	check("新しいデータはコイン0", fresh.Coins == 0)
+	check("最初からスターターを持っている", fresh.Owned.Dash and fresh.Owned.Banana and fresh.Owned.Warp and fresh.Owned.Shield)
+	check("最初のデッキは既定デッキ", #fresh.Deck == Config.DeckSize)
+	local notOwned = PlayerDataStore.ValidateDeck({ "Dash", "Banana", "Warp", "TimeStop" }, fresh.Owned)
+	check("持っていないアイテムはデッキに入らない", notOwned == false)
+	local broken = PlayerDataStore.Normalize({ Coins = -50, Owned = { Fake = true, Star = true }, Deck = { "Star" } })
+	check("マイナスのコインは0に直る", broken.Coins == 0)
+	check("存在しないアイテムは持ち物から消える", broken.Owned.Fake == nil and broken.Owned.Star == true)
+	check("壊れたデッキは既定デッキに戻る", #broken.Deck == Config.DeckSize)
+	local bought = PlayerDataStore.Normalize({ Coins = 10, Owned = { TimeStop = true }, Deck = { "TimeStop", "Dash", "Banana", "Warp" } })
+	check("買ったアイテム入りのデッキはそのまま", bought.Deck[1] == "TimeStop")
+	local count = 0
+	for _, itemId in ipairs(Config.ItemOrder) do
+		if Config.Items[itemId] then
+			count = count + 1
 		end
 	end
-	check("変更後の抽選もデッキの中からだけ出る", allInChanged)
-
-	-- 不正なデッキ変更は今のデッキを壊さない
-	local okBad = DeckManager.SetDeck(fakePlayer, { "Dash", "Dash", "Dash" })
-	check("不正なデッキ変更は却下される", okBad == false)
-	local stillIn = true
-	for _ = 1, 100 do
-		local picked = DeckManager.PickFromDeck(fakePlayer)
-		if not changedSet[picked] then
-			stillIn = false
+	check("アイテムは全部で16種（既存6＋追加10）", count == 16 and #Config.ItemOrder == 16)
+	local tierOk = true
+	for _, itemId in ipairs(Config.ItemOrder) do
+		local def = Config.Items[itemId]
+		if not Config.Tiers[def.Tier] then
+			tierOk = false
 		end
 	end
-	check("却下されても前のデッキのまま", stillIn)
+	check("すべてのアイテムに松竹梅がある", tierOk)
+end
+
+---------------------------------------------------------------------
+-- 4c. 順位とコイン
+---------------------------------------------------------------------
+
+do
+	local results = RoundManager.ComputeResults({
+		{ Key = "A", Tags = 2, FinalTagger = false },
+		{ Key = "B", Tags = 0, FinalTagger = false },
+		{ Key = "C", Tags = 1, FinalTagger = true },
+		{ Key = "D", Tags = 0, FinalTagger = false, EliminatedOrder = 1 },
+		{ Key = "E", Tags = 1, FinalTagger = false },
+		{ Key = "F", Tags = 3, FinalTagger = false, EliminatedOrder = 2 },
+	})
+	local order = {}
+	for _, entry in ipairs(results) do
+		table.insert(order, entry.Key)
+	end
+	check("順位: 逃げ切り(少ない順)→最後の鬼→脱落(あとの人が上)", table.concat(order) == "BEACFD")
+	check("一度もタッチされずに逃げ切ったら優勝", results[1].Status == "優勝" and results[1].Champion == true)
+	check("優勝がいちばんコインが多い", results[1].Coins > results[2].Coins and results[1].Coins == Config.CoinRewards.Champion)
+	check("最後の鬼は負け", results[4].Status == "最後の鬼" and results[4].Coins == Config.CoinRewards.FinalTagger)
+	check("脱落は最下位グループ", results[6].Status == "脱落" and results[6].Key == "D")
+	check("タッチされても脱落していないDは優勝にならない（脱落）", results[6].Champion == false)
+
+	local tie = RoundManager.ComputeResults({
+		{ Key = "X", Tags = 0, FinalTagger = false },
+		{ Key = "Y", Tags = 0, FinalTagger = false },
+	})
+	check("同じ回数なら同じ順位（同時優勝）", tie[1].Rank == 1 and tie[2].Rank == 1 and tie[2].Champion)
+	local many = RoundManager.ComputeResults({ { Key = "Z", Tags = 9, FinalTagger = false } })
+	check("タッチが多くても最低枚数はもらえる", many[1].Coins == Config.CoinRewards.SurvivorMin)
+
+	check("送還0回では脱落しない", ZoneManager.ShouldEliminate(0) == false)
+	check("送還2回のあとは脱落", ZoneManager.ShouldEliminate(Config.ZoneMaxReturns) == true)
 end
 
 ---------------------------------------------------------------------

@@ -1,0 +1,38 @@
+{
+  "name": "hyper-tag-lobby",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Lobby": {
+        "$path": "src/lobby/server",
+        "PlayerDataStore": {
+          "$path": "src/serverlib/PlayerDataStore.lua"
+        }
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "LobbyClient": {
+          "$path": "src/lobby/client"
+        }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {},
+      "$ignoreUnknownInstances": true,
+      "LobbyMap": {
+        "$path": "src/lobby/workspace/LobbyMap.model.json"
+      }
+    }
+  }
+}

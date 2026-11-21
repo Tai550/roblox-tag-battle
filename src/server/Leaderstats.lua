@@ -7,7 +7,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 
 local Leaderstats = {}
 
-local STAT_KEYS = { "Survived", "Tagged" }
+local STAT_KEYS = { "Tagged", "Returns" } -- 試合ごとに 0 に戻す
 
 local function setup(player)
 	if player:FindFirstChild("leaderstats") then
@@ -41,6 +41,24 @@ function Leaderstats.Increment(player, key)
 	local value = folder:FindFirstChild(statName)
 	if value then
 		value.Value = value.Value + 1
+	end
+end
+
+function Leaderstats.Set(player, key, amount)
+	local folder = player and player:FindFirstChild("leaderstats")
+	local statName = Config.LeaderstatNames[key]
+	local value = folder and statName and folder:FindFirstChild(statName)
+	if value then
+		value.Value = amount
+	end
+end
+
+-- 試合の始めに全員の記録を 0 に戻す
+function Leaderstats.ResetAll()
+	for _, player in ipairs(Players:GetPlayers()) do
+		for _, key in ipairs(STAT_KEYS) do
+			Leaderstats.Set(player, key, 0)
+		end
 	end
 end
 

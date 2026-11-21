@@ -18,6 +18,8 @@ MODULES = [
     ("src/server/GameState.lua", "GameState"),
     ("src/server/Remotes.lua", "Remotes"),
     ("src/server/Leaderstats.lua", "Leaderstats"),
+    ("src/serverlib/PlayerDataStore.lua", "PlayerDataStore"),
+    ("src/server/MatchSession.lua", "MatchSession"),
     ("src/server/DeckManager.lua", "DeckManager"),
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),

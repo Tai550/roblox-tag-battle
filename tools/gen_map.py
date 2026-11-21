@@ -222,6 +222,18 @@ ramp("Slide", (106, 0, -92), (69, 14, -92), 6, (250, 200, 60), "SmoothPlastic")
 for i, (x, z) in enumerate([(32, -60), (40, -66), (100, -26), (24, -40), (104, -104)], 1):
     part(f"Bumper{i}", (5, 3, 5), (x, 1.5, z), PARK, "SmoothPlastic", shape=CYLINDER, rot=VERTICAL)
 
+# ---------------------------------------------------------------- 観戦席（脱落した人が入る上空のガラスの箱）
+SPEC_Y = 150
+part("SpectatorFloor", (34, 1, 34), (0, SPEC_Y, 0), (220, 230, 255), "Glass", transparency=0.4)
+for name, size, pos in [
+    ("SpectatorWallN", (34, 10, 1), (0, SPEC_Y + 5.5, 17)),
+    ("SpectatorWallS", (34, 10, 1), (0, SPEC_Y + 5.5, -17)),
+    ("SpectatorWallE", (1, 10, 34), (17, SPEC_Y + 5.5, 0)),
+    ("SpectatorWallW", (1, 10, 34), (-17, SPEC_Y + 5.5, 0)),
+    ("SpectatorRoof", (34, 1, 34), (0, SPEC_Y + 11, 0)),
+]:
+    part(name, size, pos, (220, 230, 255), "Glass", transparency=0.85)
+
 # ---------------------------------------------------------------- スポーン地点
 part("SpawnPad", (0.6, 14, 14), (0, 0.5, 0), (255, 255, 255), "Neon", shape=CYLINDER, rot=VERTICAL,
      transparency=0.3, collide=False)
@@ -265,3 +277,41 @@ item_spawns = {
 (OUT_DIR / "Map.model.json").write_text(json.dumps(map_model, ensure_ascii=False, indent=1) + "\n")
 (OUT_DIR / "ItemSpawns.model.json").write_text(json.dumps(item_spawns, ensure_ascii=False, indent=1) + "\n")
 print(f"Map: {len(parts) + 1} parts / ItemSpawns: {len(spawn_points)} points")
+
+
+# ================================================================ ロビー
+parts = []
+LH = 70
+part("LobbyFloor", (2 * LH, 2, 2 * LH), (0, -1, 0), (225, 225, 235), "Concrete")
+part("LobbyPath", (14, 0.2, 2 * LH - 10), (0, 0.1, 0), (190, 200, 220), "Slate")
+for name, x1, x2, z in [("LWallN", -LH, LH, LH), ("LWallS", -LH, LH, -LH)]:
+    wall_x(name, x1, x2, z, 14, 3, (90, 110, 170), "Brick")
+for name, z1, z2, x in [("LWallE", -LH, LH, LH), ("LWallW", -LH, LH, -LH)]:
+    wall_z(name, z1, z2, x, 14, 3, (90, 110, 170), "Brick")
+# すぐ遊ぶパッド（LobbyMain がこの名前で探す）
+part("QuickPad", (0.6, 18, 18), (0, 0.3, -30), (60, 230, 120), "Neon", shape=CYLINDER, rot=VERTICAL)
+part("QuickPadRing", (0.4, 22, 22), (0, 0.2, -30), (30, 120, 60), "SmoothPlastic", shape=CYLINDER, rot=VERTICAL)
+for i, (sx, sz) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)], 1):
+    part(f"PadLight{i}", (2, 2, 2), (sx * 11, 6, -30 + sz * 11), (120, 255, 160), "Neon", shape=BALL, children=light(20, 1.5, (0.5, 1.0, 0.6)))
+    part(f"PadPole{i}", (0.6, 5, 0.6), (sx * 11, 2.5, -30 + sz * 11), (60, 60, 70), "Metal")
+# ルール掲示板（右向きの面＝+X 側に文字を出す）
+part("RulesBoard", (1, 16, 26), (-45, 10, 0), (30, 40, 70), "SmoothPlastic")
+part("RulesBoardFrame", (1.4, 17, 27), (-45.3, 10, 0), (200, 170, 90), "Wood")
+part("RulesLegL", (1, 2, 1), (-45, 1, -10), (90, 70, 50), "Wood")
+part("RulesLegR", (1, 2, 1), (-45, 1, 10), (90, 70, 50), "Wood")
+# 飾り：木とベンチ
+for i, (x, z) in enumerate([(45, 45), (-45, 45), (50, -50), (-50, -50), (55, 0)], 1):
+    part(f"LTrunk{i}", (8, 2, 2), (x, 4, z), (110, 75, 45), "Wood", shape=CYLINDER, rot=VERTICAL)
+    part(f"LLeaves{i}", (9, 9, 9), (x, 10, z), (60, 160, 70), "Grass", shape=BALL)
+for i, (x, z) in enumerate([(20, 20), (-20, 20)], 1):
+    part(f"Bench{i}", (8, 1, 3), (x, 1.5, z), (160, 110, 60), "WoodPlanks")
+lobby_spawn = dict(spawn)
+lobby_spawn["properties"] = dict(spawn["properties"])
+lobby_spawn["properties"]["Position"] = {"Vector3": [0.0, 0.5, 35.0]}
+part("LobbySpawnPad", (0.6, 14, 14), (0, 0.5, 35), (120, 170, 255), "Neon", shape=CYLINDER, rot=VERTICAL,
+     transparency=0.3, collide=False)
+LOBBY_DIR = ROOT / "src" / "lobby" / "workspace"
+LOBBY_DIR.mkdir(parents=True, exist_ok=True)
+(LOBBY_DIR / "LobbyMap.model.json").write_text(
+    json.dumps({"className": "Model", "children": parts + [lobby_spawn]}, ensure_ascii=False, indent=1) + "\n")
+print(f"Lobby: {len(parts) + 1} parts")

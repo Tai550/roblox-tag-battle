@@ -6056,6 +6056,246 @@
    }
   },
   {
+   "name": "SpectatorFloor",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      34.0,
+      1.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      150.0,
+      0.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.4
+    }
+   }
+  },
+  {
+   "name": "SpectatorWallN",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      34.0,
+      10.0,
+      1.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      155.5,
+      17.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.85
+    }
+   }
+  },
+  {
+   "name": "SpectatorWallS",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      34.0,
+      10.0,
+      1.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      155.5,
+      -17.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.85
+    }
+   }
+  },
+  {
+   "name": "SpectatorWallE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      10.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      17.0,
+      155.5,
+      0.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.85
+    }
+   }
+  },
+  {
+   "name": "SpectatorWallW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      10.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -17.0,
+      155.5,
+      0.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.85
+    }
+   }
+  },
+  {
+   "name": "SpectatorRoof",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      34.0,
+      1.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      220,
+      230,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 1568
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      161.0,
+      0.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 0.85
+    }
+   }
+  },
+  {
    "name": "SpawnPad",
    "className": "Part",
    "properties": {

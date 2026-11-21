@@ -12,6 +12,7 @@ local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
+local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
 
 local ItemManager = {}
 
@@ -23,6 +24,8 @@ local spawnLoopToken = 0
 local spawnedItems = {}     -- [Part] = { IsBox = true, PointKey = ... } フィールドのボックス
 local occupiedPoints = {}   -- [PointKey] = Part
 local placedBananas = {}    -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }
+local placedGlue = {}       -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }  ねばねば罠
+local decoys = {}           -- [Model] = 消える時刻  ダミー人形
 local warnedNoSpawns = false
 local itemContainer = nil
 
@@ -115,6 +118,17 @@ local function sendItemUpdate(player)
 		DashTimeLeft = math.max(0, data.DashUntil - now),
 		ShieldTimeLeft = math.max(0, data.ShieldUntil - now),
 		StarTimeLeft = math.max(0, data.StarUntil - now),
+		-- 画面の端に小さく出す「効果中」の一覧
+		Effects = {
+			{ Name = "ダッシュ", Left = math.max(0, data.DashUntil - now) },
+			{ Name = "シールド", Left = math.max(0, data.ShieldUntil - now) },
+			{ Name = "スター", Left = math.max(0, data.StarUntil - now) },
+			{ Name = "ハイジャンプ", Left = math.max(0, data.JumpUntil - now) },
+			{ Name = "しのび足", Left = math.max(0, data.SneakUntil - now) },
+			{ Name = "エリアガード", Left = math.max(0, data.ZoneGuardUntil - now) },
+			{ Name = "ねばねば", Left = math.max(0, data.SlowUntil - now) },
+			{ Name = "タイムストップ", Left = math.max(0, data.FrozenUntil - now) },
+		},
 	})
 end
 ItemManager.SendItemUpdate = sendItemUpdate
@@ -239,13 +253,13 @@ local function onBoxTouched(part, hit)
 
 	removeItem(part)
 	table.insert(data.HeldItems, itemId)
-	table.insert(data.HeldExpireAt, GameState.Now() + Config.BoxExpireTime)
+	local expireAt = Config.BoxExpireTime > 0 and GameState.Now() + Config.BoxExpireTime or 0
+	table.insert(data.HeldExpireAt, expireAt)
 	sendItemUpdate(player)
 
 	local def = Config.Items[itemId]
 	Remotes.NotifyPlayer(player, string.format(
-		"ボックスから %s が出た！ ［%s］で使う（%d秒以内に使おう）",
-		def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems), Config.BoxExpireTime
+		"%s をゲット！［%s］で使う", def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems)
 	))
 end
 
@@ -460,6 +474,231 @@ handlers.Banana = function(player, def, data)
 	return true
 end
 
+---------------------------------------------------------------------
+-- 追加アイテム
+---------------------------------------------------------------------
+
+-- 鬼以外の、まだ残っている参加者
+local function activeRunners()
+	local list = {}
+	for _, other in ipairs(GameState.ParticipantList()) do
+		if other ~= GameState.Tagger and GameState.IsAlive(other) then
+			table.insert(list, other)
+		end
+	end
+	return list
+end
+
+handlers.HighJump = function(player, def, data)
+	data.JumpUntil = GameState.Now() + def.Duration
+	GameState.RefreshSpeed(player)
+	Remotes.NotifyPlayer(player, string.format("ハイジャンプ！ %d秒間 高く跳べる", def.Duration))
+	return true
+end
+
+handlers.Decoy = function(player, def, data)
+	local character = player.Character
+	local root = GameState.GetRootPart(player)
+	if not character or not root then
+		return false, nil
+	end
+	local wasArchivable = character.Archivable
+	character.Archivable = true
+	local copy = character:Clone()
+	character.Archivable = wasArchivable
+	if not copy then
+		return false, nil
+	end
+	copy.Name = "Decoy"
+	for _, child in ipairs(copy:GetDescendants()) do
+		if child:IsA("Script") or child:IsA("LocalScript") or child:IsA("ForceField") or child:IsA("Sparkles") then
+			child:Destroy()
+		elseif child:IsA("BasePart") then
+			child.Anchored = true
+			child.CanCollide = false
+			child.CanTouch = false
+		end
+	end
+	local humanoid = copy:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayName = player.DisplayName
+	end
+	copy.Parent = getItemContainer()
+	decoys[copy] = GameState.Now() + def.Duration
+	Remotes.NotifyPlayer(player, "ダミー人形を置いた！")
+	return true
+end
+
+handlers.Flash = function(player, def, data)
+	local tagger = GameState.Tagger
+	local root = GameState.GetRootPart(player)
+	local taggerRoot = GameState.GetRootPart(tagger)
+	if not tagger or tagger == player or not root or not taggerRoot then
+		return false, "今はフラッシュを使えません"
+	end
+	if (taggerRoot.Position - root.Position).Magnitude > def.Range then
+		return false, "鬼が遠すぎます（近づいてから使おう）"
+	end
+	Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
+	Remotes.NotifyPlayer(player, "フラッシュ！ 鬼の目をくらませた")
+	return true
+end
+
+local function setSneakVisual(player, on, def)
+	local character = player.Character
+	if not character then
+		return
+	end
+	for _, child in ipairs(character:GetDescendants()) do
+		if (child:IsA("BasePart") and child.Name ~= "HumanoidRootPart") or child:IsA("Decal") then
+			if on then
+				if child:GetAttribute("SneakOriginal") == nil then
+					child:SetAttribute("SneakOriginal", child.Transparency)
+				end
+				child.Transparency = math.max(child.Transparency, def.Transparency)
+			else
+				local original = child:GetAttribute("SneakOriginal")
+				if original ~= nil then
+					child.Transparency = original
+					child:SetAttribute("SneakOriginal", nil)
+				end
+			end
+		end
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = on and Enum.HumanoidDisplayDistanceType.None
+			or Enum.HumanoidDisplayDistanceType.Viewer
+	end
+end
+
+handlers.Sneak = function(player, def, data)
+	data.SneakUntil = GameState.Now() + def.Duration
+	setSneakVisual(player, true, def)
+	Remotes.NotifyPlayer(player, string.format("しのび足！ %d秒間 見えにくくなる", def.Duration))
+	return true
+end
+
+local function removeGlue(part)
+	placedGlue[part] = nil
+	part:Destroy()
+end
+
+local function onGlueTouched(part, hit)
+	local info = placedGlue[part]
+	if not info or not active then
+		return
+	end
+	local character = hit:FindFirstAncestorOfClass("Model")
+	local player = character and Players:GetPlayerFromCharacter(character)
+	if not player or not GameState.IsTagger(player) then
+		return -- 鬼だけが引っかかる
+	end
+	local def = Config.Items.Glue
+	GameState.GetData(player).SlowUntil = GameState.Now() + def.SlowTime
+	GameState.RefreshSpeed(player)
+	removeGlue(part)
+	Remotes.NotifyPlayer(player, "ねばねば罠にかかった！")
+	if info.PlacedBy and info.PlacedBy.Parent then
+		Remotes.NotifyPlayer(info.PlacedBy, "鬼がねばねば罠にかかった！")
+	end
+	sendItemUpdate(player)
+end
+
+handlers.Glue = function(player, def, data)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false, nil
+	end
+	local part = Instance.new("Part")
+	part.Name = "GlueTrap"
+	part.Size = Vector3.new(5, 0.3, 5)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Transparency = 0.3
+	part.Color = def.Color
+	part.Position = Vector3.new(root.Position.X, root.Position.Y - 2.8, root.Position.Z)
+	placedGlue[part] = { PlacedBy = player, ExpireAt = GameState.Now() + def.Duration }
+	part.Touched:Connect(function(hit)
+		onGlueTouched(part, hit)
+	end)
+	part.Parent = getItemContainer()
+	Remotes.NotifyPlayer(player, "ねばねば罠を置いた！")
+	return true
+end
+
+handlers.AirBurst = function(player, def, data)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false, nil
+	end
+	local count = 0
+	for _, other in ipairs(GameState.ParticipantList()) do
+		local otherRoot = GameState.GetRootPart(other)
+		if other ~= player and otherRoot and GameState.IsAlive(other) then
+			local offset = otherRoot.Position - root.Position
+			local flat = Vector3.new(offset.X, 0, offset.Z)
+			if offset.Magnitude <= def.Range then
+				local direction = flat.Magnitude > 0.1 and flat.Unit or Vector3.new(0, 0, 1)
+				otherRoot.AssemblyLinearVelocity = direction * def.PushSpeed + Vector3.new(0, def.LiftSpeed, 0)
+				Remotes.NotifyPlayer(other, player.DisplayName .. " のエアバーストで吹き飛ばされた！")
+				count = count + 1
+			end
+		end
+	end
+	Remotes.NotifyPlayer(player, count > 0 and string.format("エアバースト！ %d人を吹き飛ばした", count)
+		or "エアバースト！（まわりに誰もいなかった）")
+	return true
+end
+
+handlers.ZoneGuard = function(player, def, data)
+	data.ZoneGuardUntil = GameState.Now() + def.Duration
+	Remotes.NotifyPlayer(player, string.format("エリアガード！ %d秒間 エリア外でもスタミナが減らない", def.Duration))
+	return true
+end
+
+handlers.Radar = function(player, def, data)
+	local targets = {}
+	if GameState.IsTagger(player) then
+		for _, runner in ipairs(activeRunners()) do
+			table.insert(targets, runner.UserId)
+		end
+	elseif GameState.Tagger then
+		table.insert(targets, GameState.Tagger.UserId)
+	end
+	if #targets == 0 then
+		return false, "今はレーダーで探す相手がいません"
+	end
+	Remotes.RadarEffect:FireClient(player, targets, def.Duration)
+	Remotes.NotifyPlayer(player, string.format("レーダー！ %d秒間 相手が光って見える", def.Duration))
+	return true
+end
+
+handlers.TimeStop = function(player, def, data)
+	local tagger = GameState.Tagger
+	if not tagger or tagger == player or not GameState.IsAlive(tagger) then
+		return false, "今はタイムストップを使えません"
+	end
+	GameState.GetData(tagger).FrozenUntil = GameState.Now() + def.Duration
+	GameState.RefreshSpeed(tagger)
+	Remotes.NotifyPlayer(tagger, player.DisplayName .. " のタイムストップで動けない！")
+	Remotes.NotifyPlayer(player, "タイムストップ！ 鬼を止めた")
+	sendItemUpdate(tagger)
+	return true
+end
+
+handlers.SecondChance = function(player, def, data)
+	if data.ZoneReturns <= 0 then
+		return false, "まだ強制送還されていません（送還されたあとに使おう）"
+	end
+	data.ZoneReturns = data.ZoneReturns - 1
+	Leaderstats.Set(player, "Returns", data.ZoneReturns)
+	ZoneManager.SendZoneUpdate(player)
+	Remotes.NotifyPlayer(player, "セカンドチャンス！ 強制送還の回数が1回もどった")
+	return true
+end
+
 local function onUseItem(player, slotArg)
 	-- クライアントから来るのは枠番号だけ。整数で、実際に持っている枠のときだけ受け付ける
 	local slot = 1
@@ -550,6 +789,33 @@ function ItemManager.Tick()
 			Remotes.NotifyPlayer(player, "スターが消えた")
 		end
 
+		-- 追加アイテムの効果切れ
+		if data.JumpUntil > 0 and data.JumpUntil <= now then
+			data.JumpUntil = 0
+			GameState.RefreshSpeed(player)
+			sendItemUpdate(player)
+		end
+		if data.SlowUntil > 0 and data.SlowUntil <= now then
+			data.SlowUntil = 0
+			GameState.RefreshSpeed(player)
+			sendItemUpdate(player)
+		end
+		if data.FrozenUntil > 0 and data.FrozenUntil <= now then
+			data.FrozenUntil = 0
+			GameState.RefreshSpeed(player)
+			sendItemUpdate(player)
+		end
+		if data.SneakUntil > 0 and data.SneakUntil <= now then
+			data.SneakUntil = 0
+			setSneakVisual(player, false)
+			sendItemUpdate(player)
+		end
+		if data.ZoneGuardUntil > 0 and data.ZoneGuardUntil <= now then
+			data.ZoneGuardUntil = 0
+			Remotes.NotifyPlayer(player, "エリアガードが切れた")
+			sendItemUpdate(player)
+		end
+
 		-- バナナですべっている最中は、決まった向きへ進み続ける
 		if data.SlipUntil > 0 then
 			local root = GameState.GetRootPart(player)
@@ -595,6 +861,27 @@ function ItemManager.Tick()
 	end
 	for _, part in ipairs(expiredBananas) do
 		removeBanana(part)
+	end
+
+	-- 時間が過ぎた罠とダミー人形を消す
+	local expiredGlue = {}
+	for part, info in pairs(placedGlue) do
+		if info.ExpireAt <= now then
+			table.insert(expiredGlue, part)
+		end
+	end
+	for _, part in ipairs(expiredGlue) do
+		removeGlue(part)
+	end
+	local expiredDecoys = {}
+	for model, expireAt in pairs(decoys) do
+		if expireAt <= now then
+			table.insert(expiredDecoys, model)
+		end
+	end
+	for _, model in ipairs(expiredDecoys) do
+		decoys[model] = nil
+		model:Destroy()
 	end
 end
 
@@ -746,11 +1033,28 @@ function ItemManager.Stop()
 	for _, part in ipairs(bananas) do
 		removeBanana(part)
 	end
+	local glue = {}
+	for part in pairs(placedGlue) do
+		table.insert(glue, part)
+	end
+	for _, part in ipairs(glue) do
+		removeGlue(part)
+	end
+	local models = {}
+	for model in pairs(decoys) do
+		table.insert(models, model)
+	end
+	for _, model in ipairs(models) do
+		decoys[model] = nil
+		model:Destroy()
+	end
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		GameState.ResetData(player)
 		removeShieldVisual(player)
 		removeStarVisual(player)
+		setSneakVisual(player, false)
+		GameState.RefreshSpeed(player)
 		sendItemUpdate(player)
 	end
 end

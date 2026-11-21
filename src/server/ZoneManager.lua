@@ -2,13 +2,14 @@
 --
 -- ラウンド中、円形のエリアが試合時間の80%をかけて縮み続ける。
 -- エリアの外に出続けると専用スタミナ（ZoneStamina）が減り、0 になると
--- エリアの中へ戻される。脱落にはならない（小さい子でも遊び続けられる）。
+-- 中央へ強制送還される。送還は Config.ZoneMaxReturns 回まで。その次は脱落（観戦）。
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
+local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
 
 local ZoneManager = {}
 
@@ -20,6 +21,9 @@ local roundDuration = 0             -- 今ラウンドの試合時間（秒）
 local startClock = 0                -- ラウンド開始時刻（GameState.Now 基準）
 local lastCheckClock = 0            -- 前回 内外判定をした時刻
 local wallModel = nil  -- 壁のパネルをまとめた Model
+
+-- 脱落したときに呼ぶ関数（RoundManager が設定する）
+ZoneManager.OnEliminate = nil
 local wallPanels = {}  -- 円周に並べた薄いパネル
 
 ---------------------------------------------------------------------
@@ -166,7 +170,7 @@ local function removeWall()
 end
 
 ---------------------------------------------------------------------
--- エリア内へのリスポーン（スタミナが 0 になったとき）
+-- 中央への強制送還（スタミナが 0 になったとき）
 ---------------------------------------------------------------------
 
 local function respawnInside(player)
@@ -175,7 +179,7 @@ local function respawnInside(player)
 		return
 	end
 	local angle = math.random() * math.pi * 2
-	local dist = math.random() * currentRadius * 0.7 -- 中心寄りに戻す
+	local dist = math.min(Config.ZoneReturnRadius, currentRadius * 0.7) -- 中央のまわりに戻す
 	local x = center.X + math.cos(angle) * dist
 	local z = center.Z + math.sin(angle) * dist
 	local y = center.Y + Config.ItemHeightOffset
@@ -195,15 +199,26 @@ end
 -- 内外判定とスタミナ
 ---------------------------------------------------------------------
 
-local function sendZoneUpdate(player, stamina, isOutside)
+local function sendZoneUpdate(player, data, isOutside)
 	if player and player.Parent then
 		Remotes.ZoneUpdate:FireClient(player, {
 			Radius = currentRadius,
-			Stamina = stamina,
+			Stamina = data.ZoneStamina,
 			MaxStamina = Config.ZoneStaminaMax,
 			IsOutside = isOutside,
+			Returns = data.ZoneReturns,
+			MaxReturns = Config.ZoneMaxReturns,
+			GuardLeft = math.max(0, data.ZoneGuardUntil - GameState.Now()),
 		})
 	end
+end
+ZoneManager.SendZoneUpdate = function(player)
+	sendZoneUpdate(player, GameState.GetData(player), false)
+end
+
+-- 送還の回数を使い切っているか（計算だけの関数）
+function ZoneManager.ShouldEliminate(returnsSoFar)
+	return returnsSoFar >= Config.ZoneMaxReturns
 end
 
 local function checkPlayers(step)
@@ -216,13 +231,27 @@ local function checkPlayers(step)
 				isOutside = not ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, root.Position)
 			end
 
-			if isOutside then
+			local guarded = data.ZoneGuardUntil > GameState.Now()
+			if isOutside and not guarded then
 				data.ZoneStamina = math.max(0, data.ZoneStamina - Config.ZoneDrainPerSecond * step)
 				if data.ZoneStamina <= 0 then
-					respawnInside(player)
 					data.ZoneStamina = Config.ZoneStaminaMax
 					isOutside = false
-					Remotes.NotifyPlayer(player, "エリアの外に長くいたので、中へ戻された！")
+					if ZoneManager.ShouldEliminate(data.ZoneReturns) then
+						if ZoneManager.OnEliminate then
+							ZoneManager.OnEliminate(player)
+						end
+					else
+						data.ZoneReturns = data.ZoneReturns + 1
+						Leaderstats.Set(player, "Returns", data.ZoneReturns)
+						respawnInside(player)
+						local left = Config.ZoneMaxReturns - data.ZoneReturns
+						if left > 0 then
+							Remotes.NotifyPlayer(player, string.format("強制送還！ あと%d回で脱落", left + 1))
+						else
+							Remotes.NotifyPlayer(player, "強制送還！ 次にエリア外で力尽きたら脱落")
+						end
+					end
 				end
 			else
 				data.ZoneStamina = math.min(
@@ -231,7 +260,7 @@ local function checkPlayers(step)
 				)
 			end
 
-			sendZoneUpdate(player, data.ZoneStamina, isOutside)
+			sendZoneUpdate(player, data, isOutside)
 		end
 	end
 end
@@ -256,7 +285,9 @@ function ZoneManager.Start(duration)
 	active = true
 
 	for _, player in ipairs(GameState.ParticipantList()) do
-		GameState.GetData(player).ZoneStamina = Config.ZoneStaminaMax
+		local data = GameState.GetData(player)
+		data.ZoneStamina = Config.ZoneStaminaMax
+		data.ZoneReturns = 0
 	end
 
 	updateWall()

@@ -1,0 +1,1546 @@
+{
+ "className": "Model",
+ "children": [
+  {
+   "name": "LobbyFloor",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      140.0,
+      2.0,
+      140.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      225,
+      225,
+      235
+     ]
+    },
+    "Material": {
+     "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      -1.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LobbyPath",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      0.2,
+      130.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      190,
+      200,
+      220
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      0.1,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LWallN",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      140.0,
+      14.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      110,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      7.0,
+      70.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LWallS",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      140.0,
+      14.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      110,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      7.0,
+      -70.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LWallE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      14.0,
+      140.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      110,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      70.0,
+      7.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LWallW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      14.0,
+      140.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      110,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -70.0,
+      7.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "QuickPad",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      18.0,
+      18.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      230,
+      120
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       0.0,
+       0.3,
+       -30.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "QuickPadRing",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.4,
+      22.0,
+      22.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      30,
+      120,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       0.0,
+       0.2,
+       -30.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "PadLight1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      255,
+      160
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      11.0,
+      6.0,
+      -19.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 20
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        0.5,
+        1.0,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "PadPole1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      5.0,
+      0.6
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      11.0,
+      2.5,
+      -19.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "PadLight2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      255,
+      160
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -11.0,
+      6.0,
+      -19.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 20
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        0.5,
+        1.0,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "PadPole2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      5.0,
+      0.6
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -11.0,
+      2.5,
+      -19.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "PadLight3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      255,
+      160
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -11.0,
+      6.0,
+      -41.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 20
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        0.5,
+        1.0,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "PadPole3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      5.0,
+      0.6
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -11.0,
+      2.5,
+      -41.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "PadLight4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      255,
+      160
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      11.0,
+      6.0,
+      -41.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 20
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        0.5,
+        1.0,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "PadPole4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      5.0,
+      0.6
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      11.0,
+      2.5,
+      -41.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RulesBoard",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      16.0,
+      26.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      30,
+      40,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      10.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RulesBoardFrame",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.4,
+      17.0,
+      27.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      170,
+      90
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.3,
+      10.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RulesLegL",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      2.0,
+      1.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      70,
+      50
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      1.0,
+      -10.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RulesLegR",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      2.0,
+      1.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      70,
+      50
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      1.0,
+      10.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LTrunk1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       45.0,
+       4.0,
+       45.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "LLeaves1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      9.0,
+      9.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      45.0,
+      10.0,
+      45.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "LTrunk2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -45.0,
+       4.0,
+       45.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "LLeaves2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      9.0,
+      9.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      10.0,
+      45.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "LTrunk3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       50.0,
+       4.0,
+       -50.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "LLeaves3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      9.0,
+      9.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      50.0,
+      10.0,
+      -50.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "LTrunk4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -50.0,
+       4.0,
+       -50.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "LLeaves4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      9.0,
+      9.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -50.0,
+      10.0,
+      -50.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "LTrunk5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      2.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       55.0,
+       4.0,
+       0.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "LLeaves5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      9.0,
+      9.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      55.0,
+      10.0,
+      0.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Bench1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      1.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      20.0,
+      1.5,
+      20.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Bench2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      1.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -20.0,
+      1.5,
+      20.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LobbySpawnPad",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      170,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       0.0,
+       0.5,
+       35.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    },
+    "Transparency": {
+     "Float32": 0.3
+    },
+    "CanCollide": {
+     "Bool": false
+    }
+   }
+  },
+  {
+   "name": "SpawnLocation",
+   "className": "SpawnLocation",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      1.0,
+      12.0
+     ]
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      0.5,
+      35.0
+     ]
+    },
+    "Transparency": {
+     "Float32": 1.0
+    },
+    "Duration": {
+     "Int32": 0
+    }
+   }
+  }
+ ]
+}

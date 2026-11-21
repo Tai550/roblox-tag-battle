@@ -19,6 +19,9 @@ GameState.ChosenDuration = Config.DefaultDuration -- 投票で決まった今ラ
 GameState.Participants = {}       -- [Player] = true  このラウンドの参加者
 GameState.BeenTagger = {}         -- [Player] = true  このラウンドで一度でも鬼になった人
 GameState.Winners = {}            -- 結果表示用の勝者リスト（Player の配列）
+GameState.TagCounts = {}          -- [Player] = この試合で鬼にタッチされた回数（順位に使う）
+GameState.Eliminated = {}         -- 脱落した人（脱落した順の Player 配列）
+GameState.Results = {}            -- 結果表示用の順位表（RoundManager が作る）
 
 -- プレイヤーごとの状態
 local playerData = {}
@@ -34,7 +37,13 @@ local function newData()
 		SlipUntil = 0,            -- バナナですべっている最中が切れる時刻
 		SlipDirection = nil,      -- すべる向き（水平方向の Vector3）
 		InvulnerableUntil = 0,    -- シールドで防いだ直後の無敵が切れる時刻
-		ZoneStamina = Config.ZoneStaminaMax, -- エリア外スタミナ（0 になるとエリア内へ戻される）
+		ZoneStamina = Config.ZoneStaminaMax, -- エリア外スタミナ（0 になると中央へ強制送還）
+		ZoneReturns = 0,          -- この試合で強制送還された回数
+		JumpUntil = 0,            -- ハイジャンプが切れる時刻
+		SneakUntil = 0,           -- しのび足が切れる時刻
+		ZoneGuardUntil = 0,       -- エリアガードが切れる時刻
+		SlowUntil = 0,            -- ねばねば罠で遅くなっているのが切れる時刻
+		FrozenUntil = 0,          -- タイムストップで止まっているのが切れる時刻
 		LastUseTime = 0,          -- 最後にアイテム使用を受け付けた時刻
 	}
 end
@@ -157,6 +166,8 @@ function GameState.RefreshSpeed(player)
 	if not humanoid then
 		return
 	end
+	local data = GameState.GetData(player)
+	local now = GameState.Now()
 	local speed = Config.NormalWalkSpeed
 	if GameState.Phase == "Round" and GameState.IsTagger(player) then
 		speed = Config.TaggerWalkSpeed
@@ -164,7 +175,29 @@ function GameState.RefreshSpeed(player)
 	if GameState.IsDashing(player) then
 		speed = math.max(speed, Config.Items.Dash.WalkSpeed)
 	end
+	if data.SlowUntil > now then
+		speed = math.min(speed, Config.Items.Glue.SlowSpeed)
+	end
+	if data.FrozenUntil > now then
+		speed = 0
+	end
 	humanoid.WalkSpeed = speed
+
+	-- ジャンプの高さ（ハイジャンプで高く、タイムストップ中は跳べない）
+	humanoid.UseJumpPower = false
+	local jump = Config.NormalJumpHeight
+	if data.JumpUntil > now then
+		jump = Config.Items.HighJump.JumpHeight
+	end
+	if data.FrozenUntil > now then
+		jump = 0
+	end
+	humanoid.JumpHeight = jump
+end
+
+-- 試合中で、まだ脱落していない参加者か
+function GameState.IsActive(player)
+	return GameState.Participants[player] == true
 end
 
 function GameState.RefreshAllSpeeds()

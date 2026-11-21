@@ -1,5 +1,5 @@
 {
-  "name": "roblox-tag-battle",
+  "name": "hyper-tag-match",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -11,7 +11,10 @@
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "Server": {
-        "$path": "src/server"
+        "$path": "src/server",
+        "PlayerDataStore": {
+          "$path": "src/serverlib/PlayerDataStore.lua"
+        }
       }
     },
     "StarterPlayer": {
