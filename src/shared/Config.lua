@@ -21,6 +21,7 @@ Config.RadarHighlightColor = Color3.fromRGB(60, 255, 230)
 Config.AdminUserIds = {}         -- 追加の管理者の UserId（ゲームの所有者は自動で管理者）
 Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数（人間の数。ボットだけでは始まらない）
 Config.BotFillTarget = 8         -- 人間がこれ未満なら、差分をボットで補う目標人数
+Config.BotMuscular = true        -- ボットの標準体型を幅広くする
 Config.BotsEnabled = true        -- false にするとボット補充をしない
 Config.IntermissionTime = 9      -- 待機（インターミッション）の秒数
 Config.ResultsTime = 6           -- 結果表示の秒数
@@ -34,7 +35,7 @@ Config.MatchMaps = {
 	{ Id = "Arena", Name = "アリーナ", Gimmick = "None" },
 	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
 	{ Id = "Park", Name = "パーク", Gimmick = "None" },
-	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
+	{ Id = "Cave", Name = "洞窟", Gimmick = "Cave", ExclusiveItemId = "Phase" },
 	{ Id = "Ice", Name = "氷床", Gimmick = "Ice", ExclusiveItemId = "SpikeBoots" },
 	{ Id = "Volt", Name = "痺れるダンジョン", VoteLabel = "痺れる", Gimmick = "Volt", ExclusiveItemId = "Insulate" },
 	{ Id = "Sky", Name = "落下ダンジョン", VoteLabel = "落下", Gimmick = "None", ExclusiveItemId = "SafetyLine" },
@@ -56,6 +57,7 @@ Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 ---------------------------------------------------------------------
 -- タッチ判定（サーバー側で距離を測って判定する）
 ---------------------------------------------------------------------
+Config.TaggerCount = 2
 Config.TagCooldown = 3           -- 鬼になった直後、タッチが無効になる秒数
 Config.TagReachForward = 1.6     -- 鬼のルートから判定の起点を前に出す距離（スタッド）
 Config.TagTouchDistance = 1.4    -- 起点から相手のパーツの表面までの許容距離（スタッド）
@@ -92,7 +94,7 @@ Config.FallbackSpawnOffsets = {
 ---------------------------------------------------------------------
 Config.ZoneEndRadius = 25          -- 縮小が止まる最後の半径
 Config.ZoneStartRadiusMin = 50     -- 開始半径の下限
-Config.ZoneStartRadiusMax = 175    -- 開始半径の上限（フィールドの四隅まで入る大きさ）
+Config.ZoneStartRadiusMax = 128    -- 出現点から求める半径の上限（床の四隅を覆うための拡張前）
 Config.ZoneStartRadiusPadding = 80 -- 開始半径 = 出現ポイントの最大距離 + この値（最初はフィールド全体）
 Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの開始半径
 Config.ZoneShrinkStartRatio = 0.3  -- 試合時間のこの割合までは縮まない（最初は広く遊べる）
@@ -305,13 +307,12 @@ Config.Items = {
 		Tier = "B",
 		Price = 0,
 		DisplayName = "バナナ",
-		Description = "足元に置く。踏んだ人がすべってしまう",
+		Description = "足元に置く。踏んだ人が転倒する",
 		Color = Color3.fromRGB(255, 235, 130),
 		SpawnWeight = 1,
 		CanTaggerUse = true,
 		Duration = 20,           -- 置いたバナナが消えるまでの秒数
-		SlipTime = 1.2,          -- 踏んだ人がすべる秒数
-		SlipSpeed = 26,          -- すべる速さ
+		DownTime = 1.5,          -- 踏んだ人が転倒する秒数
 	},
 	-----------------------------------------------------------------
 	-- ここから追加アイテム（梅 = 150 / 竹 = 400 / 松 = 900 コイン）

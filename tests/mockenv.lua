@@ -98,6 +98,9 @@ CFrameMT.__mul = function(a, b)
 end
 RT.CFrame = {
 	new = function(x, y, z)
+		if getmetatable(x) == Vector3MT then
+			x, y, z = x.X, x.Y, x.Z
+		end
 		return setmetatable({
 			X = x or 0,
 			Y = y or 0,
@@ -229,10 +232,18 @@ function instanceMethods.PivotTo(self, pivot)
 		root.Position = pivot.Position
 	end
 end
-function instanceMethods.FindFirstChild(self, name)
+function instanceMethods.FindFirstChild(self, name, recursive)
 	for _, child in ipairs(rawget(self, "_children")) do
 		if child.Name == name then
 			return child
+		end
+	end
+	if recursive then
+		for _, child in ipairs(self:GetChildren()) do
+			local match = child:FindFirstChild(name, true)
+			if match then
+				return match
+			end
 		end
 	end
 	return nil
@@ -253,13 +264,22 @@ function instanceMethods.FindFirstChildOfClass(self, className)
 	end
 	return nil
 end
+function instanceMethods.FindFirstChildWhichIsA(self, className, recursive)
+	local children = recursive and self:GetDescendants() or self:GetChildren()
+	for _, child in ipairs(children) do
+		if child:IsA(className) then
+			return child
+		end
+	end
+	return nil
+end
 function instanceMethods.FindFirstAncestorOfClass(self, className)
-	local current = rawget(self, "Parent")
+	local current = rawget(self, "_parent")
 	while type(current) == "table" and rawget(current, "ClassName") do
 		if instanceMethods.IsA(current, className) then
 			return current
 		end
-		current = rawget(current, "Parent")
+		current = rawget(current, "_parent")
 	end
 	return nil
 end
@@ -297,7 +317,7 @@ function instanceMethods.IsA(self, className)
 end
 -- 親の子リストから外す（Destroy と親の付け替えで使う）
 local function detachFromParent(self)
-	local parent = rawget(self, "Parent")
+	local parent = rawget(self, "_parent")
 	if type(parent) == "table" and rawget(parent, "_children") then
 		local children = rawget(parent, "_children")
 		for index = #children, 1, -1 do
@@ -307,9 +327,37 @@ local function detachFromParent(self)
 		end
 	end
 end
+function instanceMethods.Clone(self)
+	local copy = RT.Instance.new(self.ClassName)
+	for key, value in pairs(self) do
+		if key ~= "Parent" and string.sub(key, 1, 1) ~= "_" then
+			copy[key] = value
+		end
+	end
+	copy._attributes = table.clone(self._attributes)
+	for _, child in ipairs(self:GetChildren()) do
+		child:Clone().Parent = copy
+	end
+	return copy
+end
 function instanceMethods.Destroy(self)
 	detachFromParent(self)
-	rawset(self, "Parent", nil)
+	rawset(self, "_parent", nil)
+end
+function instanceMethods.SetStateEnabled(self, state, enabled)
+	self._enabledStates = self._enabledStates or {}
+	self._enabledStates[state] = enabled
+end
+function instanceMethods.GetStateEnabled(self, state)
+	return not self._enabledStates or self._enabledStates[state] ~= false
+end
+function instanceMethods.ChangeState(self, state)
+	if self:GetStateEnabled(state) then
+		self._state = state
+	end
+end
+function instanceMethods.GetState(self)
+	return self._state or RT.Enum.HumanoidStateType.Running
 end
 function instanceMethods.FireServer(_, ...)
 end
@@ -320,6 +368,9 @@ end
 
 local instanceMT = {
 	__index = function(self, key)
+		if key == "Parent" then
+			return rawget(self, "_parent")
+		end
 		local method = instanceMethods[key]
 		if method then
 			return method
@@ -346,6 +397,8 @@ local instanceMT = {
 			if type(value) == "table" and rawget(value, "_children") then
 				table.insert(rawget(value, "_children"), self)
 			end
+			rawset(self, "_parent", value)
+			return
 		end
 		rawset(self, key, value)
 	end,
@@ -379,7 +432,7 @@ local playersService = {
 		return nil
 	end,
 	PlayerAdded = fakeEvent,
-	PlayerRemoving = fakeEvent,
+	PlayerRemoving = makeSignal(),
 }
 
 local replicatedStorage = RT.Instance.new("ReplicatedStorage")

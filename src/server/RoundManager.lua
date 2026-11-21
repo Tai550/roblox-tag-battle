@@ -149,7 +149,7 @@ end
 -- 順位とコイン（計算だけの関数。テストからも呼べる）
 ---------------------------------------------------------------------
 
--- entries: { { Key = 何でも, Tags = タッチされた回数, FinalTagger = true/false, EliminatedOrder = nil か 1,2,... } }
+-- entries: Key / Tags / FinalTagger / ChampionEligible / EliminatedOrder（脱落順）
 -- 戻り値: 順位の高い順に並べた配列。各要素に Rank / Coins / Status / Champion を足したもの
 function RoundManager.ComputeResults(entries)
 	local survivors, finalTaggers, eliminated = {}, {}, {}
@@ -178,7 +178,7 @@ function RoundManager.ComputeResults(entries)
 			rank = index
 			lastTags = entry.Tags
 		end
-		local champion = entry.Tags == 0
+		local champion = entry.ChampionEligible == true and entry.Tags == 0
 		entry.Rank = rank
 		entry.Champion = champion
 		entry.Status = champion and "優勝" or "逃げ切り"
@@ -216,7 +216,11 @@ local function userIdList(players)
 end
 
 broadcastState = function()
-	local tagger = GameState.Tagger
+	local taggers = GameState.TaggerList()
+	local taggerNames = {}
+	for _, tagger in ipairs(taggers) do
+		table.insert(taggerNames, tagger.DisplayName)
+	end
 	local countsForClient = {}
 	for _, duration in ipairs(Config.MatchDurations) do
 		countsForClient[tostring(duration)] = voteCounts[duration] or 0
@@ -226,8 +230,8 @@ broadcastState = function()
 		TimeLeft = math.max(0, math.ceil(GameState.TimeLeft)),
 		PlayersNeeded = GameState.PlayersNeeded,
 		MinPlayers = Config.MinPlayers,
-		TaggerUserId = tagger and tagger.UserId or 0,
-		TaggerName = tagger and tagger.DisplayName or "",
+		TaggerUserIds = userIdList(taggers),
+		TaggerNames = taggerNames,
 		Participants = userIdList(GameState.ParticipantList()),
 		Eliminated = userIdList(GameState.Eliminated),
 		Results = GameState.Results,
@@ -247,23 +251,35 @@ end
 -- 鬼の設定
 ---------------------------------------------------------------------
 
--- tagBackFrom: タッチで交代したときの前の鬼。新しい鬼はこの人にタッチ返しできない。
--- 脱落・離脱などタッチ以外の交代では nil（誰にでもタッチできる）
-local function setTagger(newTagger, tagBackFrom)
-	local oldTagger = GameState.Tagger
-	GameState.Tagger = newTagger
-	GameState.NoTagBack = tagBackFrom
-	GameState.TaggerSince = GameState.Now()
-	if newTagger then
-		GameState.BeenTagger[newTagger] = true
-		GameState.RefreshSpeed(newTagger)
+local initialRunners = {}
+local everTaggers = {}
+
+local function hasInitialRunner()
+	for player in pairs(initialRunners) do
+		if GameState.IsParticipant(player) then
+			return true
+		end
 	end
-	if oldTagger and oldTagger ~= newTagger then
+	return false
+end
+
+local function removeParticipant(player)
+	GameState.Participants[player] = nil
+	GameState.Uncaught[player] = nil
+end
+
+local function setTagger(oldTagger, newTagger, tagBackFrom)
+	if oldTagger then
+		GameState.Taggers[oldTagger] = nil
 		GameState.RefreshSpeed(oldTagger)
+		TaggerLook.Clear(oldTagger)
 	end
-	-- 鬼の見た目（少し赤く＋Highlight）は GameState.Tagger と必ず同じ相手に付ける
-	TaggerLook.Follow(newTagger)
-	broadcastState()
+	if newTagger then
+		everTaggers[newTagger] = true
+		GameState.Taggers[newTagger] = { Since = GameState.Now(), NoTagBack = tagBackFrom }
+		GameState.RefreshSpeed(newTagger)
+		TaggerLook.Apply(newTagger)
+	end
 end
 
 -- タッチ返しの禁止に当たるか（計算だけの関数。テストからも呼べる）
@@ -271,17 +287,68 @@ function RoundManager.IsTagBackBlocked(runner, noTagBack)
 	return noTagBack ~= nil and runner == noTagBack
 end
 
-local function pickRandomParticipant(except)
-	local list = {}
+local function targetTaggerCount(count)
+	if count <= 2 then
+		return math.min(count, 1)
+	end
+	return math.clamp(Config.TaggerCount, 1, count - 1)
+end
+
+local function pickRunner()
+	local runners = {}
 	for _, player in ipairs(GameState.ParticipantList()) do
-		if player ~= except then
-			table.insert(list, player)
+		if not GameState.IsTagger(player) and GameState.IsAlive(player) then
+			table.insert(runners, player)
 		end
 	end
-	if #list == 0 then
-		return nil
+	if #runners > 0 then
+		return runners[math.random(1, #runners)]
 	end
-	return list[math.random(1, #list)]
+end
+
+function RoundManager.SelectInitialTaggers()
+	initialRunners = {}
+	everTaggers = {}
+	GameState.Uncaught = {}
+	for _ = 1, targetTaggerCount(GameState.CountParticipants()) do
+		local tagger = pickRunner()
+		if tagger then
+			setTagger(nil, tagger)
+			Remotes.NotifyPlayer(tagger, "あなたが最初の鬼です！ 3秒後からタッチできます")
+		end
+	end
+	for _, player in ipairs(GameState.ParticipantList()) do
+		if not GameState.IsTagger(player) then
+			initialRunners[player] = true
+			GameState.Uncaught[player] = true
+		end
+	end
+	broadcastState()
+end
+
+local function reconcileTaggers()
+	for _, tagger in ipairs(GameState.TaggerList()) do
+		if not GameState.IsParticipant(tagger) then
+			setTagger(tagger, nil)
+		end
+	end
+	local count = GameState.CountParticipants()
+	-- 残り1人、または開始時の逃げ役が全員抜けたら、そのまま試合を終える。
+	if count <= 1 or not hasInitialRunner() then
+		return
+	end
+	local taggers = GameState.TaggerList()
+	local wanted = targetTaggerCount(count)
+	for index = wanted + 1, #taggers do
+		setTagger(taggers[index], nil)
+	end
+	for _ = #taggers + 1, wanted do
+		local replacement = pickRunner()
+		if replacement then
+			setTagger(nil, replacement)
+			Remotes.NotifyPlayer(replacement, "鬼がいなくなったので、あなたが新しい鬼です！")
+		end
+	end
 end
 
 ---------------------------------------------------------------------
@@ -311,7 +378,7 @@ local function eliminate(player, reason)
 	if not GameState.IsParticipant(player) then
 		return
 	end
-	GameState.Participants[player] = nil
+	removeParticipant(player)
 	table.insert(GameState.Eliminated, player)
 	sendToSpectator(player)
 	Remotes.NotifyPlayer(player, "脱落… 観戦席から見守ろう")
@@ -320,14 +387,9 @@ local function eliminate(player, reason)
 			Remotes.NotifyPlayer(other, player.DisplayName .. " が" .. (reason or "エリア外") .. "で脱落！")
 		end
 	end
-	if GameState.Tagger == player then
-		local replacement = pickRandomParticipant(player)
-		setTagger(replacement)
-		if replacement then
-			Remotes.NotifyPlayer(replacement, "鬼が脱落したので、あなたが新しい鬼です！")
-		end
-	end
+	reconcileTaggers()
 	broadcastState()
+	return not hasInitialRunner()
 end
 
 -- 落下ダンジョン：足場から落ちたら脱落（命綱を持っていれば最後の足場に戻る）
@@ -348,8 +410,8 @@ function RoundManager.CheckSkyFalls()
 		if root and humanoid and humanoid.Health > 0 then
 			local data = GameState.GetData(player)
 			if root.Position.Y < Config.FallEliminateY then
-				if not ItemManager.TrySafetyLine(player) then
-					eliminate(player, "落下")
+				if not ItemManager.TrySafetyLine(player) and eliminate(player, "落下") then
+					return
 				end
 			elseif humanoid.FloorMaterial ~= Enum.Material.Air then
 				local reach = math.max(6, humanoid.HipHeight + root.Size.Y / 2 + 1)
@@ -415,16 +477,9 @@ local function isWithinTagReach(origin, character)
 	return false
 end
 
-function RoundManager.TryTag()
-	local tagger = GameState.Tagger
-	if not tagger then
-		return
-	end
-	local now = GameState.Now()
-	if now - GameState.TaggerSince < Config.TagCooldown then
-		return
-	end
-	if not GameState.IsAlive(tagger) then
+local function tryTagFor(tagger, role, now)
+	if now - role.Since < Config.TagCooldown or not GameState.IsAlive(tagger)
+		or GameState.IsDowned(tagger) then
 		return
 	end
 	local taggerRoot = GameState.GetRootPart(tagger)
@@ -434,8 +489,8 @@ function RoundManager.TryTag()
 
 	local origin = taggerRoot.Position + taggerRoot.CFrame.LookVector * Config.TagReachForward
 	for _, runner in ipairs(GameState.ParticipantList()) do
-		if runner ~= tagger and GameState.IsAlive(runner)
-			and not RoundManager.IsTagBackBlocked(runner, GameState.NoTagBack) then
+		if not GameState.IsTagger(runner) and GameState.IsAlive(runner)
+			and not RoundManager.IsTagBackBlocked(runner, role.NoTagBack) then
 			if isWithinTagReach(origin, runner.Character) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
@@ -453,13 +508,27 @@ function RoundManager.TryTag()
 					addRoundStat(runner, "RoundCaught", 1)
 					awardRoundRP(tagger, Config.RankPoints.Tag)
 					awardRoundRP(runner, Config.RankPoints.Caught)
+					if GameState.Uncaught[runner] then
+						GameState.Uncaught[runner] = nil
+						if next(GameState.Uncaught) == nil then
+							awardRoundRP(tagger, Config.RankPoints.TaggedAll)
+						end
+					end
 					Remotes.NotifyPlayer(runner, "タッチされた！ 今度はあなたが鬼！（" .. tagger.DisplayName .. " にはタッチ返しできない）")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " にタッチ！ 鬼を交代した")
-					setTagger(runner, tagger)
-					return -- 1回の判定で交代は1人まで
+					setTagger(tagger, runner, tagger)
+					broadcastState()
+					return
 				end
 			end
 		end
+	end
+end
+
+function RoundManager.TryTag()
+	local now = GameState.Now()
+	for _, tagger in ipairs(GameState.TaggerList()) do
+		tryTagFor(tagger, GameState.Taggers[tagger], now)
 	end
 end
 
@@ -620,12 +689,10 @@ end
 -- 試合本体。戻り値: 試合をしたら true、始められなかったら false
 local function runRound()
 	GameState.Participants = {}
-	GameState.BeenTagger = {}
 	GameState.Winners = {}
 	GameState.TagCounts = {}
 	GameState.Eliminated = {}
 	GameState.Results = {}
-	GameState.NoTagBack = nil
 	Leaderstats.ResetAll()
 	BotManager.Clear()
 	-- 2試合目からはマップを入れ替える（1試合目は起動時に作ったマップ）
@@ -694,9 +761,7 @@ local function runRound()
 	ItemManager.Start()
 	ZoneManager.Start(duration)
 
-	local firstTagger = pickRandomParticipant()
-	setTagger(firstTagger)
-	Remotes.NotifyPlayer(firstTagger, "あなたが最初の鬼です！ 3秒後からタッチできます")
+	RoundManager.SelectInitialTaggers()
 	ItemManager.DeliverPendingItems()
 
 	local endTime = GameState.Now() + duration
@@ -716,29 +781,28 @@ local function runRound()
 			if BotManager.IsBot(player) then
 				-- ボットは Players にいないので外さない
 			elseif player.Parent ~= Players then
-				GameState.Participants[player] = nil
+				removeParticipant(player)
 			else
 				humansLeft = humansLeft + 1
 			end
 		end
-		-- 残りが1人以下、または人間が残っていない（全員脱落・離脱）なら終わり
-		if GameState.CountParticipants() < 2 or humansLeft == 0 then
+		-- 残りが1人以下、人間がいない、または開始時の逃げ役が全員抜けたら終わり
+		if GameState.CountParticipants() < 2 or humansLeft == 0 or not hasInitialRunner() then
 			break
 		end
 
-		local tagger = GameState.Tagger
-		if not tagger or not GameState.IsParticipant(tagger) then
-			local replacement = pickRandomParticipant()
-			setTagger(replacement)
-			if replacement then
-				Remotes.NotifyPlayer(replacement, "鬼がいなくなったので、あなたが新しい鬼です！")
-			end
-		end
+		reconcileTaggers()
 
 		RoundManager.TryTag()
 		ItemManager.Tick()
 		ZoneManager.Tick()
+		if not hasInitialRunner() then
+			break
+		end
 		RoundManager.CheckSkyFalls()
+		if not hasInitialRunner() then
+			break
+		end
 		BotManager.Tick()
 
 		if now >= nextBroadcast then
@@ -763,7 +827,8 @@ local function runRound()
 			table.insert(entries, {
 				Key = player,
 				Tags = GameState.TagCounts[player] or 0,
-				FinalTagger = GameState.Tagger == player,
+				FinalTagger = GameState.IsTagger(player),
+				ChampionEligible = initialRunners[player] == true and not everTaggers[player],
 				EliminatedOrder = eliminatedOrder,
 			})
 		end
@@ -805,12 +870,15 @@ local function runRound()
 end
 
 local function runResults()
+	local initialRunnersGone = not hasInitialRunner()
+	initialRunners = {}
+	everTaggers = {}
+	GameState.Uncaught = {}
 	BotManager.Halt()
 	ItemManager.Stop()
 	ZoneManager.Stop()
-	GameState.Tagger = nil
-	GameState.NoTagBack = nil
-	TaggerLook.Follow(nil) -- 鬼の色と Highlight を外す
+	GameState.Taggers = {}
+	TaggerLook.ClearAll() -- 鬼の色と Highlight を外す
 	GameState.Participants = {}
 	GameState.RefreshAllSpeeds()
 
@@ -821,6 +889,8 @@ local function runResults()
 			table.insert(names, player.DisplayName)
 		end
 		message = "優勝: " .. table.concat(names, "、")
+	elseif initialRunnersGone then
+		message = "鬼の勝ち！"
 	else
 		message = "一度もタッチされずに逃げ切った人はいませんでした"
 	end
@@ -892,14 +962,16 @@ function RoundManager.Init()
 		watchPlayer(player)
 	end
 	Players.PlayerRemoving:Connect(function(player)
-		GameState.Participants[player] = nil
-		GameState.BeenTagger[player] = nil
-		if GameState.NoTagBack == player then
-			GameState.NoTagBack = nil
+		removeParticipant(player)
+		for _, role in pairs(GameState.Taggers) do
+			if role.NoTagBack == player then
+				role.NoTagBack = nil
+			end
 		end
 		TaggerLook.Clear(player)
 		ItemManager.EndPhase(player)
 		GameState.ClearStun(player)
+		GameState.ClearDown(player)
 		GameState.ClearData(player)
 		votes[player] = nil
 		mapVotes[player] = nil
@@ -917,7 +989,11 @@ function RoundManager.SetAdminTagger(player)
 	if GameState.Phase ~= "Round" or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
 		return false
 	end
-	setTagger(player)
+	if GameState.IsTagger(player) then
+		return true
+	end
+	setTagger(GameState.TaggerList()[1], player)
+	broadcastState()
 	return true
 end
 

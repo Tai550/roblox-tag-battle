@@ -428,6 +428,12 @@ local BOT_COLORS = {
 local function buildStandardCharacter(index, displayName, x, y, z)
 	local ok, model = pcall(function()
 		local description = Instance.new("HumanoidDescription")
+		if Config.BotMuscular then
+			description.WidthScale = 1.3
+			description.DepthScale = 1.25
+			description.BodyTypeScale = 0
+			description.ProportionScale = 0
+		end
 		local color = BOT_COLORS[(index - 1) % #BOT_COLORS + 1]
 		description.HeadColor = Color3.fromRGB(255, 220, 180)
 		description.TorsoColor = color
@@ -450,6 +456,9 @@ local function buildStandardCharacter(index, displayName, x, y, z)
 	model.Parent = botFolder()
 	local root = model:FindFirstChild("HumanoidRootPart")
 	if root then
+		if Config.BotMuscular then
+			root.Size = Vector3.new(2, 2, 1) -- 標準 R15 の当たり判定を維持する
+		end
 		pcall(function()
 			root:SetNetworkOwner(nil) -- 動きはサーバーが決める
 		end)
@@ -606,10 +615,11 @@ local function distance3(a, b)
 end
 
 local function threatDistance(bot, pos)
-	if GameState.IsTagger(bot) then
+	local role = GameState.Taggers[bot]
+	if role then
 		local best = math.huge
 		for _, other in ipairs(GameState.ParticipantList()) do
-			if other ~= bot and GameState.IsAlive(other) then
+			if not GameState.IsTagger(other) and other ~= role.NoTagBack and GameState.IsAlive(other) then
 				local otherRoot = GameState.GetRootPart(other)
 				if otherRoot and otherRoot.Position then
 					local dist = distance3(pos, otherRoot.Position)
@@ -621,15 +631,8 @@ local function threatDistance(bot, pos)
 		end
 		return best
 	end
-	local tagger = GameState.Tagger
-	if not tagger or tagger == bot then
-		return math.huge
-	end
-	local taggerRoot = GameState.GetRootPart(tagger)
-	if not taggerRoot or not taggerRoot.Position then
-		return math.huge
-	end
-	return distance3(pos, taggerRoot.Position)
+	local _, distance = GameState.NearestTagger(pos)
+	return distance
 end
 
 local function considerItems(bot, threat)
@@ -663,7 +666,7 @@ end
 local function think(bot, now)
 	local root = GameState.GetRootPart(bot)
 	local humanoid = GameState.GetHumanoid(bot)
-	if not root or not root.Position or not humanoid or GameState.IsStunned(bot) then
+	if not root or not root.Position or not humanoid or GameState.IsStunned(bot) or GameState.IsDowned(bot) then
 		return
 	end
 	local pos = root.Position
@@ -712,17 +715,18 @@ local function think(bot, now)
 
 	local runners = {}
 	local taggerX, taggerZ = nil, nil
-	local tagger = GameState.Tagger
-	if tagger and tagger ~= bot then
+	local role = GameState.Taggers[bot]
+	if not role then
+		local tagger = GameState.NearestTagger(pos)
 		local taggerRoot = GameState.GetRootPart(tagger)
-		if taggerRoot and taggerRoot.Position then
+		if taggerRoot then
 			taggerX = taggerRoot.Position.X
 			taggerZ = taggerRoot.Position.Z
 		end
 	end
 	for _, other in ipairs(GameState.ParticipantList()) do
 		-- タッチ返しできない相手は追いかけない
-		if other ~= bot and other ~= tagger and other ~= GameState.NoTagBack and GameState.IsAlive(other) then
+		if other ~= bot and not GameState.IsTagger(other) and (not role or other ~= role.NoTagBack) and GameState.IsAlive(other) then
 			local otherRoot = GameState.GetRootPart(other)
 			if otherRoot and otherRoot.Position then
 				table.insert(runners, { X = otherRoot.Position.X, Z = otherRoot.Position.Z })
@@ -800,7 +804,7 @@ function BotManager.DespawnAll()
 		TaggerLook.Clear(bot)
 		DeckManager.Release(bot)
 		GameState.Participants[bot] = nil
-		GameState.BeenTagger[bot] = nil
+		GameState.Taggers[bot] = nil
 		GameState.ClearData(bot)
 		bot.Parent = nil
 		if bot.Character then
@@ -882,7 +886,7 @@ game:GetService("RunService").Heartbeat:Connect(function(dt)
 		local root = GameState.GetRootPart(bot)
 		local data = GameState.GetData(bot)
 		if root and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
-			and data.SpikeBootsUntil <= GameState.Now() and not GameState.IsSlipping(bot) then
+			and data.SpikeBootsUntil <= GameState.Now() and not GameState.IsDowned(bot) then
 			local actual = root.AssemblyLinearVelocity
 			local previous = bot.IceVelocity or Vector3.new(actual.X, 0, actual.Z)
 			bot.IceVelocity = Config.IceVelocity(previous, humanoid.MoveDirection, humanoid.WalkSpeed, dt)

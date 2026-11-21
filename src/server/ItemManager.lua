@@ -579,24 +579,24 @@ handlers.Dash = function(player, def, data)
 	return true
 end
 
-handlers.Smoke = function(player, def, data)
-	local tagger = GameState.Tagger
-	if not tagger or tagger == player then
-		return false, "今はスモークを使えません"
-	end
-	-- ボットに画面はない。FireClient はせず、追う処理をしばらく止める
-	if type(tagger) == "table" and tagger.IsBot == true then
-		tagger.BlindUntil = GameState.Now() + def.Duration
-		Remotes.NotifyPlayer(player, "スモーク！ 鬼の画面をまっ白にした")
-		return true
-	end
-	if not tagger.Parent then
-		return false, "今はスモークを使えません"
-	end
+local function blindTagger(tagger, def)
 	if Remotes.IsRealPlayer(tagger) then
 		Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
 	else
-		GameState.GetData(tagger).BlindUntil = GameState.Now() + def.Duration -- ボットの鬼は立ち止まる
+		GameState.GetData(tagger).BlindUntil = GameState.Now() + def.Duration
+	end
+end
+
+handlers.Smoke = function(player, def, data)
+	local hit = false
+	for tagger in pairs(GameState.Taggers) do
+		if GameState.IsAlive(tagger) then
+			blindTagger(tagger, def)
+			hit = true
+		end
+	end
+	if not hit then
+		return false, "今はスモークを使えません"
 	end
 	Remotes.NotifyPlayer(player, "スモーク！ 鬼の画面をまっ白にした")
 	return true
@@ -635,7 +635,7 @@ handlers.Star = function(player, def, data)
 end
 
 ---------------------------------------------------------------------
--- バナナ（置くアイテム。踏んだ人がすべる）
+-- バナナ（置くアイテム。踏んだ人が転倒する）
 ---------------------------------------------------------------------
 
 local function removeBanana(part)
@@ -650,34 +650,17 @@ local function onBananaTouched(part, hit)
 	end
 	local player = GameState.ParticipantFromHit(hit)
 	if not player or player == info.PlacedBy then
-		return -- 置いた本人はすべらない
+		return -- 置いた本人には効かない
 	end
 	if not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
 		return
 	end
-	local data = GameState.GetData(player)
-	if GameState.IsSlipping(player) then
+	if not GameState.TryDown(player) then
 		return
 	end
-	local root = GameState.GetRootPart(player)
-	if not root then
-		return
-	end
-
-	-- 進んでいる向き（止まっているときは体の向き）にすべる
-	local direction = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-	if direction.Magnitude < 1 then
-		direction = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-	end
-	if direction.Magnitude < 0.01 then
-		return
-	end
-	data.SlipDirection = direction.Unit
-	data.SlipUntil = GameState.Now() + Config.Items.Banana.SlipTime
-	player.Character:SetAttribute("BananaSlipping", true)
 
 	removeBanana(part)
-	Remotes.NotifyPlayer(player, "バナナですべった！")
+	Remotes.NotifyPlayer(player, "バナナで転倒した！")
 	sendItemUpdate(player)
 end
 
@@ -714,7 +697,7 @@ end
 local function activeRunners()
 	local list = {}
 	for _, other in ipairs(GameState.ParticipantList()) do
-		if other ~= GameState.Tagger and GameState.IsAlive(other) then
+		if not GameState.IsTagger(other) and GameState.IsAlive(other) then
 			table.insert(list, other)
 		end
 	end
@@ -762,20 +745,15 @@ handlers.Decoy = function(player, def, data)
 end
 
 handlers.Flash = function(player, def, data)
-	local tagger = GameState.Tagger
 	local root = GameState.GetRootPart(player)
-	local taggerRoot = GameState.GetRootPart(tagger)
-	if not tagger or tagger == player or not root or not taggerRoot then
+	if not root then
 		return false, "今はフラッシュを使えません"
 	end
-	if (taggerRoot.Position - root.Position).Magnitude > def.Range then
+	local tagger, distance = GameState.NearestTagger(root.Position)
+	if not tagger or distance > def.Range then
 		return false, "鬼が遠すぎます（近づいてから使おう）"
 	end
-	if Remotes.IsRealPlayer(tagger) then
-		Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
-	else
-		GameState.GetData(tagger).BlindUntil = GameState.Now() + def.Duration
-	end
+	blindTagger(tagger, def)
 	Remotes.NotifyPlayer(player, "フラッシュ！ 鬼の目をくらませた")
 	return true
 end
@@ -902,8 +880,12 @@ handlers.Radar = function(player, def, data)
 				table.insert(targets, runner.Character)
 			end
 		end
-	elseif GameState.Tagger and GameState.Tagger.Character then
-		table.insert(targets, GameState.Tagger.Character)
+	else
+		for tagger in pairs(GameState.Taggers) do
+			if tagger.Character then
+				table.insert(targets, tagger.Character)
+			end
+		end
 	end
 	if #targets == 0 then
 		return false, "今はレーダーで探す相手がいません"
@@ -914,15 +896,20 @@ handlers.Radar = function(player, def, data)
 end
 
 handlers.TimeStop = function(player, def, data)
-	local tagger = GameState.Tagger
-	if not tagger or tagger == player or not GameState.IsAlive(tagger) then
+	local hit = false
+	for tagger in pairs(GameState.Taggers) do
+		if GameState.IsAlive(tagger) then
+			GameState.GetData(tagger).FrozenUntil = GameState.Now() + def.Duration
+			GameState.RefreshSpeed(tagger)
+			Remotes.NotifyPlayer(tagger, player.DisplayName .. " のタイムストップで動けない！")
+			sendItemUpdate(tagger)
+			hit = true
+		end
+	end
+	if not hit then
 		return false, "今はタイムストップを使えません"
 	end
-	GameState.GetData(tagger).FrozenUntil = GameState.Now() + def.Duration
-	GameState.RefreshSpeed(tagger)
-	Remotes.NotifyPlayer(tagger, player.DisplayName .. " のタイムストップで動けない！")
 	Remotes.NotifyPlayer(player, "タイムストップ！ 鬼を止めた")
-	sendItemUpdate(tagger)
 	return true
 end
 
@@ -1044,6 +1031,9 @@ local function onUseItem(player, slotArg)
 		if slot == nil or slot ~= math.floor(slot) or slot < 1 or slot > GameState.GetItemSlots(player) then
 			return
 		end
+	end
+	if GameState.IsDowned(player) then
+		return
 	end
 	local data = GameState.GetData(player)
 	local now = GameState.Now()
@@ -1180,26 +1170,11 @@ function ItemManager.Tick()
 			sendItemUpdate(player)
 		end
 
-		-- バナナですべっている最中は、決まった向きへ進み続ける
-		if data.SlipUntil > 0 then
-			local root = GameState.GetRootPart(player)
-			if data.SlipUntil <= now then
-				data.SlipUntil = 0
-				data.SlipDirection = nil
-				if player.Character then
-					player.Character:SetAttribute("BananaSlipping", nil)
-				end
-				if root then
-					local velocity = root.AssemblyLinearVelocity
-					root.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
-				end
-			elseif root and data.SlipDirection and not stunned then
-				local velocity = root.AssemblyLinearVelocity
-				root.AssemblyLinearVelocity = Vector3.new(
-					data.SlipDirection.X * Config.Items.Banana.SlipSpeed,
-					velocity.Y,
-					data.SlipDirection.Z * Config.Items.Banana.SlipSpeed
-				)
+		if data.DownUntil > 0 then
+			if data.DownUntil <= now then
+				GameState.ClearDown(player)
+			else
+				GameState.StopStunnedMovement(player)
 			end
 		end
 
@@ -1255,8 +1230,9 @@ end
 -- 復活したときにシールド・スターの見た目を付け直す
 function ItemManager.OnCharacterAdded(player)
 	ItemManager.EndPhase(player)
-	if GameState.IsSlipping(player) then
-		player.Character:SetAttribute("BananaSlipping", true)
+	if GameState.IsDowned(player) then
+		GameState.ApplyDownPose(player, true)
+		GameState.RefreshSpeed(player)
 	end
 	if GameState.HasShield(player) then
 		addShieldVisual(player)
@@ -1447,9 +1423,7 @@ function ItemManager.Stop()
 	for player in pairs(GameState.AllData()) do
 		ItemManager.EndPhase(player)
 		GameState.ClearStun(player)
-		if player.Character then
-			player.Character:SetAttribute("BananaSlipping", nil)
-		end
+		GameState.ClearDown(player)
 	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		GameState.ResetData(player)

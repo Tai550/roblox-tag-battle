@@ -84,11 +84,11 @@ do
 
 	-- 2点 (0,0,0) と (200,0,0): 中心 (100,0,0)、最大距離 100 → 115（上限内）
 	local _, _, _, radius2 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(200, 0, 0) }, false)
-	check("開始半径は上限175に丸める（200+80）", near(radius2, 175))
+	check("開始半径は設定した上限に丸める（200+80）", near(radius2, Config.ZoneStartRadiusMax))
 
-	-- 2点 (0,0,0) と (300,0,0): 最大距離 150 → 165 → 上限 120 に丸める
+	-- 離れた2点でも開始半径は設定値で頭打ちになる。
 	local _, _, _, radius3 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(300, 0, 0) }, false)
-	check("開始半径は上限175に丸める", near(radius3, 175))
+	check("開始半径は設定した上限に丸める", near(radius3, Config.ZoneStartRadiusMax))
 
 	-- 予備ポイントのみの場合は 60
 	local _, _, _, radius4 = ZoneManager.ComputeGeometry({ point(0, 3, 0), point(10, 3, 0) }, true)
@@ -209,8 +209,9 @@ end
 do
 	local results = RoundManager.ComputeResults({
 		{ Key = "A", Tags = 2, FinalTagger = false },
-		{ Key = "B", Tags = 0, FinalTagger = false },
+		{ Key = "B", Tags = 0, FinalTagger = false, ChampionEligible = true },
 		{ Key = "C", Tags = 1, FinalTagger = true },
+		{ Key = "G", Tags = 0, FinalTagger = true },
 		{ Key = "D", Tags = 0, FinalTagger = false, EliminatedOrder = 1 },
 		{ Key = "E", Tags = 1, FinalTagger = false },
 		{ Key = "F", Tags = 3, FinalTagger = false, EliminatedOrder = 2 },
@@ -219,16 +220,24 @@ do
 	for _, entry in ipairs(results) do
 		table.insert(order, entry.Key)
 	end
-	check("順位: 逃げ切り(少ない順)→最後の鬼→脱落(あとの人が上)", table.concat(order) == "BEACFD")
+	check("順位: 逃げ切り(少ない順)→最後の鬼→脱落(あとの人が上)", table.concat(order) == "BEACGFD")
 	check("一度もタッチされずに逃げ切ったら優勝", results[1].Status == "優勝" and results[1].Champion == true)
 	check("優勝がいちばんコインが多い", results[1].Coins > results[2].Coins and results[1].Coins == Config.CoinRewards.Champion)
 	check("最後の鬼は負け", results[4].Status == "最後の鬼" and results[4].Coins == Config.CoinRewards.FinalTagger)
-	check("脱落は最下位グループ", results[6].Status == "脱落" and results[6].Key == "D")
-	check("タッチされても脱落していないDは優勝にならない（脱落）", results[6].Champion == false)
+	check("最終時点の鬼は2人とも鬼として表示する", results[5].Status == "最後の鬼"
+		and results[5].Coins == Config.CoinRewards.FinalTagger and not results[5].Champion)
+	check("脱落は最下位グループ", results[7].Status == "脱落" and results[7].Key == "D")
+	check("タッチされても脱落していないDは優勝にならない（脱落）", results[7].Champion == false)
+
+	local formerTagger = RoundManager.ComputeResults({
+		{ Key = "Former tagger", Tags = 0, FinalTagger = false, ChampionEligible = false },
+	})[1]
+	check("鬼から逃げ役に変わった人は被タッチ0回でも優勝しない",
+		not formerTagger.Champion and formerTagger.Coins < Config.CoinRewards.Champion)
 
 	local tie = RoundManager.ComputeResults({
-		{ Key = "X", Tags = 0, FinalTagger = false },
-		{ Key = "Y", Tags = 0, FinalTagger = false },
+		{ Key = "X", Tags = 0, FinalTagger = false, ChampionEligible = true },
+		{ Key = "Y", Tags = 0, FinalTagger = false, ChampionEligible = true },
 	})
 	check("同じ回数なら同じ順位（同時優勝）", tie[1].Rank == 1 and tie[2].Rank == 1 and tie[2].Champion)
 	local many = RoundManager.ComputeResults({ { Key = "Z", Tags = 9, FinalTagger = false } })
@@ -316,16 +325,16 @@ do
 
 	local allInside, allMarker = true, true
 	for _, p in ipairs(spawnParts) do
-		if math.abs(p.Position.X) > 115 or math.abs(p.Position.Z) > 115 then
+		if math.abs(p.Position.X) > MapBuilder.Half or math.abs(p.Position.Z) > MapBuilder.Half then
 			allInside = false
 		end
 		if not (p.Transparency == 1 and p.CanCollide == false and p.Anchored == true
-			and p.Size.X == 2 and p.Size.Y == 1 and p.Size.Z == 2) then
+			and p.Size.X <= 2 and p.Size.Y == 1 and p.Size.Z == p.Size.X) then
 			allMarker = false
 		end
 	end
-	check("出現ポイントはすべて舞台の範囲内（|x|,|z| <= 115）", allInside)
-	check("出現ポイントは 2×1×2・透明・当たり判定なし・固定", allMarker)
+	check("出現ポイントはすべて舞台の範囲内（|x|,|z| <= 90）", allInside)
+	check("出現ポイントは 高さ1・水平2以下・透明・当たり判定なし・固定", allMarker)
 
 	local names = {}
 	for _, p in ipairs(spawnParts) do
@@ -368,10 +377,11 @@ do
 
 	-- 出現ポイントが建物の中に埋まっていない（屋上のものは屋上より上）
 	local notBuried = true
+	local scale = MapBuilder.RoadHalf / 18
 	for _, p in ipairs(MapBuilder.ItemSpawnPositions()) do
 		for _, b in ipairs(MapBuilder.Buildings) do
-			local inX = math.abs(p.x - b.x) < b.w / 2 + 1
-			local inZ = math.abs(p.z - b.z) < b.d / 2 + 1
+			local inX = math.abs(p.x - b.x * scale) < (b.w / 2 + 1) * scale
+			local inZ = math.abs(p.z - b.z * scale) < (b.d / 2 + 1) * scale
 			if inX and inZ and p.y < b.h then
 				notBuried = false
 			end
@@ -651,8 +661,8 @@ do
 	local charB, headB = makeCharacter(white, white, white)
 	playerB.Character = charB
 
-	GameState.Tagger = playerA
-	TaggerLook.Follow(playerA)
+	GameState.Taggers = { [playerA] = { Since = 0 } }
+	TaggerLook.Apply(playerA)
 	local highlightA = charA:FindFirstChild(TaggerLook.HighlightName)
 	check("鬼の各 Part が元の色と赤の中間になる", sameColor(headA, mixedWhite) and sameColor(torsoA, mixedBlue))
 	check("鬼には Highlight が付き、塗りは薄め", highlightA ~= nil
@@ -661,12 +671,13 @@ do
 	check("鬼でない人には色も Highlight も付かない", sameColor(headB, white)
 		and charB:FindFirstChild(TaggerLook.HighlightName) == nil)
 
-	TaggerLook.Follow(playerA)
+	TaggerLook.Apply(playerA)
 	check("同じ鬼に二度付けても色は二重に混ざらない", sameColor(headA, mixedWhite)
 		and not sameColor(headA, TaggerLook.MixColor(mixedWhite)))
 
-	GameState.Tagger = playerB
-	TaggerLook.Follow(playerB)
+	GameState.Taggers = { [playerB] = { Since = 0 } }
+	TaggerLook.Clear(playerA)
+	TaggerLook.Apply(playerB)
 	local highlightB = charB:FindFirstChild(TaggerLook.HighlightName)
 	check("交代すると前の鬼は元の色に戻り Highlight が消える", sameColor(headA, white)
 		and sameColor(torsoA, blue) and charA:FindFirstChild(TaggerLook.HighlightName) == nil)
@@ -681,8 +692,8 @@ do
 		and sameColor(headB2, TaggerLook.MixColor(fresh))
 		and charB2:FindFirstChild(TaggerLook.HighlightName) ~= nil)
 
-	GameState.Tagger = nil
-	TaggerLook.Follow(nil)
+	GameState.Taggers = {}
+	TaggerLook.ClearAll()
 	check("ラウンド終了で全員の色と Highlight が外れる", sameColor(headA, white)
 		and sameColor(headB2, fresh) and sameColor(torsoA, blue)
 		and charA:FindFirstChild(TaggerLook.HighlightName) == nil
@@ -726,7 +737,7 @@ do
 	local firstSpawns = baseParts(spawnFolder())
 	local firstInside = true
 	for _, part in ipairs(firstSpawns) do
-		if math.abs(part.Position.X) > 115 or math.abs(part.Position.Z) > 115 then
+		if math.abs(part.Position.X) > MapBuilder.Half or math.abs(part.Position.Z) > MapBuilder.Half then
 			firstInside = false
 		end
 	end
@@ -750,7 +761,7 @@ do
 		if math.abs(part.Position.X) > MapBuilder.ParkHalf or math.abs(part.Position.Z) > MapBuilder.ParkHalf then
 			inPark = false
 		end
-		if math.abs(part.Position.X) > 115 or math.abs(part.Position.Z) > 115 then
+		if math.abs(part.Position.X) > MapBuilder.Half or math.abs(part.Position.Z) > MapBuilder.Half then
 			spreadsBeyond = true
 		end
 		if part.Position.X > 0 or part.Position.Z > 0 then
@@ -775,7 +786,7 @@ do
 		if part.Name == "InvisibleWall" and part.Transparency == 1 then
 			wallCount = wallCount + 1
 		end
-		if part.Name == "Grass" and near(part.Size.X, 220) and near(part.Size.Z, 220) then
+		if part.Name == "Grass" and near(part.Size.X, 180) and near(part.Size.Z, 180) then
 			grassOk = true
 		end
 		local color = part.Color
@@ -785,7 +796,7 @@ do
 	end
 	check("入れ替え2回目はパーク（14点）", second.MapId == "Park" and MapBuilder.CurrentMap == "Park"
 		and second.ItemSpawns == 14 and #parkSpawns == 14 and #MapBuilder.ParkSpawnPositions() == 14)
-	-- パークは 220 前後に縮めたので、出現ポイントは ±115 の内側で、正負どちらにも散らばる
+	-- 出現ポイントは外周の内側で、四方に散らばる。
 	check("パークの出現ポイントは縮小後の範囲内で、四方に散らばる", not spreadsBeyond and hasPos and hasNeg)
 	check("パークの Part 数は 500 以下", second.PartCount <= 500 and second.PartCount == #parkParts + #parkSpawns)
 	print(string.format("    （パークの BasePart %d ＋ 出現ポイント %d ＝ %d）", #parkParts, #parkSpawns, second.PartCount))
@@ -797,7 +808,7 @@ do
 	local _, _, _, parkRadius = ZoneManager.ComputeGeometry(parkPoints, false)
 	check("パークの出現ポイントでもゾーンの開始半径が計算できる", #parkPoints == 14 and parkFallback == false
 		and parkRadius >= Config.ZoneStartRadiusMin and parkRadius <= Config.ZoneStartRadiusMax)
-	check("広いパークの開始半径は上限 120 に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
+	check("広いパークの開始半径は設定した上限に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
 
 	-- 明示的な Build() は表示中のマップだけを作り直す。
 	local rebuilt = MapBuilder.Build()
@@ -806,7 +817,7 @@ do
 	local originalBrightness = lighting.Brightness
 	local dungeonLimits = { Cave = 400, Ice = 300, Volt = 350, Sky = 300 }
 	for _, expected in ipairs({
-		{ "Cave", "None", "Phase" },
+		{ "Cave", "Cave", "Phase" },
 		{ "Ice", "Ice", "SpikeBoots" },
 		{ "Volt", "Volt", "Insulate" },
 		{ "Sky", "None", "SafetyLine" },
@@ -824,8 +835,139 @@ do
 			check(id .. " の Part 数は集計と上限に合う（実測 " .. count .. "）",
 				count == summary.PartCount and count <= dungeonLimits[id])
 		end
+		local map = RT.workspace:FindFirstChild(MapBuilder.MapFolderName)
+		local half = MapBuilder.Half
+		local inside = true
+		for _, part in ipairs(baseParts(spawnFolder())) do
+			inside = inside and math.abs(part.Position.X) + part.Size.X / 2 <= half
+				and math.abs(part.Position.Z) + part.Size.Z / 2 <= half
+		end
+		local surfaceNames = { Shibuya = "Base", Cave = "StoneFloor", Ice = "IceFloor", Volt = "MetalFloor" }
+		local surfaceFolder = id == "Shibuya" and map:FindFirstChild("Ground") or map
+		local surface = surfaceFolder:FindFirstChild(surfaceNames[id] or "")
+		local playerSpawn = map:FindFirstChild("PlayerSpawn", true)
+		check(id .. " の出現ポイントとゾーン上限は縮小後の範囲内",
+			inside and playerSpawn ~= nil
+			and math.abs(playerSpawn.Position.X) + playerSpawn.Size.X / 2 <= half
+			and math.abs(playerSpawn.Position.Z) + playerSpawn.Size.Z / 2 <= half
+			and map:GetAttribute("WalkableHalfExtent") == half)
+		if surfaceNames[id] then
+			check(id .. " の地面は180×180", surface and near(surface.Size.X, 180) and near(surface.Size.Z, 180))
+		end
+		if id == "Sky" then
+			local platforms = baseParts(map:FindFirstChild("SkyPlatforms"))
+			local bridges = baseParts(map:FindFirstChild("SkyBridges"))
+			local extent = 0
+			for _, part in ipairs(platforms) do
+				extent = math.max(extent, math.abs(part.Position.X) + part.Size.X / 2,
+					math.abs(part.Position.Z) + part.Size.Z / 2)
+			end
+			local connected = #platforms == 9 and #bridges == 12
+			for _, bridge in ipairs(bridges) do
+				local horizontal = bridge.Size.X > bridge.Size.Z
+				local ends = { false, false }
+				for _, platform in ipairs(platforms) do
+					local dx = platform.Position.X - bridge.Position.X
+					local dz = platform.Position.Z - bridge.Position.Z
+					if math.abs(dx) < (platform.Size.X + bridge.Size.X) / 2
+						and math.abs(dz) < (platform.Size.Z + bridge.Size.Z) / 2 then
+						ends[(horizontal and dx or dz) < 0 and 1 or 2] = true
+					end
+				end
+				connected = connected and ends[1] and ends[2]
+			end
+			check("落下マップは180×180で、12本の橋の両端が足場に重なる", near(extent, 90) and connected)
+		end
 		if id == "Cave" then
 			check("洞窟では暗くなる", lighting.Brightness < originalBrightness)
+			-- 2スタッド格子に、R15が通れるだけの余白を取って実際の回転した壁を投影する。
+			local walls = baseParts(map:FindFirstChild("CaveInnerWalls"))
+			local step, limit, clearance = 2, 86, 2
+			local function key(x, z)
+				return (x + limit) * (2 * limit + 1) + z + limit
+			end
+			local function isOpen(x, z)
+				for _, wall in ipairs(walls) do
+					local point = wall.CFrame:PointToObjectSpace(Vector3.new(x, 4, z))
+					if math.abs(point.X) < wall.Size.X / 2 + clearance
+						and math.abs(point.Z) < wall.Size.Z / 2 + clearance then
+						return false
+					end
+				end
+				return true
+			end
+			local walkable = {}
+			for x = -limit, limit, step do
+				for z = -limit, limit, step do
+					walkable[key(x, z)] = isOpen(x, z)
+				end
+			end
+			local offsets = { { -step, 0 }, { step, 0 }, { 0, -step }, { 0, step } }
+			local function flood(x, z, visited)
+				local queue = { { x, z } }
+				visited[key(x, z)] = true
+				local index = 1
+				while index <= #queue do
+					local point = queue[index]
+					index += 1
+					local px, pz = table.unpack(point)
+					for _, offset in ipairs(offsets) do
+						local nx, nz = px + offset[1], pz + offset[2]
+						local cell = key(nx, nz)
+						if math.abs(nx) <= limit and math.abs(nz) <= limit
+							and walkable[cell] and not visited[cell] then
+							visited[cell] = true
+							table.insert(queue, { nx, nz })
+						end
+					end
+				end
+			end
+
+			local reached = {}
+			flood(0, 0, reached)
+			local connected = walkable[key(0, 0)]
+			local vertices, edges, squares = 0, 0, 0
+			local deadEnds = {}
+			for x = -limit, limit, step do
+				for z = -limit, limit, step do
+					local cell = key(x, z)
+					if walkable[cell] then
+						connected = connected and reached[cell] == true
+						vertices += 1
+						local degree = 0
+						for _, offset in ipairs(offsets) do
+							if walkable[key(x + offset[1], z + offset[2])] then
+								degree += 1
+							end
+						end
+						edges += degree
+						if degree == 1 then
+							table.insert(deadEnds, Vector3.new(x, 0, z))
+						end
+						if walkable[key(x + step, z)] and walkable[key(x, z + step)]
+							and walkable[key(x + step, z + step)] then
+							squares += 1
+						end
+					end
+				end
+			end
+			local itemsNearDeadEnds = 0
+			for _, part in ipairs(baseParts(spawnFolder())) do
+				local x = step * math.round(part.Position.X / step)
+				local z = step * math.round(part.Position.Z / step)
+				connected = connected and reached[key(x, z)] == true
+				for _, deadEnd in ipairs(deadEnds) do
+					if (deadEnd - Vector3.new(part.Position.X, 0, part.Position.Z)).Magnitude <= 12 then
+						itemsNearDeadEnds += 1
+						break
+					end
+				end
+			end
+			check("洞窟の全通路とアイテム出現点は中央から到達できる", connected)
+			-- 連結グラフの独立な輪 E - V + 1 から、単位正方形の輪を除く。
+			check("洞窟には格子の小さな正方形を除いて独立な輪が2つ以上ある",
+				connected and edges / 2 - vertices + 1 - squares >= 2)
+			check("洞窟の次数1の歩行マスの近くにアイテム出現点がある", itemsNearDeadEnds >= 1)
 		elseif id == "Ice" then
 			check("氷床では照明が元に戻る", lighting.Brightness == originalBrightness)
 		end
@@ -846,7 +988,7 @@ do
 		MapBuilder.Build()
 		ZoneManager.Stop()
 		GameState.Phase = "Round"
-		GameState.Tagger = nil
+		GameState.Taggers = {}
 
 		local player = RT.Instance.new("Player")
 		player.Name = "Picker"
@@ -1145,9 +1287,25 @@ do
 	check("人間への Notify は飛ぶ", humanHits == 1)
 
 	GameState.Phase = "Round"
-	GameState.Tagger = nil
+	GameState.Taggers = {}
 	local humans = { {}, {}, {} }
+	local players = RT.game:GetService("Players")
+	local createRig = players.CreateHumanoidModelFromDescription
+	local descriptions = {}
+	players.CreateHumanoidModelFromDescription = function(_, description, rigType)
+		table.insert(descriptions, { Description = description, RigType = rigType })
+		return nil
+	end
 	BotManager.Fill(humans)
+	players.CreateHumanoidModelFromDescription = createRig
+	local muscular = Config.BotMuscular and #descriptions == 5
+	for _, call in ipairs(descriptions) do
+		local desc = call.Description
+		muscular = muscular and call.RigType == RT.Enum.HumanoidRigType.R15
+			and desc.WidthScale == 1.3 and desc.DepthScale == 1.25 and desc.BodyTypeScale == 0
+			and desc.ProportionScale == 0 and desc.TorsoColor ~= nil
+	end
+	check("全ボットの標準R15生成で幅広い体型と体の色を渡す", muscular)
 	local spawned = BotManager.GetActive()
 	check("Fill は5体を参加者にする", BotManager.ActiveCount() == 5 and #spawned == 5)
 	local namesOk = spawned[1] ~= nil and spawned[1].Name == "ボット1" and spawned[1].UserId == -1
@@ -1190,14 +1348,14 @@ do
 	check("頭上にボットの名前が出る", nameLabel ~= nil and nameLabel.Text == "ボット1")
 
 	local headBefore = head and head.Color
-	GameState.Tagger = spawned[1]
-	TaggerLook.Follow(spawned[1])
+	GameState.Taggers = { [spawned[1]] = { Since = 0 } }
+	TaggerLook.Apply(spawned[1])
 	local tinted = head and head.Color and headBefore
 		and not (near(head.Color.G, headBefore.G) and near(head.Color.B, headBefore.B))
 	local highlight = body and body:FindFirstChild(TaggerLook.HighlightName)
 	check("ボットが鬼になると TaggerLook で赤みと Highlight が付く", tinted and highlight ~= nil)
-	TaggerLook.Follow(nil)
-	GameState.Tagger = nil
+	TaggerLook.ClearAll()
+	GameState.Taggers = {}
 	local restored = head and head.Color and headBefore
 		and near(head.Color.R, headBefore.R) and near(head.Color.G, headBefore.G) and near(head.Color.B, headBefore.B)
 	check("鬼をやめるとボットの色が戻る", restored and body:FindFirstChild(TaggerLook.HighlightName) == nil)
@@ -1241,6 +1399,24 @@ do
 		and RT.workspace:FindFirstChild("Bots") == nil
 		and GameState.IsParticipant(spawned[1]) ~= true)
 
+	players.CreateHumanoidModelFromDescription = function()
+		local model = RT.Instance.new("Model")
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Size = Vector3.new(2.6, 2, 1.25)
+		root.Parent = model
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = model
+		return model
+	end
+	local standardBot = BotManager.Spawn(1)[1]
+	players.CreateHumanoidModelFromDescription = createRig
+	local rootSize = GameState.GetRootPart(standardBot).Size
+	check("太くした標準R15ボットのルートは標準の2×2×1を保つ",
+		rootSize.X == 2 and rootSize.Y == 2 and rootSize.Z == 1)
+	BotManager.DespawnAll()
+
 	BotManager.Fill({ {} })
 	check("人間1人の Fill はボットを出さない", BotManager.ActiveCount() == 0)
 	local eight = {}
@@ -1278,7 +1454,7 @@ do
 	BotManager.DespawnAll()
 
 	GameState.Phase = "Waiting"
-	GameState.Tagger = nil
+	GameState.Taggers = {}
 	GameState.Participants = {}
 	ZoneManager.Stop()
 end
@@ -1375,6 +1551,7 @@ do
 		local root = RT.Instance.new("Part")
 		root.Name = "HumanoidRootPart"
 		root.Position = Vector3.new(0, 4, 0)
+		root.CFrame = RT.CFrame.new(0, 4, 0)
 		root.Color = Color3.fromRGB(80, 90, 100)
 		root.Parent = character
 		local humanoid = RT.Instance.new("Humanoid")
@@ -1437,7 +1614,7 @@ do
 
 	local volt = advanceTo("Volt")
 	local hazard = volt:FindFirstChild("VoltHazard")
-	GameState.Tagger = bot
+	GameState.Taggers = { [bot] = { Since = now } }
 	hazard.Touched:_Fire(root)
 	hazard.Touched:_Fire(botRoot)
 	check("帯電部品との接触で人間と鬼ボットが痺れる",
@@ -1464,6 +1641,47 @@ do
 	now += 1.2
 	ItemManager.Tick()
 
+	advanceTo("Ice")
+	local owner = makePlayer(1461, false)
+	GameState.Participants[owner] = true
+	local ownerData = GameState.GetData(owner)
+	for _, victim in ipairs({ player, bot }) do
+		ownerData.HeldItems = { "Banana" }
+		ownerData.HeldExpireAt = { 0 }
+		ItemManager.TryUse(owner, 1)
+		local trap = RT.workspace:FindFirstChild("SpawnedItems"):FindFirstChild("BananaTrap")
+		local victimRoot = GameState.GetRootPart(victim)
+		local victimHumanoid = GameState.GetHumanoid(victim)
+		local victimData = GameState.GetData(victim)
+		local states = RT.Enum.HumanoidStateType
+		trap.Touched:_Fire(GameState.GetRootPart(owner))
+		check("バナナは置いた本人に効かない", not GameState.IsDowned(owner))
+		victimRoot.AssemblyLinearVelocity = Vector3.new(10, 4, 8)
+		trap.Touched:_Fire(victimRoot)
+		victimData.HeldItems = { "Dash" }
+		victimData.HeldExpireAt = { 0 }
+		ItemManager.TryUse(victim, 1)
+		check("バナナを踏むと転倒し、移動・ジャンプ・アイテム使用が止まる",
+			Config.Items.Banana.DownTime == 1.5 and near(victimData.DownUntil, now + 1.5)
+			and GameState.IsDowned(victim) and victimHumanoid:GetState() == states.FallingDown
+			and not victimHumanoid:GetStateEnabled(states.GettingUp)
+			and victimHumanoid.WalkSpeed == 0 and victimHumanoid.JumpHeight == 0
+			and victimRoot.AssemblyLinearVelocity.Magnitude == 0 and victimData.HeldItems[1] == "Dash")
+		check("バナナの滑り効果は残らない",
+			victimData.SlipUntil == nil and Config.Items.Banana.SlipTime == nil
+			and victim.Character:GetAttribute("BananaSlipping") == nil)
+		now += 1.5
+		ItemManager.Tick()
+		check("転倒時間が過ぎると起き上がり移動とジャンプが戻る",
+			not GameState.IsDowned(victim) and victimData.DownUntil == 0
+			and victimHumanoid:GetState() == states.GettingUp and victimHumanoid:GetStateEnabled(states.GettingUp)
+			and victimHumanoid.WalkSpeed > 0 and victimHumanoid.JumpHeight == Config.NormalJumpHeight)
+	end
+	GameState.Participants[owner] = nil
+	GameState.UnregisterCharacter(owner.Character)
+	GameState.ClearData(owner)
+	owner.Character:Destroy()
+
 	local sky = advanceTo("Sky")
 	root.Position = Vector3.new(7, 54, 8)
 	botRoot.Position = Vector3.new(0, 54, 0)
@@ -1486,20 +1704,21 @@ do
 	local botData = GameState.GetData(bot)
 	botData.HeldItems = { "SafetyLine" }
 	botData.HeldExpireAt = { 0 }
-	GameState.Tagger = bot
+	GameState.Taggers = { [bot] = { Since = now } }
 	botRoot.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
 	RoundManager.CheckSkyFalls()
-	check("鬼ボットは命綱を使わず、落下脱落すると残った人へ鬼が交代する",
+	check("鬼ボットは命綱を使わず、落下脱落しても最後の逃げ役はそのまま",
 		not GameState.IsParticipant(bot) and table.find(GameState.Eliminated, bot) ~= nil
-		and #botData.HeldItems == 1 and GameState.Tagger == player)
+		and #botData.HeldItems == 1 and not GameState.IsTagger(player))
 	root.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
+	GameState.Uncaught[player] = true
 	RoundManager.CheckSkyFalls()
 	check("命綱は一度限りで、次の落下では脱落して観戦位置へ移る",
 		not GameState.IsParticipant(player) and table.find(GameState.Eliminated, player) ~= nil
-		and root.Position.Y > sky:FindFirstChild("PlayerSpawn").Position.Y
-		and GameState.Tagger == nil)
+		and GameState.Uncaught[player] == nil and root.Position.Y > sky:FindFirstChild("PlayerSpawn").Position.Y
+		and next(GameState.Taggers) == nil)
 
-	TaggerLook.Follow(nil)
+	TaggerLook.ClearAll()
 	ItemManager.Stop()
 	for _, entity in ipairs({ player, bot }) do
 		GameState.UnregisterCharacter(entity.Character)
@@ -1507,7 +1726,7 @@ do
 		entity.Character:Destroy()
 	end
 	GameState.Eliminated = {}
-	GameState.BeenTagger = {}
+	GameState.Uncaught = {}
 	GameState.Now = realNow
 	GameState.Phase = "Waiting"
 end
@@ -1549,13 +1768,13 @@ do
 	local data = GameState.GetData(runner)
 	local function resetTagger(target)
 		GameState.Participants = { [tagger] = true, [target] = true }
-		GameState.Tagger = tagger
-		GameState.TaggerSince = now - Config.TagCooldown
-		GameState.BeenTagger = { [tagger] = true }
+		GameState.Taggers = { [tagger] = { Since = now } }
+		GameState.Taggers[tagger].Since = now - Config.TagCooldown
+		GameState.Uncaught = {}
 	end
 	local function tryTag(target)
 		RoundManager.TryTag()
-		return GameState.Tagger == target
+		return GameState.IsTagger(target)
 	end
 
 	local arm = RT.Instance.new("Part")
@@ -1572,7 +1791,7 @@ do
 		RankManager.Get(tagger).RP == taggerRP + Config.RankPoints.Tag
 		and RankManager.Get(runner).RP == runnerRP + Config.RankPoints.Caught
 		and RankManager.Get(runner).Tagged == taggedCount + 1
-		and GameState.TaggerSince == now)
+		and GameState.Taggers[runner].Since == now)
 	check("タッチした側と捕まった側の属性はそれぞれの回数と付与RPに一致する",
 		tagger:GetAttribute("RoundTags") == 1 and tagger:GetAttribute("RoundCaught") == nil
 		and tagger:GetAttribute("RoundRP") == RankManager.Get(tagger).RP - taggerRP
@@ -1600,9 +1819,9 @@ do
 	check("相手の背後からでも表面が届けば交代する", tryTag(runner))
 
 	resetTagger(runner)
-	GameState.TaggerSince = now
+	GameState.Taggers[tagger].Since = now
 	check("鬼になった直後は手が届いても交代しない", not tryTag(runner))
-	GameState.TaggerSince = now - Config.TagCooldown
+	GameState.Taggers[tagger].Since = now - Config.TagCooldown
 	data.StarUntil = now + 1
 	data.ShieldUntil = now + 5
 	check("スター中はタッチが無効でシールドも残る", not tryTag(runner) and data.ShieldUntil == now + 5)
@@ -1629,21 +1848,233 @@ do
 	check("捕まったボットにはラウンド属性を作らない",
 		bot.GetAttribute == nil and bot.RoundTags == nil and bot.RoundCaught == nil and bot.RoundRP == nil)
 
-	TaggerLook.Follow(nil)
+	-- 実際の選出から、別々の鬼が逃げ役を1人ずつ捕まえるまでを確認する。
+	local extraA = makePlayer(16003, CFrame.new(0, 0, 0))
+	local extraB = makePlayer(16004, CFrame.new(0, 0, 0))
+	GameState.Taggers = {}
+	TaggerLook.ClearAll()
+	GameState.Participants = { [tagger] = true }
+	RoundManager.SelectInitialTaggers()
+	check("参加者が1人なら鬼は1人", #GameState.TaggerList() == 1)
+	GameState.Taggers = {}
+	TaggerLook.ClearAll()
+	GameState.Participants[runner] = true
+	RoundManager.SelectInitialTaggers()
+	check("参加者が2人なら鬼は1人", #GameState.TaggerList() == 1)
+	GameState.Taggers = {}
+	TaggerLook.ClearAll()
+	GameState.Participants[extraA] = true
+	GameState.Participants[extraB] = true
+	RoundManager.SelectInitialTaggers()
+	local initial = GameState.TaggerList()
+	local runners = {}
+	for _, player in ipairs(GameState.ParticipantList()) do
+		GameState.ResetData(player)
+		if not GameState.IsTagger(player) then
+			table.insert(runners, player)
+		end
+	end
+	check("参加者が4人なら2人を鬼に選び、両方を赤くする",
+		Config.TaggerCount == 2 and #initial == 2 and #runners == 2
+		and initial[1].Character:FindFirstChild(TaggerLook.HighlightName) ~= nil
+		and initial[2].Character:FindFirstChild(TaggerLook.HighlightName) ~= nil)
+	place(GameState.GetRootPart(initial[1]), CFrame.new(0, 0, 0))
+	place(GameState.GetRootPart(initial[2]), CFrame.new(40, 0, 0))
+	place(GameState.GetRootPart(runners[1]), CFrame.new(0, 0, -2))
+	place(GameState.GetRootPart(runners[2]), CFrame.new(40, 0, -2))
+	local firstRP, lastRP = RankManager.Get(initial[1]).RP, RankManager.Get(initial[2]).RP
+	now += Config.TagCooldown
+	RoundManager.TryTag()
+	check("2人の鬼は独立して捕まえ、全員捕獲RPは最後の鬼だけに入る",
+		GameState.IsTagger(runners[1]) and GameState.IsTagger(runners[2]) and #GameState.TaggerList() == 2
+		and GameState.Taggers[runners[1]].NoTagBack == initial[1]
+		and GameState.Taggers[runners[2]].NoTagBack == initial[2]
+		and RankManager.Get(initial[1]).RP == firstRP + Config.RankPoints.Tag
+		and RankManager.Get(initial[2]).RP == lastRP + Config.RankPoints.Tag + Config.RankPoints.TaggedAll)
+	local currentTagger = runners[1]
+	local role = GameState.Taggers[currentTagger]
+	local since, noTagBack = role.Since, role.NoTagBack
+	local highlight = currentTagger.Character:FindFirstChild(TaggerLook.HighlightName)
+	now += 1
+	check("すでに鬼の人への管理指定はクールダウン・タッチ返し禁止・見た目を保つ",
+		RoundManager.SetAdminTagger(currentTagger) and GameState.Taggers[currentTagger] == role
+		and role.Since == since and role.NoTagBack == noTagBack
+		and currentTagger.Character:FindFirstChild(TaggerLook.HighlightName) == highlight)
+
+	local players = RT.game:GetService("Players")
+	RoundManager.Init()
+	TaggerLook.ClearAll()
+	GameState.Taggers = {}
+	RoundManager.SelectInitialTaggers()
+	local taggers = GameState.TaggerList()
+	local departing, remaining
+	for _, player in ipairs(GameState.ParticipantList()) do
+		if GameState.Uncaught[player] then
+			if departing then
+				remaining = player
+			else
+				departing = player
+			end
+		end
+	end
+	players.PlayerRemoving:_Fire(departing)
+	place(GameState.GetRootPart(taggers[1]), CFrame.new(0, 0, 0))
+	place(GameState.GetRootPart(taggers[2]), CFrame.new(40, 0, 0))
+	place(GameState.GetRootPart(remaining), CFrame.new(0, 0, -2))
+	local beforeCapture = RankManager.Get(taggers[1]).RP
+	now += Config.TagCooldown
+	RoundManager.TryTag()
+	check("退出した未捕獲者を除いた最後のタッチで全員捕獲RP +14 が入る",
+		not GameState.IsParticipant(departing) and next(GameState.Uncaught) == nil
+		and RankManager.Get(taggers[1]).RP == beforeCapture + Config.RankPoints.Tag + 14)
+
+	local roster = { tagger, runner, extraA }
+	local getPlayers, wait = players.GetPlayers, RT.task.wait
+	local botsEnabled = Config.BotsEnabled
+	Config.BotsEnabled = false
+	players.GetPlayers = function() return roster end
+	RT.task.wait = function(seconds) coroutine.yield(seconds) end
+	for _, player in ipairs(roster) do
+		player.Parent = players
+		player.LoadCharacter = function() end
+	end
+	GameState.Phase = "Waiting"
+	GameState.Taggers = {}
+	TaggerLook.ClearAll()
+	MapBuilder.BuildMap("Cave")
+	local function stepRound(round)
+		local ok, delay = coroutine.resume(round)
+		assert(ok, debug.traceback(round, tostring(delay)))
+		now += delay
+	end
+	local function startTestRound()
+		local round = coroutine.create(RoundManager.Run)
+		for _ = 1, Config.IntermissionTime + 2 do
+			stepRound(round)
+			if GameState.Phase == "Round" then
+				return round
+			end
+		end
+		error("テストのラウンドが始まらなかった")
+	end
+	local round = startTestRound()
+	local originalTaggers = GameState.TaggerList()
+	local lastRunner = next(GameState.Uncaught)
+	assert(GameState.Phase == "Round" and #originalTaggers == 2 and lastRunner)
+	-- 次のゾーン更新で、唯一の開始時の逃げ役をエリア外で脱落させる。
+	place(GameState.GetRootPart(lastRunner), CFrame.new(500, 0, 500))
+	local lastRunnerData = GameState.GetData(lastRunner)
+	lastRunnerData.ZoneStamina = 0
+	lastRunnerData.ZoneReturns = Config.ZoneMaxReturns
+	now += Config.TagCooldown
+	stepRound(round)
+	check("鬼2人と逃げ役1人で逃げ役が脱落すると、その場で鬼の勝ちになる",
+		GameState.Phase == "Results" and GameState.Message == "鬼の勝ち！"
+		and #GameState.Winners == 0 and next(GameState.Uncaught) == nil
+		and GameState.Results[1].Status == "最後の鬼" and GameState.Results[2].Status == "最後の鬼"
+		and originalTaggers[1]:GetAttribute("RoundRP") == 0
+		and originalTaggers[2]:GetAttribute("RoundRP") == 0)
+	round = startTestRound()
+	local formerTagger = GameState.TaggerList()[1]
+	lastRunner = next(GameState.Uncaught)
+	assert(RoundManager.SetAdminTagger(lastRunner) and not GameState.IsTagger(formerTagger))
+	now += GameState.ChosenDuration
+	stepRound(round)
+	check("管理指定で逃げ役に戻った元の鬼は時間切れでも優勝・生存RPを得ない",
+		GameState.Phase == "Results" and #GameState.Winners == 0
+		and GameState.Results[1].UserId == formerTagger.UserId and GameState.Results[1].Status ~= "優勝"
+		and formerTagger:GetAttribute("RoundRP") == 0)
+
+	players.GetPlayers, RT.task.wait = getPlayers, wait
+	Config.BotsEnabled = botsEnabled
+	for _, player in ipairs(roster) do
+		player.Parent = nil
+	end
+	GameState.Eliminated = {}
+
+	for _, player in ipairs({ extraA, extraB }) do
+		GameState.ClearData(player)
+		player.Character:Destroy()
+	end
+
+	TaggerLook.ClearAll()
 	BotManager.DespawnAll()
 	for _, player in ipairs({ tagger, runner }) do
 		GameState.ClearData(player)
 		player.Character:Destroy()
 	end
 	GameState.Participants = {}
-	GameState.BeenTagger = {}
-	GameState.Tagger = nil
-	GameState.TaggerSince = 0
+	GameState.Uncaught = {}
+	GameState.Taggers = {}
 	GameState.Now = realNow
 	GameState.Phase = "Waiting"
 end
 
--- （別作業の「逃げ切り・全員捕獲の RP」を通しで回すテストは、順位とコインの方式が違うため外した）
+
+
+do
+	local player = RT.Instance.new("Player")
+	player.Character = RT.Instance.new("Model")
+	player.Character:SetAttribute("BananaDowned", true)
+	GameState.ClearDown(player)
+	check("Humanoid や転倒タイマーがなくても BananaDowned が消える",
+		player.Character:GetAttribute("BananaDowned") == nil)
+	GameState.ClearData(player)
+end
+
+
+do
+	local arenaFixture = require("./.build/ArenaFixture")
+	for _, name in ipairs({ "Map", "ItemSpawns" }) do
+		local existing = RT.workspace:FindFirstChild(name)
+		if existing then
+			existing:Destroy()
+		end
+		local folder = RT.Instance.new("Folder")
+		folder.Name = name
+		for _, spec in ipairs(arenaFixture[name]) do
+			local partName, className, position, size = table.unpack(spec)
+			local part = RT.Instance.new(className)
+			part.Name = partName
+			part.Position = Vector3.new(table.unpack(position))
+			part.Size = Vector3.new(table.unpack(size))
+			part.Parent = folder
+		end
+		folder.Parent = RT.workspace
+	end
+	check("アリーナの実データをテンプレートにする", MapBuilder.StashArena())
+	for _, id in ipairs(MapBuilder.AllMaps) do
+		local summary = MapBuilder.BuildMap(id)
+		local map = RT.workspace:FindFirstChild("Map")
+		ZoneManager.Start(180)
+		local covered = summary.MapId == id
+		local points, fallback = ItemManager.GetSpawnPoints()
+		covered = covered and not fallback
+		for _, point in ipairs(points) do
+			covered = covered and ZoneManager.IsInside(point.Position)
+		end
+		for _, part in ipairs(map:GetDescendants()) do
+			if part:IsA("SpawnLocation") then
+				covered = covered and ZoneManager.IsInside(part.Position)
+			end
+		end
+		local surfaceName = ({ Arena = "Floor", Shibuya = "Base", Park = "Grass", Cave = "StoneFloor",
+			Ice = "IceFloor", Volt = "MetalFloor" })[id]
+		local surfaces = surfaceName and { assert(map:FindFirstChild(surfaceName, true)) }
+			or map:FindFirstChild("SkyPlatforms"):GetChildren()
+		for _, surface in ipairs(surfaces) do
+			for _, x in ipairs({ -1, 1 }) do
+				for _, z in ipairs({ -1, 1 }) do
+					local corner = surface.Position + Vector3.new(x * surface.Size.X / 2, 0, z * surface.Size.Z / 2)
+					covered = covered and ZoneManager.IsInside(corner)
+				end
+			end
+		end
+		check(id .. " の出現点と床の四隅が開始ゾーン内にある", covered)
+		ZoneManager.Stop()
+	end
+end
+
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))
 if failed > 0 then

@@ -13,14 +13,12 @@ GameState.Phase = "Waiting"       -- "Waiting" / "Intermission" / "Round" / "Res
 GameState.TimeLeft = 0
 GameState.PlayersNeeded = 0
 GameState.Message = ""
-GameState.Tagger = nil            -- 今の鬼（Player）
-GameState.TaggerSince = 0         -- 鬼になった時刻（クールダウン判定用）
+GameState.Taggers = {}           -- [参加者] = { Since, NoTagBack }
 GameState.ChosenDuration = Config.DefaultDuration -- 投票で決まった今ラウンドの試合時間（秒）
 GameState.Participants = {}       -- [Player またはボット] = true  このラウンドの参加者
-GameState.BeenTagger = {}         -- [Player] = true  このラウンドで一度でも鬼になった人
+GameState.Uncaught = {}          -- 開始時に逃げ役で、まだタッチされていない参加者
 GameState.Winners = {}            -- 結果表示用の勝者リスト（Player の配列）
 GameState.TagCounts = {}          -- [Player] = この試合で鬼にタッチされた回数（順位に使う）
-GameState.NoTagBack = nil         -- タッチ返しできない相手（いまの鬼に最後にタッチした人）
 GameState.Eliminated = {}         -- 脱落した人（脱落した順の Player 配列）
 GameState.Results = {}            -- 結果表示用の順位表（RoundManager が作る）
 
@@ -40,8 +38,7 @@ local function newData()
 		InsulateUntil = 0,
 		SpikeBootsUntil = 0,
 		PhaseUntil = 0,
-		SlipUntil = 0,            -- バナナですべっている最中が切れる時刻
-		SlipDirection = nil,      -- すべる向き（水平方向の Vector3）
+		DownUntil = 0,            -- バナナで転倒している時間の終わり
 		InvulnerableUntil = 0,    -- シールドで防いだ直後の無敵が切れる時刻
 		ZoneStamina = Config.ZoneStaminaMax, -- エリア外スタミナ（0 になると中央へ強制送還）
 		ZoneReturns = 0,          -- この試合で強制送還された回数
@@ -121,7 +118,32 @@ function GameState.AllData()
 end
 
 function GameState.IsTagger(player)
-	return player ~= nil and GameState.Tagger == player
+	return player ~= nil and GameState.Taggers[player] ~= nil
+end
+
+function GameState.TaggerList()
+	local list = {}
+	for player in pairs(GameState.Taggers) do
+		table.insert(list, player)
+	end
+	table.sort(list, function(a, b)
+		return a.UserId < b.UserId
+	end)
+	return list
+end
+
+function GameState.NearestTagger(position)
+	local nearest, best = nil, math.huge
+	for tagger in pairs(GameState.Taggers) do
+		local root = GameState.GetRootPart(tagger)
+		if root and GameState.IsAlive(tagger) then
+			local distance = (root.Position - position).Magnitude
+			if distance < best then
+				nearest, best = tagger, distance
+			end
+		end
+	end
+	return nearest, best
 end
 
 function GameState.IsParticipant(player)
@@ -162,9 +184,48 @@ function GameState.HasStar(player)
 	return GameState.GetData(player).StarUntil > GameState.Now()
 end
 
--- バナナですべっている最中かどうか
-function GameState.IsSlipping(player)
-	return GameState.GetData(player).SlipUntil > GameState.Now()
+function GameState.IsDowned(player)
+	return GameState.GetData(player).DownUntil > GameState.Now()
+end
+
+function GameState.ApplyDownPose(player, downed)
+	local character = player.Character
+	if character then
+		character:SetAttribute("BananaDowned", downed and true or nil)
+	end
+	local humanoid = GameState.GetHumanoid(player)
+	if not humanoid then
+		return
+	end
+	local states = Enum.HumanoidStateType
+	humanoid:SetStateEnabled(states.GettingUp, not downed)
+	if downed and humanoid.Health > 0 then
+		humanoid:ChangeState(states.FallingDown)
+	elseif humanoid.Health > 0 and humanoid:GetState() == states.FallingDown then
+		humanoid:ChangeState(states.GettingUp)
+	end
+end
+
+function GameState.TryDown(player)
+	if GameState.IsDowned(player) or not GameState.GetHumanoid(player) then
+		return false
+	end
+	GameState.GetData(player).DownUntil = GameState.Now() + Config.Items.Banana.DownTime
+	GameState.RefreshSpeed(player)
+	GameState.StopStunnedMovement(player)
+	GameState.ApplyDownPose(player, true)
+	return true
+end
+
+function GameState.ClearDown(player)
+	local data = GameState.GetData(player)
+	if data.DownUntil > 0 then
+		data.DownUntil = 0
+		GameState.ApplyDownPose(player, false)
+		GameState.RefreshSpeed(player)
+	elseif player.Character then
+		player.Character:SetAttribute("BananaDowned", nil)
+	end
 end
 
 -- 役割とアイテム効果から WalkSpeed を決め直す（速度の確定は必ずここで行う）
@@ -232,10 +293,10 @@ function GameState.RefreshSpeed(player)
 	if data.FrozenUntil > now then
 		speed = 0
 	end
-	local stunned = GameState.IsStunned(player)
-	if stunned then
+	local immobilized = GameState.IsStunned(player) or GameState.IsDowned(player)
+	if immobilized then
 		humanoid.Jump = false
-		speed = 0 -- 帯電部品で痺れている間は動けない
+		speed = 0
 	end
 	humanoid.WalkSpeed = speed
 
@@ -245,7 +306,7 @@ function GameState.RefreshSpeed(player)
 	if data.JumpUntil > now then
 		jump = Config.Items.HighJump.JumpHeight
 	end
-	if data.FrozenUntil > now or stunned then
+	if data.FrozenUntil > now or immobilized then
 		jump = 0
 	end
 	humanoid.JumpHeight = jump

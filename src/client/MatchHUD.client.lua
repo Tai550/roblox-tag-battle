@@ -410,8 +410,8 @@ local function renderState()
 	if inRound then
 		timeLabel.Text = formatTime(state.TimeLeft)
 		timeLabel.TextColor3 = (state.TimeLeft or math.huge) <= Config.Music.FinalTime and RED or WHITE
-		local amTagger = state.TaggerUserId == localPlayer.UserId
-		taggerLabel.Text = amTagger and "あなたが鬼！" or ("鬼: " .. (state.TaggerName or ""))
+		local amTagger = table.find(state.TaggerUserIds or {}, localPlayer.UserId) ~= nil
+		taggerLabel.Text = amTagger and "あなたが鬼！" or ("鬼: " .. table.concat(state.TaggerNames or {}, "、"))
 		topStroke.Enabled = amTagger
 	end
 

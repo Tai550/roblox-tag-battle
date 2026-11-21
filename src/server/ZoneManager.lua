@@ -22,7 +22,7 @@ local startClock = 0                -- ラウンド開始時刻（GameState.Now 
 local lastCheckClock = 0            -- 前回 内外判定をした時刻
 local wallModel = nil  -- 壁のパネルをまとめた Model
 
--- 脱落したときに呼ぶ関数（RoundManager が設定する）
+-- 脱落したときに呼ぶ関数（RoundManager が設定し、ラウンド終了なら true を返す）
 ZoneManager.OnEliminate = nil
 local wallPanels = {}  -- 円周に並べた薄いパネル
 local skySpawnPoints = nil
@@ -262,8 +262,8 @@ local function checkPlayers(step)
 					data.ZoneStamina = Config.ZoneStaminaMax
 					isOutside = false
 					if ZoneManager.ShouldEliminate(data.ZoneReturns) then
-						if ZoneManager.OnEliminate then
-							ZoneManager.OnEliminate(player)
+						if ZoneManager.OnEliminate and ZoneManager.OnEliminate(player) then
+							return
 						end
 					else
 						data.ZoneReturns = data.ZoneReturns + 1
@@ -301,11 +301,13 @@ function ZoneManager.Start(duration)
 	skySpawnPoints = workspace:GetAttribute("CurrentMap") == "Sky" and points or nil
 
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry(points, isFallback)
-	-- マップごとの上限（MapBuilder が Workspace.Map の属性に書く）。外周の壁より外に円を出さない
+	-- 全マップの歩行範囲は原点を中心とする正方形。最も遠い角を開始ゾーンに含める。
 	local map = workspace:FindFirstChild("Map")
-	local mapMax = map and map:GetAttribute("ZoneMaxRadius")
-	if type(mapMax) == "number" and mapMax > 0 then
-		radius = math.min(radius, mapMax)
+	local half = map and map:GetAttribute("WalkableHalfExtent")
+	if half then
+		local dx = half + math.abs(cx)
+		local dz = half + math.abs(cz)
+		radius = math.max(radius, math.ceil(math.sqrt(dx * dx + dz * dz)))
 	end
 	center = Vector3.new(cx, cy, cz)
 	startRadius = radius

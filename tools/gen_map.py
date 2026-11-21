@@ -27,6 +27,13 @@ MAT = {
 BALL, BLOCK, CYLINDER = 0, 1, 2
 
 parts = []
+ARENA_SCALE = 180 / 240
+horizontal_scale = ARENA_SCALE
+
+
+def scale_position(pos, scale):
+    x, y, z = pos
+    return x * scale, y, z * scale
 
 
 def _rot_matrix(x_axis):
@@ -43,7 +50,13 @@ def _rot_matrix(x_axis):
 
 
 def part(name, size, pos, color, material="SmoothPlastic", shape=BLOCK, rot=None,
-         transparency=0.0, collide=True, children=None):
+         transparency=0.0, collide=True, children=None, already_scaled=False):
+    if not already_scaled and not name.startswith("Spectator"):
+        pos = scale_position(pos, horizontal_scale)
+        if rot == VERTICAL:
+            size = (size[0], size[1] * horizontal_scale, size[2] * horizontal_scale)
+        else:
+            size = scale_position(size, horizontal_scale)
     props = {
         "Anchored": True,
         "Size": {"Vector3": [float(v) for v in size]},
@@ -74,13 +87,15 @@ VERTICAL = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]  # Z 軸まわりに90度：円柱
 
 def ramp(name, low, high, width, color, material="WoodPlanks", thick=1.0):
     """low から high へ登るスロープ（厚み thick の板）。上面が両端の点を通るよう少し下げる。"""
+    low = scale_position(low, horizontal_scale)
+    high = scale_position(high, horizontal_scale)
     d = [h - l for h, l in zip(high, low)]
     length = math.sqrt(sum(c * c for c in d))
     rot = _rot_matrix(d)
     # 板の中心を、上面の法線（ローカル Y）方向に thick/2 だけ下げる
     ny = [rot[0][1], rot[1][1], rot[2][1]]
     mid = [(l + h) / 2 - n * thick / 2 for l, h, n in zip(low, high, ny)]
-    part(name, (length + 1, thick, width), mid, color, material, rot=rot)
+    part(name, (length + horizontal_scale, thick, width * horizontal_scale), mid, color, material, rot=rot, already_scaled=True)
 
 
 def wall_x(name, x1, x2, z, h, t, color, material, y0=0.0):
@@ -249,7 +264,8 @@ spawn = {
     },
 }
 
-map_model = {"className": "Model", "children": parts + [spawn]}
+arena_spawn = {**spawn, "properties": {**spawn["properties"], "Size": {"Vector3": [9.0, 1.0, 9.0]}}}
+map_model = {"className": "Model", "children": parts + [arena_spawn]}
 
 # ---------------------------------------------------------------- アイテム出現地点（すべて地面の上・障害物の外）
 spawn_points = [
@@ -267,7 +283,7 @@ item_spawns = {
                 "CanCollide": {"Bool": False},
                 "Transparency": {"Float32": 1.0},
                 "Size": {"Vector3": [2.0, 1.0, 2.0]},
-                "Position": {"Vector3": [float(x), 0.5, float(z)]},
+                "Position": {"Vector3": list(scale_position((x, 0.5, z), ARENA_SCALE))},
             },
         }
         for i, (x, z) in enumerate(spawn_points, 1)
@@ -281,6 +297,7 @@ print(f"Map: {len(parts) + 1} parts / ItemSpawns: {len(spawn_points)} points")
 
 # ================================================================ ロビー
 parts = []
+horizontal_scale = 1
 LH = 70
 part("LobbyFloor", (2 * LH, 2, 2 * LH), (0, -1, 0), (225, 225, 235), "Concrete")
 part("LobbyPath", (14, 0.2, 80), (0, 0.1, 25), (190, 200, 220), "Slate")  # パッドの手前で止める

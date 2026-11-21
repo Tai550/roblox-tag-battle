@@ -9,9 +9,9 @@
 -- 既に Map / ItemSpawns があれば消してから作り直す。
 --
 -- 座標の決まり（上から見て）
---   渋谷は 220×220（-110〜110）。中心 (0, 0) がスクランブル交差点。
+--   渋谷は 180×180（-90〜90）。中心 (0, 0) がスクランブル交差点。
 --   道路は幅36（-18〜18）で X 方向・Z 方向に1本ずつ。残りの4区画が街区（歩道を少し高くした台）。
---   パークは 220×220（-110〜110）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
+--   パークは 180×180（-90〜90）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
 --   乱数は使わない。配置はすべて下の表に書いた固定値。
 
 local Lighting = game:GetService("Lighting")
@@ -67,7 +67,9 @@ end
 -- 寸法
 ---------------------------------------------------------------------
 
-local HALF = 110            -- 舞台の半分の幅（舞台は 220×220）
+local HALF = 90
+local SHIBUYA_LAYOUT_HALF = 110
+local SHIBUYA_SCALE = HALF / SHIBUYA_LAYOUT_HALF
 local ROAD_HALF = 18        -- 道路の半分の幅（道路幅36）
 local ROAD_TOP = 0.2        -- 道路の上面の高さ
 local WALK_TOP = 0.8        -- 歩道（街区の台）の上面の高さ
@@ -76,7 +78,7 @@ local WALL_HEIGHT = 30      -- 外周の透明な壁の高さ
 local SPAWN_LIFT = 3        -- 出現ポイントは置く面から3スタッド上に中心を置く
 
 MapBuilder.Half = HALF
-MapBuilder.RoadHalf = ROAD_HALF
+MapBuilder.RoadHalf = ROAD_HALF * SHIBUYA_SCALE
 
 ---------------------------------------------------------------------
 -- 色（落ち着いた色調）
@@ -251,11 +253,11 @@ local ITEM_SPAWNS = {
 MapBuilder.ItemSpawnCount = #ITEM_SPAWNS
 
 ---------------------------------------------------------------------
--- パーク（220×220。広くて見通しがよい。障害物は周囲に寄せる）
+-- パーク（180×180。広くて見通しがよい。障害物は周囲に寄せる）
 ---------------------------------------------------------------------
 
 local PARK_LAYOUT_HALF = 170 -- 配置表の半幅（縮小前の座標系）
-local PARK_HALF = 110
+local PARK_HALF = HALF
 local PARK_SCALE = PARK_HALF / PARK_LAYOUT_HALF
 local PARK_GRASS_TOP = 0
 local PARK_PLAZA_TOP = 0.5 -- 中央の円形広場の上面
@@ -460,29 +462,33 @@ end
 -- 地面・道路・横断歩道・歩道・外周
 ---------------------------------------------------------------------
 
+local function makeShibuyaPart(parent, props)
+	return makePart(parent, props, SHIBUYA_SCALE)
+end
+
 local function buildGround(map)
 	local folder = makeFolder(map, "Ground")
 
 	-- 地面のベース（大きな1枚）
-	makePart(folder, {
+	makeShibuyaPart(folder, {
 		Name = "Base",
-		Size = { HALF * 2, 2, HALF * 2 },
+		Size = { SHIBUYA_LAYOUT_HALF * 2, 2, SHIBUYA_LAYOUT_HALF * 2 },
 		Pos = { 0, -1, 0 },
 		Color = COLORS.Base,
 		Material = Enum.Material.Asphalt,
 	})
 
 	-- 道路：南北に1本（全長）、東西は交差点の東と西に分けて重なりを避ける
-	local roadLen = HALF - ROAD_HALF
-	makePart(folder, {
+	local roadLen = SHIBUYA_LAYOUT_HALF - ROAD_HALF
+	makeShibuyaPart(folder, {
 		Name = "RoadNS",
-		Size = { ROAD_HALF * 2, ROAD_TOP, HALF * 2 },
+		Size = { ROAD_HALF * 2, ROAD_TOP, SHIBUYA_LAYOUT_HALF * 2 },
 		Pos = { 0, ROAD_TOP / 2, 0 },
 		Color = COLORS.Road,
 		Material = Enum.Material.Asphalt,
 	})
 	for _, sign in ipairs({ 1, -1 }) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "RoadEW",
 			Size = { roadLen, ROAD_TOP, ROAD_HALF * 2 },
 			Pos = { sign * (ROAD_HALF + roadLen / 2), ROAD_TOP / 2, 0 },
@@ -493,16 +499,16 @@ local function buildGround(map)
 
 	-- 中央線：交差点と横断歩道の外側から舞台の端まで、4方向に1本ずつ
 	local lineStart = 30
-	local lineLen = HALF - lineStart
+	local lineLen = SHIBUYA_LAYOUT_HALF - lineStart
 	local lineMid = lineStart + lineLen / 2
 	for _, sign in ipairs({ 1, -1 }) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "CenterLine",
 			Size = { 0.6, 0.05, lineLen },
 			Pos = { 0, ROAD_TOP + 0.025, sign * lineMid },
 			Color = COLORS.CenterLine,
 		})
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "CenterLine",
 			Size = { lineLen, 0.05, 0.6 },
 			Pos = { sign * lineMid, ROAD_TOP + 0.025, 0 },
@@ -511,11 +517,11 @@ local function buildGround(map)
 	end
 
 	-- 歩道：4つの街区それぞれを少し高い台にする（区画の周囲がそのまま歩道になる）
-	local blockSize = HALF - ROAD_HALF
+	local blockSize = SHIBUYA_LAYOUT_HALF - ROAD_HALF
 	local blockMid = ROAD_HALF + blockSize / 2
 	for _, sx in ipairs({ 1, -1 }) do
 		for _, sz in ipairs({ 1, -1 }) do
-			makePart(folder, {
+			makeShibuyaPart(folder, {
 				Name = "Sidewalk",
 				Size = { blockSize, WALK_TOP, blockSize },
 				Pos = { sx * blockMid, WALK_TOP / 2, sz * blockMid },
@@ -527,7 +533,7 @@ local function buildGround(map)
 
 	-- 広場の床タイル
 	for _, plaza in ipairs(PLAZAS) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = plaza.name,
 			Size = { plaza.size, TILE_TOP - WALK_TOP, plaza.size },
 			Pos = { plaza.x, (WALK_TOP + TILE_TOP) / 2, plaza.z },
@@ -550,14 +556,14 @@ local function buildCrosswalks(map)
 	for offset = -(ROAD_HALF - 2), ROAD_HALF - 2, STRIPE_PITCH do
 		for _, sign in ipairs({ 1, -1 }) do
 			-- 南北の道路を渡る横断歩道（交差点の北と南）
-			makePart(folder, {
+			makeShibuyaPart(folder, {
 				Name = "Zebra",
 				Size = { STRIPE_WIDTH, 0.05, CROSSWALK_DEPTH },
 				Pos = { offset, y, sign * mid },
 				Color = COLORS.Zebra,
 			})
 			-- 東西の道路を渡る横断歩道（交差点の東と西）
-			makePart(folder, {
+			makeShibuyaPart(folder, {
 				Name = "Zebra",
 				Size = { CROSSWALK_DEPTH, 0.05, STRIPE_WIDTH },
 				Pos = { sign * mid, y, offset },
@@ -571,16 +577,16 @@ end
 local function buildBoundary(map)
 	local folder = makeFolder(map, "Boundary")
 	local thickness = 2
-	local offset = HALF + thickness / 2
-	local length = HALF * 2 + thickness * 2
+	local offset = SHIBUYA_LAYOUT_HALF + thickness / 2
+	local length = SHIBUYA_LAYOUT_HALF * 2 + thickness * 2
 	for _, sign in ipairs({ 1, -1 }) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "InvisibleWall",
 			Size = { thickness, WALL_HEIGHT, length },
 			Pos = { sign * offset, WALL_HEIGHT / 2, 0 },
 			Transparency = 1,
 		})
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "InvisibleWall",
 			Size = { length, WALL_HEIGHT, thickness },
 			Pos = { 0, WALL_HEIGHT / 2, sign * offset },
@@ -619,7 +625,7 @@ local function buildBuildings(map)
 		local roofY = WALK_TOP + b.h
 
 		-- 本体（箱）
-		makePart(model, {
+		makeShibuyaPart(model, {
 			Name = "Body",
 			Size = { b.w, b.h, b.d },
 			Pos = { b.x, WALK_TOP + b.h / 2, b.z },
@@ -629,7 +635,7 @@ local function buildBuildings(map)
 
 		-- 窓の帯：本体より少しだけ大きい薄い板を巻き付け、4面すべてに帯を出す（1本＝1 Part）
 		for index = 1, windowBandCount(b.h) do
-			makePart(model, {
+			makeShibuyaPart(model, {
 				Name = "WindowBand",
 				Size = { b.w + 0.4, 3, b.d + 0.4 },
 				Pos = { b.x, WALK_TOP + 6 + (index - 1) * 10, b.z },
@@ -639,7 +645,7 @@ local function buildBuildings(map)
 		end
 
 		-- 屋上の室外機（屋上の隠れ場所にもなる）
-		makePart(model, {
+		makeShibuyaPart(model, {
 			Name = "RoofUnit",
 			Size = { 4, 2, 4 },
 			Pos = { b.x + b.w / 4, roofY + 1, b.z + b.d / 4 },
@@ -650,7 +656,7 @@ local function buildBuildings(map)
 		-- 屋上へのスロープ：側面にぴったり沿わせ、高い端が屋上と同じ高さになる
 		if b.ramp then
 			local cx, cz, width, length, rotY = MapBuilder.RampGeometry(b)
-			makePart(model, {
+			makeShibuyaPart(model, {
 				Name = "RoofRamp",
 				ClassName = "WedgePart",
 				Size = { width, b.h, length },
@@ -666,13 +672,13 @@ local function buildBuildings(map)
 		if b.landmark then
 			local faceZ = b.z + b.d / 2 + 0.2 -- 窓の帯の表面
 			local screenY = WALK_TOP + b.h - 20
-			makePart(model, {
+			makeShibuyaPart(model, {
 				Name = "ScreenFrame",
 				Size = { 28, 18, 0.4 },
 				Pos = { b.x, screenY, faceZ + 0.2 },
 				Color = COLORS.ScreenFrame,
 			})
-			local screen = makePart(model, {
+			local screen = makeShibuyaPart(model, {
 				Name = "Screen",
 				Size = { 26, 16, 0.8 },
 				Pos = { b.x, screenY, faceZ + 0.4 + 0.4 },
@@ -711,8 +717,8 @@ local function buildProps(map)
 
 	-- 信号機：柱＋灯器
 	for _, s in ipairs(SIGNALS) do
-		makeColumn(folder, "SignalPole", s.x, WALK_TOP, s.z, 12, 0.8, COLORS.Pole)
-		makePart(folder, {
+		makeColumn(folder, "SignalPole", s.x, WALK_TOP, s.z, 12, 0.8, COLORS.Pole, SHIBUYA_SCALE)
+		makeShibuyaPart(folder, {
 			Name = "SignalHead",
 			Size = { 1.2, 3, 1.2 },
 			Pos = { s.x, WALK_TOP + 11.5, s.z },
@@ -722,8 +728,8 @@ local function buildProps(map)
 
 	-- 街灯：柱＋光る笠
 	for _, l in ipairs(STREET_LIGHTS) do
-		makeColumn(folder, "LightPole", l.x, WALK_TOP, l.z, 14, 0.6, COLORS.Pole)
-		makePart(folder, {
+		makeColumn(folder, "LightPole", l.x, WALK_TOP, l.z, 14, 0.6, COLORS.Pole, SHIBUYA_SCALE)
+		makeShibuyaPart(folder, {
 			Name = "Lamp",
 			Size = { 1.6, 0.6, 1.6 },
 			Pos = { l.x, WALK_TOP + 14.3, l.z },
@@ -735,14 +741,14 @@ local function buildProps(map)
 	-- 植え込み：台＋生け垣
 	for _, p in ipairs(PLANTERS) do
 		local sx, sz = alongSize(p.along, 6, 2)
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "Planter",
 			Size = { sx, 1.5, sz },
 			Pos = { p.x, WALK_TOP + 0.75, p.z },
 			Color = COLORS.PlanterBase,
 			Material = Enum.Material.Concrete,
 		})
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "Hedge",
 			Size = { sx - 0.2, 1.5, sz - 0.2 },
 			Pos = { p.x, WALK_TOP + 2.25, p.z },
@@ -753,7 +759,7 @@ local function buildProps(map)
 
 	-- 自販機風の箱
 	for _, v in ipairs(VENDING_MACHINES) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "VendingMachine",
 			Size = { 3, 6, 2 },
 			Pos = { v.x, WALK_TOP + 3, v.z },
@@ -764,7 +770,7 @@ local function buildProps(map)
 	-- バス停：屋根・柱2本・ベンチ
 	for _, stop in ipairs(BUS_STOPS) do
 		local roofX, roofZ = alongSize(stop.along, 10, 4)
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "BusStopRoof",
 			Size = { roofX, 0.5, roofZ },
 			Pos = { stop.x, WALK_TOP + 7.25, stop.z },
@@ -779,7 +785,7 @@ local function buildProps(map)
 			else
 				px, pz = stop.x + k * 4, stop.z + 1.5
 			end
-			makePart(folder, {
+			makeShibuyaPart(folder, {
 				Name = "BusStopPost",
 				Size = { 0.5, 7, 0.5 },
 				Pos = { px, WALK_TOP + 3.5, pz },
@@ -793,7 +799,7 @@ local function buildProps(map)
 		else
 			bz = stop.z + 0.8
 		end
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "BusStopBench",
 			Size = { benchX, 1, benchZ },
 			Pos = { bx, WALK_TOP + 1, bz },
@@ -805,7 +811,7 @@ local function buildProps(map)
 	-- バリケード（道路の上）
 	for _, br in ipairs(BARRICADES) do
 		local sx, sz = alongSize(br.along, 8, 1)
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "Barricade",
 			Size = { sx, 3, sz },
 			Pos = { br.x, ROAD_TOP + 1.5, br.z },
@@ -815,8 +821,8 @@ local function buildProps(map)
 
 	-- 木：幹（円柱）＋葉（球）
 	for _, t in ipairs(TREES) do
-		makeColumn(folder, "TreeTrunk", t.x, TILE_TOP, t.z, 6, 1.2, COLORS.Trunk)
-		makePart(folder, {
+		makeColumn(folder, "TreeTrunk", t.x, TILE_TOP, t.z, 6, 1.2, COLORS.Trunk, SHIBUYA_SCALE)
+		makeShibuyaPart(folder, {
 			Name = "TreeLeaves",
 			Shape = Enum.PartType.Ball,
 			Size = { 7, 7, 7 },
@@ -828,7 +834,7 @@ local function buildProps(map)
 
 	-- 広場のベンチ
 	for _, bench in ipairs(BENCHES) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "Bench",
 			Size = { 6, 1, 1.5 },
 			Pos = { bench.x, TILE_TOP + 0.5, bench.z },
@@ -839,7 +845,7 @@ local function buildProps(map)
 
 	-- 駅の入口風の屋根（柱2本）
 	local c = STATION_CANOPY
-	makePart(folder, {
+	makeShibuyaPart(folder, {
 		Name = "StationCanopy",
 		Size = { c.w, 1, c.d },
 		Pos = { c.x, TILE_TOP + c.height + 0.5, c.z },
@@ -847,7 +853,7 @@ local function buildProps(map)
 		Material = Enum.Material.Metal,
 	})
 	for _, k in ipairs({ -1, 1 }) do
-		makePart(folder, {
+		makeShibuyaPart(folder, {
 			Name = "StationPillar",
 			Size = { 1, c.height, 1 },
 			Pos = { c.x + k * (c.w / 2 - 1), TILE_TOP + c.height / 2, c.z },
@@ -858,7 +864,7 @@ end
 
 -- プレイヤーのスポーン（駅前広場）
 local function buildPlayerSpawn(map)
-	local spawn = makePart(map, {
+	local spawn = makeShibuyaPart(map, {
 		Name = "PlayerSpawn",
 		ClassName = "SpawnLocation",
 		Size = { PLAYER_SPAWN.size, 1, PLAYER_SPAWN.size },
@@ -892,7 +898,7 @@ function MapBuilder.ItemSpawnPositions()
 			local b = findBuilding(s.roof)
 			surface = WALK_TOP + b.h
 		end
-		table.insert(list, { x = s.x, y = surface + SPAWN_LIFT, z = s.z, roof = s.roof })
+		table.insert(list, { x = s.x * SHIBUYA_SCALE, y = surface + SPAWN_LIFT, z = s.z * SHIBUYA_SCALE, roof = s.roof })
 	end
 	return list
 end
@@ -1197,7 +1203,7 @@ function MapBuilder.BuildPark()
 	buildParkPlayerSpawn(map)
 	local spawns = buildItemSpawns(MapBuilder.ParkSpawnPositions(), PARK_SCALE)
 
-	map:SetAttribute("ZoneMaxRadius", 120)
+	map:SetAttribute("WalkableHalfExtent", HALF)
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap("Park")
@@ -1227,10 +1233,10 @@ function MapBuilder.Build()
 	local climbable = buildBuildings(map)
 	buildProps(map)
 	buildPlayerSpawn(map)
-	local spawns = buildItemSpawns(MapBuilder.ItemSpawnPositions())
+	local spawns = buildItemSpawns(MapBuilder.ItemSpawnPositions(), SHIBUYA_SCALE)
 
 	-- 中身を作り終えてから Workspace に置く（1回でまとめて反映される）
-	map:SetAttribute("ZoneMaxRadius", 125)
+	map:SetAttribute("WalkableHalfExtent", HALF)
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap("Shibuya")
@@ -1247,7 +1253,14 @@ end
 -- ダンジョン
 ---------------------------------------------------------------------
 
-local DUNGEON_SCALE = { Ice = 220 / 260, Volt = 220 / 240, Sky = 220 / 260 }
+local SKY_SPACING = 106
+local SKY_SIDE_SIZE = 48
+local SKY_CORNER_SIZE = 36
+local DUNGEON_SCALE = {
+	Ice = HALF / 130,
+	Volt = HALF / 120,
+	Sky = HALF / (SKY_SPACING + SKY_SIDE_SIZE / 2),
+}
 
 local function block(parent, name, x, y, z, sx, sy, sz, color, material, horizontalScale)
 	return makePart(parent, {
@@ -1267,8 +1280,8 @@ end
 local function buildCave(map)
 	local stone = Enum.Material.Slate
 	local dark = Color3.fromRGB(59, 53, 64)
-	block(map, "StoneFloor", 0, -2, 0, 200, 4, 200, dark, stone)
-	boundary(map, 100, 28, dark, stone)
+	block(map, "StoneFloor", 0, -2, 0, HALF * 2, 4, HALF * 2, dark, stone)
+	boundary(map, HALF, 28, dark, stone)
 	for _, group in ipairs({ MapBuilder.CaveWallGroup, MapBuilder.PhaseGroup }) do
 		if not PhysicsService:IsCollisionGroupRegistered(group) then
 			PhysicsService:RegisterCollisionGroup(group)
@@ -1277,30 +1290,71 @@ local function buildCave(map)
 	PhysicsService:CollisionGroupSetCollidable(MapBuilder.CaveWallGroup, MapBuilder.PhaseGroup, false)
 
 	local walls = makeFolder(map, "CaveInnerWalls")
-	local points = {}
-	for _, x in ipairs({ -54, 54 }) do
-		for _, z in ipairs({ -57, 57 }) do
-			for _, offset in ipairs({ -16, 16 }) do
-				local wall = block(walls, "RockWall", x + offset, 14, z, 20, 28, 58,
-					Color3.fromRGB(87, 76, 88), Enum.Material.Rock)
-				wall.CollisionGroup = MapBuilder.CaveWallGroup
-			end
-			for _, offset in ipairs({ -18, 0, 18 }) do
-				table.insert(points, { x = x + offset, y = 0, z = z * 0.32 })
-			end
-			for _, side in ipairs({ -1, 1 }) do
-				local torch = block(map, "Torch", x + side * 24, 3, z * 0.43,
-					0.8, 6, 0.8, Color3.fromRGB(180, 106, 53), Enum.Material.Wood)
-				local flame = block(map, "Flame", torch.Position.X, 6.4, torch.Position.Z,
-					1.2, 1.4, 1.2, Color3.fromRGB(255, 165, 76), Enum.Material.Neon)
-				flame.CanCollide = false
-				local light = Instance.new("PointLight")
-				light.Color = flame.Color
-				light.Range = 36
-				light.Brightness = 2
-				light.Parent = flame
+	-- 北と南東の岩塊の両側を通れる。西と東の外壁から伸びる岩は行き止まりの小部屋を作る。
+	local rock = Enum.Material.Rock
+	local formations = {
+		-- x, z, 幅, 奥行き, 回転
+		{ -36, -44, 28, 18, 24 }, { -19, -37, 26, 17, -17 },
+		{ -9, -51, 16, 28, 19 }, { 2, -58, 20, 15, -29 },
+		{ 29, 23, 18, 29, 27 }, { 38, 38, 25, 20, -26 },
+		{ 60, 39, 27, 14, 12 }, { 51, 53, 17, 22, -31 },
+		{ -79, 16, 30, 12, -11 }, { -62, 21, 20, 13, 34 },
+		{ -74, 58, 35, 13, 18 }, { -56, 51, 21, 14, -38 },
+		{ 80, -31, 24, 11, 6 }, { 65, -35, 19, 13, 31 },
+		{ 81, -60, 22, 13, -12 }, { 71, -65, 15, 14, 19 },
+	}
+	for index, spec in ipairs(formations) do
+		local x, z, width, depth, angle = table.unpack(spec)
+		local wall = makePart(walls, {
+			Name = "RockWall", Size = { width, 28, depth }, Pos = { x, 14, z }, RotY = angle,
+			Color = Color3.fromRGB(80 + index % 4 * 5, 70 + index % 5 * 3, 82 + index % 3 * 5),
+			Material = rock,
+		})
+		wall.CollisionGroup = MapBuilder.CaveWallGroup
+	end
+
+	local decorations = makeFolder(map, "RockFormations")
+	for index, spec in ipairs({ { -40, -9 }, { 14, -23 }, { 52, -18 }, { -44, 34 }, { 14, 48 }, { 68, 65 } }) do
+		local x, z = table.unpack(spec)
+		local height = 4 + index % 3 * 2
+		local function taper(name, bottomY, hanging)
+			for layer = 1, 3 do
+				local width = (4 - layer) * 1.5
+				local offset = (layer - 0.5) * height / 3
+				makePart(decorations, {
+					Name = name, Shape = Enum.PartType.Ball, CanCollide = false,
+					Size = { width, height / 2, width * 0.8 },
+					Pos = { x + layer * 0.3, bottomY + (hanging and -offset or offset), z },
+					Color = Color3.fromRGB(104, 87, 92), Material = rock,
+				})
 			end
 		end
+		taper("Stalagmite", 0, false)
+		taper("Stalactite", 28, true)
+	end
+
+	for _, pos in ipairs({ { -48, -24 }, { -25, -64 }, { 17, -51 }, { 72, -48 },
+		{ -76, 36 }, { -21, 23 }, { 17, 32 }, { 65, 55 } }) do
+		local x, z = table.unpack(pos)
+		local torch = block(map, "Torch", x, 3, z,
+			0.8, 6, 0.8, Color3.fromRGB(180, 106, 53), Enum.Material.Wood)
+		torch.CanCollide = false
+		local flame = block(map, "Flame", x, 6.4, z,
+			1.2, 1.4, 1.2, Color3.fromRGB(255, 165, 76), Enum.Material.Neon)
+		flame.CanCollide = false
+		local light = Instance.new("PointLight")
+		light.Color = flame.Color
+		light.Range = 36
+		light.Brightness = 2
+		light.Parent = flame
+	end
+
+	local points = {}
+	for _, pos in ipairs({ { -78, 37 }, { 78, -47 }, -- 行き止まり
+		{ -62, -67 }, { -30, -71 }, { 25, -73 }, { 47, -48 },
+		{ -61, -10 }, { -27, 13 }, { 40, -8 }, { 75, 18 }, { 20, 71 }, { -60, 73 },
+	}) do
+		table.insert(points, { x = pos[1], y = 0, z = pos[2] })
 	end
 	return points
 end
@@ -1365,9 +1419,9 @@ local function buildSky(map, scale)
 	local bridgeWidth = math.max(6, 4 / scale) -- 縮小後も幅4スタッド以上
 	for row = -1, 1 do
 		for column = -1, 1 do
-			local x, z = column * 106, row * 106
+			local x, z = column * SKY_SPACING, row * SKY_SPACING
 			local center = row == 0 and column == 0
-			local size = center and 58 or (row == 0 or column == 0) and 48 or 36
+			local size = center and 58 or (row == 0 or column == 0) and SKY_SIDE_SIZE or SKY_CORNER_SIZE
 			local top = (row ~= 0 and column ~= 0) and 52 or 50
 			block(platforms, center and "ArenaStart" or "SkyPlatform", x, top - 2, z,
 				size, 4, size, lavender, stone, scale)
@@ -1382,10 +1436,10 @@ local function buildSky(map, scale)
 				table.insert(points, { x = x - column * 14, y = top, z = z - row * 14 })
 			end
 			if column < 1 then
-				block(bridges, "SkyBridge", x + 53, 48.5, z, 72, 3, bridgeWidth, lavender, stone, scale)
+				block(bridges, "SkyBridge", x + SKY_SPACING / 2, 48.5, z, 74, 3, bridgeWidth, lavender, stone, scale)
 			end
 			if row < 1 then
-				block(bridges, "SkyBridge", x, 48.5, z + 53, bridgeWidth, 3, 72, lavender, stone, scale)
+				block(bridges, "SkyBridge", x, 48.5, z + SKY_SPACING / 2, bridgeWidth, 3, 74, lavender, stone, scale)
 			end
 		end
 	end
@@ -1417,10 +1471,7 @@ local function buildDungeon(id)
 	}, scale)
 	spawn.Neutral = true
 	local spawns = buildItemSpawns(points, scale)
-	-- エリアの開始半径の上限（外周の壁より外に円を出さない）と、ボックスを置ける高さの上限
-	-- （大きいマップは 220 前後に縮めたので、上限はどれも 120 前後）
-	local zoneMax = { Cave = 110, Ice = 120, Volt = 120, Sky = 125 }
-	map:SetAttribute("ZoneMaxRadius", zoneMax[id])
+	map:SetAttribute("WalkableHalfExtent", HALF)
 	if sky then
 		map:SetAttribute("BoxGroundMaxHeight", 53) -- 足場の上面（Y=48〜52）にだけ置く
 	end
@@ -1495,6 +1546,7 @@ function MapBuilder.BuildArena()
 	clearExistingMap()
 	local map = mapTemplate:Clone()
 	map.Name = MapBuilder.MapFolderName
+	map:SetAttribute("WalkableHalfExtent", HALF)
 	map.Parent = workspace
 	local spawnsTemplate = ServerStorage:FindFirstChild(ARENA_SPAWNS)
 	if spawnsTemplate then

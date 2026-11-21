@@ -1,5 +1,5 @@
 -- TaggerLook: 鬼の見た目（少し赤い色と、頭上の薄い Highlight）
--- 速度やタッチ判定には関わらない。GameState.Tagger が変わるたびに Follow を呼ぶ。
+-- 速度やタッチ判定には関わらない。鬼の交代に合わせて Apply / Clear を呼ぶ。
 -- 鬼でなくなったら、付けたときと同じ Part の色を元に戻し、Highlight を消す。
 
 local GameState = require(script.Parent:WaitForChild("GameState"))
@@ -133,20 +133,9 @@ function TaggerLook.Apply(player)
 	end
 end
 
--- GameState.Tagger がこのプレイヤー（nil なら誰でもない）になったときに呼ぶ。
--- 前の鬼からは外し、新しい鬼にだけ付ける。
-function TaggerLook.Follow(tagger)
-	local stale = {}
+function TaggerLook.ClearAll()
 	for player in pairs(applied) do
-		if player ~= tagger then
-			table.insert(stale, player)
-		end
-	end
-	for _, player in ipairs(stale) do
 		TaggerLook.Clear(player)
-	end
-	if tagger then
-		TaggerLook.Apply(tagger)
 	end
 end
 
