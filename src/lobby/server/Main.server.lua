@@ -4,12 +4,16 @@
 --   ・「すぐ遊ぶ」パッド：乗った人が2人以上そろうとカウントダウンし、最大8人で試合サーバーへ
 --   ・友達部屋：4桁の合言葉で、同じ予約サーバーへ集まる
 --   ・ルール掲示板の文字を表示する
+--   ・段位（累計 RP）の表示と、一度でも試合に出た人の RP ランキングボード
+--   ・デイリールーレット（30分ごとに1回分の権利がたまる）
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TeleportService = game:GetService("TeleportService")
 local MemoryStoreService = game:GetService("MemoryStoreService")
+local DataStoreService = game:GetService("DataStoreService")
+local UserService = game:GetService("UserService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
@@ -35,6 +39,8 @@ local CreateRoom = remote("CreateRoom")     -- 本人 → サーバー: 友達�
 local JoinRoom = remote("JoinRoom")         -- 本人 → サーバー: この合言葉の部屋に入りたい
 local RoomCreated = remote("RoomCreated")   -- サーバー → 本人: 作った部屋の合言葉
 local SoloPlay = remote("SoloPlay")         -- 本人 → サーバー: ひとりモードで遊びたい
+local SpinRoulette = remote("SpinRoulette") -- 本人 → サーバー: ルーレットを回したい
+local RouletteResult = remote("RouletteResult") -- サーバー → 本人: 当たった景品の番号（失敗時は nil）
 remoteFolder.Parent = ReplicatedStorage
 
 local function notify(player, text)
@@ -43,13 +49,80 @@ local function notify(player, text)
 	end
 end
 
+local rankRP = {}        -- [Player] = 累計 RP（試合サーバーが保存したもの）
+local sentStock = {}     -- [Player] = 最後に送ったルーレットの回数
+
 local function sendData(player)
 	local data = PlayerDataStore.Get(player)
-	DataUpdate:FireClient(player, { Coins = data.Coins, Owned = data.Owned, Deck = data.Deck, Wins = data.Wins })
+	local stock, nextIn = PlayerDataStore.RouletteView(data, os.time())
+	sentStock[player] = stock
+	DataUpdate:FireClient(player, {
+		Coins = data.Coins, Owned = data.Owned, Deck = data.Deck, Wins = data.Wins,
+		RP = rankRP[player] or 0,
+		RouletteStock = stock, RouletteNextIn = nextIn,
+	})
 	local stats = player:FindFirstChild("leaderstats")
 	local coins = stats and stats:FindFirstChild(Config.LeaderstatNames.Coins)
 	if coins then
 		coins.Value = data.Coins
+	end
+end
+
+---------------------------------------------------------------------
+-- 段位（読むだけ。RP を増やして保存するのは試合サーバーの RankManager）
+---------------------------------------------------------------------
+
+local rankStore = nil
+local leaderboardStore = nil
+pcall(function()
+	rankStore = DataStoreService:GetDataStore(Config.RankDataStoreName)
+	leaderboardStore = DataStoreService:GetOrderedDataStore(Config.RankLeaderboardStoreName)
+end)
+
+local function nonNegativeInt(value)
+	return math.max(0, math.floor(tonumber(value) or 0))
+end
+
+local function showRank(player)
+	local rp = rankRP[player] or 0
+	local tier = Config.TierForRP(rp)
+	local stats = player:FindFirstChild("leaderstats")
+	if stats then
+		local rankValue = stats:FindFirstChild(Config.LeaderstatNames.Rank)
+		local rpValue = stats:FindFirstChild(Config.LeaderstatNames.RP)
+		if rankValue then
+			rankValue.Value = tier and tier.Name or ""
+		end
+		if rpValue then
+			rpValue.Value = rp
+		end
+	end
+end
+
+local function loadRank(player)
+	if not rankStore then
+		return
+	end
+	local ok, stored = pcall(function()
+		return rankStore:GetAsync(tostring(player.UserId))
+	end)
+	if not ok then
+		warn("[Lobby] 段位の読み込みに失敗: " .. tostring(stored))
+		return
+	end
+	if player.Parent ~= Players then
+		return
+	end
+	rankRP[player] = type(stored) == "table" and nonNegativeInt(stored.RP) or 0
+	showRank(player)
+	-- 試合に出たことがある人（段位の記録がある人）は、ランキングにも載せる（以前の記録の取りこみ）
+	if type(stored) == "table" and leaderboardStore then
+		local rp = rankRP[player]
+		pcall(function()
+			leaderboardStore:UpdateAsync(tostring(player.UserId), function(old)
+				return math.max(nonNegativeInt(old), rp)
+			end)
+		end)
 	end
 end
 
@@ -60,11 +133,19 @@ end
 local function onPlayerAdded(player)
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
+	local rank = Instance.new("StringValue")
+	rank.Name = Config.LeaderstatNames.Rank
+	rank.Parent = stats
+	local rp = Instance.new("IntValue")
+	rp.Name = Config.LeaderstatNames.RP
+	rp.Parent = stats
 	local coins = Instance.new("IntValue")
 	coins.Name = Config.LeaderstatNames.Coins
 	coins.Parent = stats
 	stats.Parent = player
+	showRank(player)
 	PlayerDataStore.Load(player)
+	loadRank(player)
 	sendData(player)
 end
 
@@ -74,6 +155,8 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerRemoving:Connect(function(player)
 	PlayerDataStore.Forget(player)
+	rankRP[player] = nil
+	sentStock[player] = nil
 end)
 
 ---------------------------------------------------------------------
@@ -110,6 +193,47 @@ SetDeck.OnServerEvent:Connect(function(player, list)
 	local ok = PlayerDataStore.SetDeck(player, list)
 	notify(player, ok and "デッキを保存した！" or string.format("デッキは持っているアイテムから%d個えらんでね", Config.DeckSize))
 	sendData(player)
+end)
+
+---------------------------------------------------------------------
+-- デイリールーレット（景品の抽選も保存もサーバー）
+---------------------------------------------------------------------
+
+SpinRoulette.OnServerEvent:Connect(function(player)
+	if tooFast(player, 1) then
+		return
+	end
+	local prizeIndex = PlayerDataStore.PickRoulettePrize()
+	local ok = PlayerDataStore.SpinRoulette(player, prizeIndex, os.time())
+	if ok then
+		RouletteResult:FireClient(player, prizeIndex)
+		-- 画面の回転が止まってから、コインと回数を新しくする
+		task.delay(Config.Roulette.RevealDelay or 3, function()
+			if player.Parent == Players then
+				notify(player, string.format("ルーレットで %d コインもらった！", Config.Roulette.Prizes[prizeIndex].Coins))
+				sendData(player)
+			end
+		end)
+	else
+		RouletteResult:FireClient(player, nil)
+		notify(player, "まだルーレットを回せません。30分ごとに1回たまります")
+		sendData(player)
+	end
+end)
+
+-- 権利がたまったら画面に知らせる
+task.spawn(function()
+	while true do
+		task.wait(10)
+		local now = os.time()
+		for _, player in ipairs(Players:GetPlayers()) do
+			local stock = PlayerDataStore.RouletteView(PlayerDataStore.Get(player), now)
+			if sentStock[player] ~= nil and stock > sentStock[player] then
+				notify(player, "ルーレットを回せるようになった！")
+				sendData(player)
+			end
+		end
+	end
 end)
 
 ---------------------------------------------------------------------
@@ -392,6 +516,10 @@ local RULES = {
 	"",
 	"■ ランク",
 	"・試合でRPがたまると段位が上がる（ブロンズ→シルバー→…→マスター）",
+	"・右のランキングボードに、累計RPの上位が出る",
+	"",
+	"■ デイリールーレット",
+	"・30分ごとに1回まわせる（3回分までためられる）。コインが当たる",
 	"",
 	"■ 遊び方",
 	"・すぐ遊ぶ：緑のパッドに乗る。2人そろうと出発（最大8人。足りない分はボットが入る）",
@@ -417,4 +545,129 @@ if board then
 	text.TextYAlignment = Enum.TextYAlignment.Top
 	text.Text = table.concat(RULES, "\n")
 	text.Parent = surface
+end
+
+---------------------------------------------------------------------
+-- ランキングボード（一度でも試合に出た人の累計 RP 上位）
+---------------------------------------------------------------------
+
+local rankBoard = lobbyMap:FindFirstChild("RankBoard")
+if rankBoard then
+	local surface = Instance.new("SurfaceGui")
+	surface.Face = Enum.NormalId.Left
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 40
+	surface.Parent = rankBoard
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -60, 0, 70)
+	title.Position = UDim2.new(0, 30, 0, 20)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBlack
+	title.TextScaled = true
+	title.TextColor3 = Config.BrandColors.Accent
+	title.Text = "ランキング（累計RP）"
+	title.Parent = surface
+
+	local rows = {}
+	local perColumn = math.ceil(Config.RankLeaderboardSize / 2)
+	for index = 1, Config.RankLeaderboardSize do
+		local column = index <= perColumn and 0 or 1
+		local line = (index - 1) % perColumn
+		local row = Instance.new("TextLabel")
+		row.Size = UDim2.new(0.5, -45, 0, 46)
+		row.Position = UDim2.new(column * 0.5, 30, 0, 105 + line * 51)
+		row.BackgroundTransparency = 1
+		row.Font = Enum.Font.GothamBold
+		row.TextScaled = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.TextColor3 = Config.BrandColors.White
+		row.RichText = true
+		row.Text = ""
+		row.Parent = surface
+		rows[index] = row
+	end
+	rows[1].Text = "読み込み中…"
+
+	local nameCache = {} -- [UserId] = 表示名
+	local function fillNames(userIds)
+		local missing = {}
+		for _, id in ipairs(userIds) do
+			if not nameCache[id] then
+				table.insert(missing, id)
+			end
+		end
+		if #missing == 0 then
+			return
+		end
+		local ok, infos = pcall(function()
+			return UserService:GetUserInfosByUserIdsAsync(missing)
+		end)
+		if ok and type(infos) == "table" then
+			for _, info in ipairs(infos) do
+				nameCache[info.Id] = info.DisplayName or info.Username
+			end
+		end
+		for _, id in ipairs(missing) do
+			if not nameCache[id] then
+				local nameOk, name = pcall(function()
+					return Players:GetNameFromUserIdAsync(id)
+				end)
+				nameCache[id] = nameOk and name or ("ID " .. tostring(id))
+			end
+		end
+	end
+
+	local function escape(text)
+		return (tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
+	end
+
+	local function colorHex(color)
+		return string.format("#%02X%02X%02X", math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5))
+	end
+
+	local function refreshBoard()
+		if not leaderboardStore then
+			rows[1].Text = "ランキングは公開版で表示されます"
+			return
+		end
+		local ok, entries = pcall(function()
+			local pages = leaderboardStore:GetSortedAsync(false, Config.RankLeaderboardSize)
+			return pages:GetCurrentPage()
+		end)
+		if not ok then
+			warn("[Lobby] ランキングの読み込みに失敗: " .. tostring(entries))
+			if rows[1].Text == "読み込み中…" then
+				rows[1].Text = "ランキングを読み込めませんでした"
+			end
+			return
+		end
+		local ids = {}
+		for _, entry in ipairs(entries) do
+			local id = tonumber(entry.key)
+			if id then
+				table.insert(ids, id)
+			end
+		end
+		fillNames(ids)
+		for index, row in ipairs(rows) do
+			local entry = entries[index]
+			local id = entry and tonumber(entry.key)
+			if id then
+				local rp = nonNegativeInt(entry.value)
+				local tier = Config.TierForRP(rp)
+				row.Text = string.format('%d. %s  <font color="%s">%s</font> %d', index, escape(nameCache[id] or "?"),
+					tier and colorHex(tier.Color) or "#FFFFFF", tier and tier.Name or "", rp)
+			else
+				row.Text = (index == 1) and "まだ記録がありません" or ""
+			end
+		end
+	end
+
+	task.spawn(function()
+		while true do
+			refreshBoard()
+			task.wait(Config.RankLeaderboardRefresh)
+		end
+	end)
 end

@@ -85,6 +85,41 @@ local function getStore()
 	return dataStore
 end
 
+-- ロビーのランキングボード用（OrderedDataStore。キーは UserId、値は累計 RP）
+local leaderboardStore = nil
+local leaderboardFailed = false
+local function getLeaderboardStore()
+	if leaderboardStore or leaderboardFailed then
+		return leaderboardStore
+	end
+	local ok, result = pcall(function()
+		return game:GetService("DataStoreService"):GetOrderedDataStore(Config.RankLeaderboardStoreName)
+	end)
+	if ok and result then
+		leaderboardStore = result
+	else
+		leaderboardFailed = true
+		warn("RankManager: ランキングの保存先を取得できませんでした", result)
+	end
+	return leaderboardStore
+end
+
+-- ランキングへ書く（RP は減らないので、大きい方を残す）
+local function writeLeaderboard(key, rp)
+	local store = getLeaderboardStore()
+	if not store then
+		return
+	end
+	local ok, err = pcall(function()
+		store:UpdateAsync(key, function(old)
+			return math.max(math.floor(tonumber(old) or 0), math.floor(rp))
+		end)
+	end)
+	if not ok then
+		warn("RankManager: ランキングへの保存に失敗しました", key, err)
+	end
+end
+
 local function nonNegativeInt(value)
 	return math.max(0, math.floor(tonumber(value) or 0))
 end
@@ -117,11 +152,13 @@ local function savePlayer(player)
 		Survived = data.Survived,
 		Tagged = data.Tagged,
 	}
+	local savedRP = snapshot.RP
 	local ok, err = pcall(function()
 		store:UpdateAsync(key, function(old)
 			local previous = type(old) == "table" and old or {}
+			savedRP = math.max(snapshot.RP, nonNegativeInt(previous.RP))
 			return {
-				RP = math.max(snapshot.RP, nonNegativeInt(previous.RP)),
+				RP = savedRP,
 				Survived = math.max(snapshot.Survived, nonNegativeInt(previous.Survived)),
 				Tagged = math.max(snapshot.Tagged, nonNegativeInt(previous.Tagged)),
 			}
@@ -129,7 +166,9 @@ local function savePlayer(player)
 	end)
 	if not ok then
 		warn("RankManager: 保存に失敗しました", player.Name, err)
+		return
 	end
+	writeLeaderboard(key, savedRP)
 end
 
 local function finishIfLeft(player)

@@ -494,6 +494,15 @@ local function makeDataStore()
 end
 
 local dataStoreService = {
+	GetOrderedDataStore = function(_, storeName)
+		local name = "ordered:" .. tostring(storeName)
+		local store = dataStores[name]
+		if not store then
+			store = makeDataStore()
+			dataStores[name] = store
+		end
+		return store
+	end,
 	GetDataStore = function(_, storeName)
 		local name = tostring(storeName)
 		local store = dataStores[name]

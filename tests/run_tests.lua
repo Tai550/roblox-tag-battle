@@ -572,6 +572,8 @@ do
 	check("保存済みの段位を読み込んでも RankUp は飛ばない", fired.n == 0)
 	RankManager.Load(loaded)
 	check("同じ参加の再読み込みでは RP は増えない", RankManager.Get(loaded).RP == 250)
+	local board = RT.game:GetService("DataStoreService"):GetOrderedDataStore(Config.RankLeaderboardStoreName)
+	check("保存するとランキング（OrderedDataStore）にも累計 RP が載る", board:GetAsync("1001") == 250)
 
 	-- 失敗しても止まらず 0 から。失敗中の保存で、すでに書いてある記録は消えない。
 	RT.DataStoreShouldFail = true
@@ -2075,6 +2077,53 @@ do
 	end
 end
 
+
+---------------------------------------------------------------------
+-- デイリールーレット（30分ごとに権利がたまる）
+---------------------------------------------------------------------
+
+do
+	local rules = Config.Roulette
+	local base = 1000000
+	local fresh = PlayerDataStore.Normalize(nil)
+	check("ルーレット：新しいデータは未開始", fresh.RouletteStock == 0 and fresh.RouletteAt == 0)
+	PlayerDataStore.AccrueRoulette(fresh, base)
+	check("ルーレット：初めての人は最初から1回まわせる", fresh.RouletteStock == rules.StartStock and fresh.RouletteAt == base)
+	PlayerDataStore.AccrueRoulette(fresh, base + rules.Interval - 1)
+	check("ルーレット：30分たつ前は増えない", fresh.RouletteStock == 1)
+	PlayerDataStore.AccrueRoulette(fresh, base + rules.Interval)
+	check("ルーレット：30分で1回増える", fresh.RouletteStock == 2 and fresh.RouletteAt == base + rules.Interval)
+	PlayerDataStore.AccrueRoulette(fresh, base + rules.Interval * 10)
+	check("ルーレット：何時間たっても上限まで", fresh.RouletteStock == rules.MaxStock)
+	check("ルーレット：満タンのあいだは時間をためない", fresh.RouletteAt == base + rules.Interval * 10)
+	local stock, nextIn = PlayerDataStore.RouletteView(fresh, base + rules.Interval * 10)
+	check("ルーレット：満タンなら次の時間は出さない", stock == rules.MaxStock and nextIn == nil)
+
+	local kept = PlayerDataStore.Normalize({ Coins = 5, RouletteStock = 2, RouletteAt = 1234 })
+	check("ルーレット：保存データの回数と時刻は Normalize で消えない", kept.RouletteStock == 2 and kept.RouletteAt == 1234)
+	local capped = PlayerDataStore.Normalize({ RouletteStock = 99 })
+	check("ルーレット：壊れた回数は上限に直る", capped.RouletteStock == rules.MaxStock)
+
+	check("ルーレット：抽選の最初と最後", PlayerDataStore.PickRoulettePrize(0) == 1
+		and PlayerDataStore.PickRoulettePrize(0.9999) == #rules.Prizes)
+
+	local spinner = RT.Instance.new("Player")
+	spinner.Name = "Spinner"
+	spinner.UserId = 777
+	PlayerDataStore.Load(spinner)
+	local ok1, after1 = PlayerDataStore.SpinRoulette(spinner, 4, base)
+	check("ルーレット：1回目はまわせて景品のコインが入る", ok1 == true
+		and after1.Coins == rules.Prizes[4].Coins and after1.RouletteStock == 0)
+	local ok2 = PlayerDataStore.SpinRoulette(spinner, 1, base + 60)
+	check("ルーレット：権利がないとまわせない", ok2 == false and PlayerDataStore.Get(spinner).Coins == rules.Prizes[4].Coins)
+	local _, nextAfterSpin = PlayerDataStore.RouletteView(PlayerDataStore.Get(spinner), base + 60)
+	check("ルーレット：次の1回までの残り秒", nextAfterSpin == rules.Interval - 60)
+	local ok3, after3 = PlayerDataStore.SpinRoulette(spinner, 1, base + rules.Interval)
+	check("ルーレット：30分後にまたまわせる", ok3 == true and after3.Coins == rules.Prizes[4].Coins + rules.Prizes[1].Coins)
+	local afterCoins = PlayerDataStore.AddCoins(spinner, 10, false)
+	check("ルーレット：試合のコイン加算でも回数と時刻が残る", afterCoins.RouletteAt == base + rules.Interval)
+	check("ルーレット：景品の番号が不正なら何もしない", PlayerDataStore.SpinRoulette(spinner, 99, base) == false)
+end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))
 if failed > 0 then

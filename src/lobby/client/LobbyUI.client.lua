@@ -1,4 +1,4 @@
--- LobbyUI: ロビーの画面（コイン・デッキ・ショップ・友達部屋・すぐ遊ぶの待ち状況）
+-- LobbyUI: ロビーの画面（段位・コイン・デッキ・ショップ・友達部屋・ルーレット・すぐ遊ぶの待ち状況）
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,6 +20,8 @@ local CreateRoom = Remotes:WaitForChild("CreateRoom")
 local JoinRoom = Remotes:WaitForChild("JoinRoom")
 local RoomCreated = Remotes:WaitForChild("RoomCreated")
 local SoloPlay = Remotes:WaitForChild("SoloPlay")
+local SpinRoulette = Remotes:WaitForChild("SpinRoulette")
+local RouletteResult = Remotes:WaitForChild("RouletteResult")
 
 local localPlayer = Players.LocalPlayer
 
@@ -88,15 +90,32 @@ coinPill.Parent = gui
 corner(coinPill)
 local coinLabel = label(coinPill, "コイン 0", UDim2.new(1, -16, 1, 0), UDim2.new(0, 12, 0, 0), 18, GOLD, true)
 
+-- コインの上：段位と累計 RP（試合中の左上と同じ表示）
+local rankPill = Instance.new("Frame")
+rankPill.Size = UDim2.new(0, 190, 0, 36)
+rankPill.Position = UDim2.new(0, 8, 0.5, -167)
+rankPill.BackgroundColor3 = DARK
+rankPill.BackgroundTransparency = 0.3
+rankPill.Parent = gui
+corner(rankPill)
+local rankLabel = label(rankPill, "", UDim2.new(1, -16, 1, 0), UDim2.new(0, 12, 0, 0), 17, WHITE, true)
+local function showRank(rp)
+	local tier = Config.TierForRP(rp)
+	rankLabel.Text = string.format("%s  %d RP", tier and tier.Name or "", rp)
+	rankLabel.TextColor3 = tier and tier.Color or WHITE
+end
+showRank(0)
+
 local menu = Instance.new("Frame")
 menu.BackgroundTransparency = 1
-menu.Size = UDim2.new(0, 120, 0, 4 * 50)
+menu.Size = UDim2.new(0, 120, 0, 5 * 50)
 menu.Position = UDim2.new(0, 8, 0.5, -75)
 menu.Parent = gui
 local deckButton = button(menu, "デッキ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 0))
 local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50))
 local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100))
-local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150), BrandColors.Accent)
+local rouletteButton = button(menu, "ルーレット", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150))
+local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 200), BrandColors.Accent)
 soloButton.MouseButton1Click:Connect(function()
 	SoloPlay:FireServer()
 end)
@@ -156,7 +175,8 @@ end
 local deckPanel = makePanel("デッキ（試合で出るアイテム）")
 local shopPanel = makePanel("ショップ")
 local roomPanel = makePanel("友達部屋")
-local panels = { deckPanel, shopPanel, roomPanel }
+local roulettePanel = makePanel("デイリールーレット")
+local panels = { deckPanel, shopPanel, roomPanel, roulettePanel }
 
 local function open(panel)
 	for _, other in ipairs(panels) do
@@ -171,6 +191,9 @@ shopButton.MouseButton1Click:Connect(function()
 end)
 roomButton.MouseButton1Click:Connect(function()
 	open(roomPanel)
+end)
+rouletteButton.MouseButton1Click:Connect(function()
+	open(roulettePanel)
 end)
 
 local function scrollList(panel, top, bottomSpace)
@@ -359,6 +382,126 @@ RoomCreated.OnClientEvent:Connect(function(code)
 	roomPanel.Visible = true
 	deckPanel.Visible = false
 	shopPanel.Visible = false
+	roulettePanel.Visible = false
+end)
+
+---------------------------------------------------------------------
+-- デイリールーレット
+---------------------------------------------------------------------
+
+local rouletteRules = Config.Roulette
+label(roulettePanel, string.format("%d分ごとに1回まわせる（%d回分までためられる）。コインが当たる！",
+	math.floor(rouletteRules.Interval / 60), rouletteRules.MaxStock),
+	UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 44), 14, WHITE)
+
+-- 景品のマス（横一列）
+local cellRow = Instance.new("Frame")
+cellRow.BackgroundTransparency = 1
+cellRow.Size = UDim2.new(1, -32, 0, 96)
+cellRow.Position = UDim2.new(0, 16, 0, 86)
+cellRow.Parent = roulettePanel
+local cellLayout = Instance.new("UIListLayout")
+cellLayout.FillDirection = Enum.FillDirection.Horizontal
+cellLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+cellLayout.Padding = UDim.new(0, 6)
+cellLayout.Parent = cellRow
+local cells = {}
+local prizeCount = #rouletteRules.Prizes
+for index, prize in ipairs(rouletteRules.Prizes) do
+	local cell = Instance.new("TextLabel")
+	cell.Size = UDim2.new(1 / prizeCount, -6, 1, 0)
+	cell.LayoutOrder = index
+	cell.BackgroundColor3 = BrandColors.Primary
+	cell.Font = Enum.Font.GothamBlack
+	cell.TextScaled = true
+	cell.TextColor3 = WHITE
+	cell.Text = string.format("%d\nコイン", prize.Coins)
+	cell.Parent = cellRow
+	corner(cell, 8)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 4)
+	pad.PaddingRight = UDim.new(0, 4)
+	pad.Parent = cell
+	cells[index] = cell
+end
+local function highlight(target)
+	for index, cell in ipairs(cells) do
+		local on = index == target
+		cell.BackgroundColor3 = on and GOLD or BrandColors.Primary
+		cell.TextColor3 = on and DARK or WHITE
+	end
+end
+
+local stockLabel = label(roulettePanel, "", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 196), 18, GOLD, true)
+stockLabel.TextXAlignment = Enum.TextXAlignment.Center
+local nextLabel = label(roulettePanel, "", UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 226), 14, WHITE)
+nextLabel.TextXAlignment = Enum.TextXAlignment.Center
+local spinButton = button(roulettePanel, "まわす！", UDim2.new(0, 220, 0, UILayout.MinTouchSize + 6),
+	UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GOLD)
+spinButton.AnchorPoint = Vector2.new(0.5, 1)
+spinButton.TextSize = 20
+
+local rouletteStock = 0
+local nextGrantAt = nil   -- 次の権利がたまる時刻（os.clock 基準）。満タンなら nil
+local spinning = false
+
+local function renderRoulette()
+	rouletteButton.Text = rouletteStock > 0 and string.format("ルーレット (%d)", rouletteStock) or "ルーレット"
+	rouletteButton.BackgroundColor3 = rouletteStock > 0 and BrandColors.Danger or BrandColors.Primary
+	stockLabel.Text = string.format("まわせる回数：%d / %d", rouletteStock, rouletteRules.MaxStock)
+	if nextGrantAt then
+		local left = math.max(0, math.ceil(nextGrantAt - os.clock()))
+		nextLabel.Text = string.format("次の1回まで %d:%02d", math.floor(left / 60), left % 60)
+	else
+		nextLabel.Text = "満タン！ まわすと次の時間がたまり始めます"
+	end
+	spinButton.Text = spinning and "…" or "まわす！"
+	spinButton.BackgroundColor3 = (rouletteStock > 0 and not spinning) and GOLD or BrandColors.Secondary
+end
+
+spinButton.MouseButton1Click:Connect(function()
+	if spinning then
+		return
+	end
+	if rouletteStock < 1 then
+		showToast("まだまわせません。次の1回までまってね")
+		return
+	end
+	spinning = true
+	renderRoulette()
+	SpinRoulette:FireServer()
+end)
+
+RouletteResult.OnClientEvent:Connect(function(prizeIndex)
+	if not prizeIndex then
+		spinning = false
+		renderRoulette()
+		return
+	end
+	-- 何周か回ってから、だんだん遅くなって当たりのマスで止まる
+	local steps = prizeCount * 3 + prizeIndex
+	local totalTime = (rouletteRules.RevealDelay or 3) - 0.3
+	local position = 0
+	for step = 1, steps do
+		position = position % prizeCount + 1
+		highlight(position)
+		local progress = step / steps
+		task.wait(totalTime * 2 * progress / steps)
+	end
+	highlight(prizeIndex)
+	spinning = false
+	renderRoulette()
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if not spinning then
+			renderRoulette()
+		end
+	end
 end)
 
 ---------------------------------------------------------------------
@@ -368,6 +511,12 @@ end)
 DataUpdate.OnClientEvent:Connect(function(data)
 	myData = data
 	coinLabel.Text = string.format("コイン %d", data.Coins or 0)
+	showRank(data.RP or 0)
+	rouletteStock = data.RouletteStock or 0
+	nextGrantAt = data.RouletteNextIn and (os.clock() + data.RouletteNextIn) or nil
+	if not spinning then
+		renderRoulette()
+	end
 	draftDeck = {}
 	for index, itemId in ipairs(data.Deck or {}) do
 		draftDeck[index] = itemId

@@ -317,6 +317,11 @@ part("RulesBoard", (1, 16, 26), (-45, 10, 0), (30, 40, 70), "SmoothPlastic")
 part("RulesBoardFrame", (1.4, 17, 27), (-45.3, 10, 0), (200, 170, 90), "Wood")
 part("RulesLegL", (1, 2, 1), (-45, 1, -10), (90, 70, 50), "Wood")
 part("RulesLegR", (1, 2, 1), (-45, 1, 10), (90, 70, 50), "Wood")
+# ランキングボード（左向きの面＝-X 側に文字を出す。ルール掲示板の向かい）
+part("RankBoard", (1, 16, 26), (45, 10, 0), (30, 40, 70), "SmoothPlastic")
+part("RankBoardFrame", (1.4, 17, 27), (45.3, 10, 0), (200, 170, 90), "Wood")
+part("RankLegL", (1, 2, 1), (45, 1, -10), (90, 70, 50), "Wood")
+part("RankLegR", (1, 2, 1), (45, 1, 10), (90, 70, 50), "Wood")
 # 飾り：木とベンチ
 for i, (x, z) in enumerate([(45, 45), (-45, 45), (50, -50), (-50, -50), (55, 0)], 1):
     part(f"LTrunk{i}", (8, 2, 2), (x, 4, z), (110, 75, 45), "Wood", shape=CYLINDER, rot=VERTICAL)

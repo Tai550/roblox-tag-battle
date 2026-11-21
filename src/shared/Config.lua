@@ -161,6 +161,9 @@ Config.LeaderstatNames = {
 ---------------------------------------------------------------------
 Config.RankDataStoreName = "RankV1" -- 保存先の DataStore 名
 Config.RankSaveInterval = 180       -- 全員を定期保存する間隔（秒）
+Config.RankLeaderboardStoreName = "RankLeaderboardV1" -- ランキング用の OrderedDataStore 名（値は累計 RP）
+Config.RankLeaderboardSize = 20        -- ロビーのランキングボードに出す人数
+Config.RankLeaderboardRefresh = 60     -- ランキングボードを読み直す間隔（秒）
 
 -- 下限 RP の昇順。色は画面の段位表示に使う。
 Config.RankTiers = {
@@ -563,6 +566,26 @@ Config.GamePassKeys = { "DoubleItem", "SparkleTrail" }
 --         ②最後の鬼（負け）  ③脱落した人（あとまで残った人ほど上）
 --   一度もタッチされずに逃げ切った人が「優勝」で、いちばん多くもらえる。
 ---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- デイリールーレット（ロビー）
+-- 30分ごとに1回分の権利がたまる（最大 MaxStock 回まで）。初めての人は StartStock 回から。
+-- 景品はコイン。Weight は当たりやすさ（合計に対する割合）。
+---------------------------------------------------------------------
+Config.Roulette = {
+	Interval = 30 * 60,
+	MaxStock = 3,
+	StartStock = 1,
+	RevealDelay = 3.2, -- 画面のルーレットが止まるまでの秒数（このあとコインを反映する）
+	Prizes = {
+		{ Coins = 10, Weight = 30 },
+		{ Coins = 30, Weight = 28 },
+		{ Coins = 50, Weight = 20 },
+		{ Coins = 100, Weight = 12 },
+		{ Coins = 200, Weight = 7 },
+		{ Coins = 500, Weight = 3 },
+	},
+}
+
 Config.CoinRewards = {
 	Champion = 120,       -- 一度もタッチされずに逃げ切った
 	Survivor = 70,        -- 逃げ切った（タッチされた回数で減る）

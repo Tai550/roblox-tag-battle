@@ -3,7 +3,8 @@
 -- 「その場で読み直して足す」形にし、ロビーと試合で同時に書いても上書きし合わないようにする。
 --
 -- 保存形式（キー "u_<UserId>"）:
---   { Coins = 数, Owned = { [アイテムId] = true }, Deck = { アイテムId, ... }, Wins = 数 }
+--   { Coins = 数, Owned = { [アイテムId] = true }, Deck = { アイテムId, ... }, Wins = 数,
+--     RouletteStock = ルーレットを回せる回数, RouletteAt = 権利を数え始めた時刻（os.time。0 は未開始） }
 --
 -- Studio で「API サービスへのアクセス」が無効なときや通信に失敗したときは、
 -- メモリ上のデータで遊べるようにする（保存はされない）。
@@ -33,6 +34,8 @@ function PlayerDataStore.Normalize(raw)
 		Owned = {},
 		Deck = {},
 		Wins = math.max(0, math.floor(tonumber(data.Wins) or 0)),
+		RouletteStock = math.clamp(math.floor(tonumber(data.RouletteStock) or 0), 0, Config.Roulette.MaxStock),
+		RouletteAt = math.max(0, math.floor(tonumber(data.RouletteAt) or 0)),
 	}
 	if type(data.Owned) == "table" then
 		for itemId, owned in pairs(data.Owned) do
@@ -74,6 +77,63 @@ function PlayerDataStore.ValidateDeck(list, owned)
 		copy[index] = itemId
 	end
 	return true, copy
+end
+
+---------------------------------------------------------------------
+-- デイリールーレット（計算だけ）
+---------------------------------------------------------------------
+
+-- now（os.time）までにたまった権利を data に足す。data を書き換える。
+-- 権利が満タンのあいだは時間をためない（回したときから次の30分を数える）。
+function PlayerDataStore.AccrueRoulette(data, now)
+	local rules = Config.Roulette
+	if data.RouletteAt <= 0 then
+		data.RouletteStock = math.max(data.RouletteStock, rules.StartStock)
+		data.RouletteAt = now
+		return data
+	end
+	if data.RouletteAt > now then
+		data.RouletteAt = now -- 時計が戻ったときに、ずっと増えなくなるのを防ぐ
+	end
+	local gained = math.floor((now - data.RouletteAt) / rules.Interval)
+	if gained > 0 then
+		data.RouletteStock = math.min(rules.MaxStock, data.RouletteStock + gained)
+		data.RouletteAt = data.RouletteAt + gained * rules.Interval
+	end
+	if data.RouletteStock >= rules.MaxStock then
+		data.RouletteAt = now
+	end
+	return data
+end
+
+-- 画面に出す今の状態。戻り値: 回せる回数, 次の権利までの秒数（満タンなら nil）
+function PlayerDataStore.RouletteView(data, now)
+	local view = {
+		RouletteStock = data.RouletteStock,
+		RouletteAt = data.RouletteAt,
+	}
+	PlayerDataStore.AccrueRoulette(view, now)
+	if view.RouletteStock >= Config.Roulette.MaxStock then
+		return view.RouletteStock, nil
+	end
+	return view.RouletteStock, math.max(0, view.RouletteAt + Config.Roulette.Interval - now)
+end
+
+-- 景品の番号を重みで選ぶ。roll は 0 以上 1 未満の数（省略時は乱数）
+function PlayerDataStore.PickRoulettePrize(roll)
+	local prizes = Config.Roulette.Prizes
+	local total = 0
+	for _, prize in ipairs(prizes) do
+		total = total + prize.Weight
+	end
+	local point = (roll or math.random()) * total
+	for index, prize in ipairs(prizes) do
+		point = point - prize.Weight
+		if point < 0 then
+			return index
+		end
+	end
+	return #prizes
 end
 
 ---------------------------------------------------------------------
@@ -198,6 +258,27 @@ function PlayerDataStore.BuyItem(player, itemId)
 		return false, "コインが足りません", data
 	end
 	return true, nil, data
+end
+
+-- ルーレットを1回まわす。prizeIndex は先に選んだ景品の番号。
+-- 戻り値: 回せたか, 新しいデータ
+function PlayerDataStore.SpinRoulette(player, prizeIndex, now)
+	local prize = Config.Roulette.Prizes[prizeIndex]
+	if not prize then
+		return false, PlayerDataStore.Get(player)
+	end
+	now = now or os.time()
+	local spun = false
+	local data = update(player, function(fresh)
+		spun = false
+		PlayerDataStore.AccrueRoulette(fresh, now)
+		if fresh.RouletteStock >= 1 then
+			fresh.RouletteStock = fresh.RouletteStock - 1
+			fresh.Coins = fresh.Coins + prize.Coins
+			spun = true
+		end
+	end)
+	return spun, data
 end
 
 -- デッキを保存する。戻り値: 成功したか, 新しいデータ
