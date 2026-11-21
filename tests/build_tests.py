@@ -17,6 +17,8 @@ BUILD = os.path.join(ROOT, "tests", ".build")
 MODULES = [
     ("src/shared/Config.lua", "Config"),
     ("src/shared/UILayout.lua", "UILayout"),
+    ("src/shared/BeastModels.lua", "BeastModels"),
+    ("src/shared/RouletteVisual.lua", "RouletteVisual"),
     ("src/server/GameState.lua", "GameState"),
     ("src/server/Remotes.lua", "Remotes"),
     ("src/server/Leaderstats.lua", "Leaderstats"),
