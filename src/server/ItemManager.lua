@@ -97,7 +97,7 @@ end
 ---------------------------------------------------------------------
 
 local function sendItemUpdate(player)
-	if not player or not player.Parent then
+	if not player or (type(player) == "table" and player.IsBot == true) or not player.Parent then
 		return
 	end
 	local data = GameState.GetData(player)
@@ -180,6 +180,18 @@ local function countItems()
 	return count
 end
 
+-- 今出ている宝箱の位置。ボットが取りに行く判断に使う。
+function ItemManager.GetActiveBoxPositions()
+	local list = {}
+	for part in pairs(spawnedItems) do
+		local position = part and part.Position
+		if part and part.Parent and position then
+			table.insert(list, position)
+		end
+	end
+	return list
+end
+
 -- SpawnWeight の重みで抽選する。filter を渡すと、filter(def) が true のアイテムだけから選ぶ
 local function pickRandomItemId(filter)
 	local candidates = {}
@@ -252,8 +264,8 @@ local function onBoxTouched(part, hit)
 	if not info or not active then
 		return
 	end
-	local character = hit:FindFirstAncestorOfClass("Model")
-	local player = character and Players:GetPlayerFromCharacter(character)
+	-- 人間は Players、ボットは GameState の対応表。触れた相手を参加者に引き直す
+	local player = GameState.ParticipantFromHit(hit)
 	if not player then
 		return
 	end
@@ -524,7 +536,16 @@ end
 
 handlers.Smoke = function(player, def, data)
 	local tagger = GameState.Tagger
-	if not tagger or not tagger.Parent or tagger == player then
+	if not tagger or tagger == player then
+		return false, "今はスモークを使えません"
+	end
+	-- ボットに画面はない。FireClient はせず、追う処理をしばらく止める
+	if type(tagger) == "table" and tagger.IsBot == true then
+		tagger.BlindUntil = GameState.Now() + def.Duration
+		Remotes.NotifyPlayer(player, "スモーク！ 鬼の画面をまっ白にした")
+		return true
+	end
+	if not tagger.Parent then
 		return false, "今はスモークを使えません"
 	end
 	Remotes.SmokeEffect:FireClient(tagger, def.Duration, def.FadeOutTime)
@@ -578,8 +599,7 @@ local function onBananaTouched(part, hit)
 	if not info or not active then
 		return
 	end
-	local character = hit:FindFirstAncestorOfClass("Model")
-	local player = character and Players:GetPlayerFromCharacter(character)
+	local player = GameState.ParticipantFromHit(hit)
 	if not player or player == info.PlacedBy then
 		return -- 置いた本人はすべらない
 	end
@@ -686,6 +706,9 @@ local function onUseItem(player, slotArg)
 	end
 	sendItemUpdate(player)
 end
+
+-- サーバー内部（ボット）からも、クライアントと同じ使用処理を通す
+ItemManager.TryUse = onUseItem
 
 ---------------------------------------------------------------------
 -- 外部（RoundManager）から呼ぶ関数
@@ -830,7 +853,7 @@ end
 --   ラウンド中の参加者 → その場で持ち物に入れる（いっぱいなら入れ替え）
 --   それ以外（待機中・観戦中など）→ 予約して、次のラウンド開始時に渡す
 function ItemManager.GrantItemBox(player)
-	if not player or not player.Parent then
+	if not player or (type(player) == "table" and player.IsBot == true) or not player.Parent then
 		return nil
 	end
 	local data = GameState.GetData(player)
@@ -937,7 +960,12 @@ function ItemManager.Stop()
 end
 
 function ItemManager.Init()
-	Remotes.UseItem.OnServerEvent:Connect(onUseItem)
+	Remotes.UseItem.OnServerEvent:Connect(function(player, slotArg)
+		if type(player) == "table" and player.IsBot == true then
+			return
+		end
+		onUseItem(player, slotArg)
+	end)
 end
 
 return ItemManager

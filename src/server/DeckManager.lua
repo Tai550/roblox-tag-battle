@@ -14,6 +14,10 @@ local DeckManager = {}
 
 local decks = {} -- [Player] = { アイテム Id のリスト }
 
+local function isBot(player)
+	return type(player) == "table" and player.IsBot == true
+end
+
 ---------------------------------------------------------------------
 -- 検証（計算だけの関数。テストからも呼べる）
 ---------------------------------------------------------------------
@@ -79,9 +83,15 @@ function DeckManager.GetDeck(player)
 end
 
 local function sendDeckUpdate(player)
-	if player and player.Parent then
-		Remotes.DeckUpdate:FireClient(player, { Deck = DeckManager.GetDeck(player) })
+	if not player or isBot(player) or not player.Parent then
+		return
 	end
+	Remotes.DeckUpdate:FireClient(player, { Deck = DeckManager.GetDeck(player) })
+end
+
+-- ボットを消すとき、デッキの対応表から外す（Remote は送らない）
+function DeckManager.Release(player)
+	decks[player] = nil
 end
 
 -- デッキを設定する。検証に通らなければ今のデッキのまま（戻り値 false）
@@ -106,6 +116,9 @@ end
 ---------------------------------------------------------------------
 
 local function onDeckSelect(player, list)
+	if isBot(player) then
+		return
+	end
 	-- 配列でない引数は「今のデッキを送って」という合図として扱う
 	if type(list) ~= "table" then
 		sendDeckUpdate(player)

@@ -8,6 +8,11 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 
 local Leaderstats = {}
 
+-- ボットは leaderstats を持たない。プレーンなテーブルに FindFirstChild しない。
+local function isBot(player)
+	return type(player) == "table" and player.IsBot == true
+end
+
 -- 並び順がプレイヤーリストの列順になる。ランクと RP は後ろに足す。
 local STAT_DEFS = {
 	{ Key = "Survived", ClassName = "IntValue" },
@@ -41,6 +46,9 @@ local function findStat(player, key)
 end
 
 local function setup(player)
+	if isBot(player) then
+		return
+	end
 	if player:FindFirstChild("leaderstats") then
 		return
 	end
@@ -64,6 +72,9 @@ end
 
 -- key は "Survived" または "Tagged"（数値の項目だけ +1 する）
 function Leaderstats.Increment(player, key)
+	if isBot(player) then
+		return
+	end
 	local value = findStat(player, key)
 	if value and type(value.Value) == "number" then
 		value.Value = value.Value + 1
@@ -72,6 +83,9 @@ end
 
 -- RankManager が累計を書き戻すときに使う。項目がなければ何もしない。
 function Leaderstats.Set(player, key, value)
+	if isBot(player) then
+		return
+	end
 	local stat = findStat(player, key)
 	if stat then
 		stat.Value = value

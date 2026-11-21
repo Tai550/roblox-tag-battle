@@ -18,6 +18,11 @@ local cache = {}
 local dataStore = nil
 local started = false
 
+-- ボットはプレーンなテーブル。Player（userdata）の未知プロパティを読まないよう type で分ける。
+local function isBot(player)
+	return type(player) == "table" and player.IsBot == true
+end
+
 local function tierNameOf(rp)
 	local tier = Config.TierForRP(rp)
 	if tier then
@@ -55,7 +60,7 @@ local function sync(player)
 end
 
 local function fireRankUp(player, rankName)
-	if not player or not player.Parent or rankName == nil or rankName == "" then
+	if isBot(player) or not player or not player.Parent or rankName == nil or rankName == "" then
 		return
 	end
 	local ok, err = pcall(function()
@@ -87,6 +92,9 @@ end
 
 -- 読み込みに成功したセッションだけ書く。RP・回数は減らないよう、クラウド側の方が大きければそちらを残す。
 local function savePlayer(player)
+	if isBot(player) then
+		return
+	end
 	local data = player and cache[player]
 	if not data then
 		return
@@ -169,7 +177,7 @@ end
 
 -- 参加時の読み込み。失敗したら 0 から（すでにこのセッションで加算された分は残す）。
 function RankManager.Load(player)
-	if not player then
+	if not player or isBot(player) then
 		return
 	end
 	local data = ensure(player)
@@ -231,7 +239,7 @@ end
 
 -- 累計 RP を増やす。境界を越えたときだけ、そのプレイヤーに RankUp を1回送る。
 function RankManager.Award(player, amount)
-	if not player or type(amount) ~= "number" then
+	if isBot(player) or not player or type(amount) ~= "number" then
 		return
 	end
 	amount = math.floor(amount)
@@ -250,7 +258,7 @@ end
 
 -- 逃げ切り / 鬼タッチの累計を 1 増やす（保存用の数と leaderstats の両方）
 function RankManager.AddCount(player, key)
-	if not player or (key ~= "Survived" and key ~= "Tagged") then
+	if isBot(player) or not player or (key ~= "Survived" and key ~= "Tagged") then
 		return
 	end
 	local data = ensure(player)
@@ -259,6 +267,9 @@ function RankManager.AddCount(player, key)
 end
 
 function RankManager.Save(player)
+	if isBot(player) then
+		return
+	end
 	savePlayer(player)
 end
 

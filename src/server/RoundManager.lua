@@ -1,5 +1,6 @@
 -- RoundManager: ラウンド進行（待機 → 鬼の選出 → ラウンド → 結果）とタッチ判定
 -- タッチ判定はサーバーが鬼と逃げる人の距離を測って行う（クライアントは信用しない）。
+-- 人間が最低人数以上かつ目標未満のとき、BotManager が足りない分のボットを参加者に足す。
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,8 +13,24 @@ local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local TaggerLook = require(script.Parent:WaitForChild("TaggerLook"))
+local BotManager = require(script.Parent:WaitForChild("BotManager"))
 
 local RoundManager = {}
+
+-- ボットはプレーンなテーブル。Player の未知プロパティは読まない。
+local function isBot(entity)
+	return type(entity) == "table" and entity.IsBot == true
+end
+
+local function countHumanParticipants()
+	local count = 0
+	for _, participant in ipairs(GameState.ParticipantList()) do
+		if not isBot(participant) then
+			count = count + 1
+		end
+	end
+	return count
+end
 
 local broadcastState -- 下の「状態の送信」で定義する（投票ハンドラからも使うため先に宣言）
 
@@ -74,6 +91,9 @@ local function refreshVoteDisplay()
 end
 
 local function onDurationVote(player, durationArg)
+	if isBot(player) then
+		return
+	end
 	-- 投票できるのはインターミッション中だけ。値も Config の候補にあるものだけ
 	if GameState.Phase ~= "Intermission" then
 		return
@@ -275,13 +295,17 @@ local function runRound()
 	GameState.Participants = {}
 	GameState.BeenTagger = {}
 	GameState.Winners = {}
+	BotManager.DespawnAll()
+	local humans = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		if GameState.IsAlive(player) then
 			GameState.Participants[player] = true
 			GameState.ResetData(player)
+			table.insert(humans, player)
 		end
 	end
-	if GameState.CountParticipants() < Config.MinPlayers then
+	-- 人間が MinPlayers 未満なら始めない。ボットだけでは始めない。
+	if #humans < Config.MinPlayers then
 		GameState.Participants = {}
 		return nil -- そもそも始められない（キャラクター未読み込みなど）
 	end
@@ -296,6 +320,8 @@ local function runRound()
 	GameState.Phase = "Round"
 	GameState.Message = ""
 	GameState.TimeLeft = duration
+	-- 人間が目標未満のときだけ差分をボットで補う。マップ生成のあと（スポーン位置が決まったあと）
+	BotManager.Fill(humans)
 	ItemManager.Start()
 	ZoneManager.Start(duration) -- 縮小エリアを開始（中心・開始半径は出現ポイントから決まる）
 
@@ -315,14 +341,15 @@ local function runRound()
 			break
 		end
 
-		-- 抜けたプレイヤーを参加者から外す
+		-- 抜けた人間を参加者から外す。ボットは Players に居ないので、ここでは外さない。
 		for _, player in ipairs(GameState.ParticipantList()) do
-			if player.Parent ~= Players then
+			if not isBot(player) and player.Parent ~= Players then
 				GameState.Participants[player] = nil
 				GameState.BeenTagger[player] = nil
 			end
 		end
-		if GameState.CountParticipants() < Config.MinPlayers then
+		-- 人間が一人もいなくなったらボットだけでは続けない。合計が最低人数未満でも中止。
+		if countHumanParticipants() < 1 or GameState.CountParticipants() < Config.MinPlayers then
 			completed = false
 			break
 		end
@@ -336,6 +363,7 @@ local function runRound()
 		end
 
 		tryTag()
+		BotManager.Tick()
 		ItemManager.Tick()
 		ZoneManager.Tick()
 
@@ -352,20 +380,25 @@ local function runRound()
 end
 
 local function runResults(completed)
+	BotManager.Halt()
 	ItemManager.Stop()
 	ZoneManager.Stop()
 
 	local winners = {}
 	if completed then
 		for _, player in ipairs(GameState.ParticipantList()) do
-			if player.Parent == Players and not GameState.BeenTagger[player] then
+			local stillHere = isBot(player) or player.Parent == Players
+			if stillHere and not GameState.BeenTagger[player] then
 				table.insert(winners, player)
-				RankManager.AddCount(player, "Survived")
-				RankManager.Award(player, Config.RankPoints.Survived)
+				-- RP と記録は人間だけ。RankManager の入口でもボットは弾く
+				if not isBot(player) then
+					RankManager.AddCount(player, "Survived")
+					RankManager.Award(player, Config.RankPoints.Survived)
+				end
 			end
 		end
-		-- 逃げ切った人がいない＝鬼側の勝ち。最後にタッチした鬼へ追加点。
-		if #winners == 0 and sweepTagger and sweepTagger.Parent == Players then
+		-- 逃げ切った人がいない＝鬼側の勝ち。最後にタッチした鬼へ追加点。ボットには付けない。
+		if #winners == 0 and sweepTagger and not isBot(sweepTagger) and sweepTagger.Parent == Players then
 			RankManager.Award(sweepTagger, Config.RankPoints.TaggedAll)
 		end
 	end
@@ -402,6 +435,7 @@ local function runResults(completed)
 	GameState.Participants = {}
 	GameState.BeenTagger = {}
 	GameState.Winners = {}
+	BotManager.DespawnAll() -- ラウンドが終わったらボットを残さない
 end
 
 ---------------------------------------------------------------------

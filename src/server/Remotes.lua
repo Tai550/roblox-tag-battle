@@ -41,9 +41,12 @@ end
 
 folder.Parent = ReplicatedStorage
 
--- 本人の画面にメッセージを出す
+-- 本人の画面にメッセージを出す。ボットに FireClient は飛ばさない。
 function Remotes.NotifyPlayer(player, text)
-	if player and player.Parent then
+	if player == nil or (type(player) == "table" and player.IsBot == true) then
+		return
+	end
+	if player.Parent then
 		Remotes.Notify:FireClient(player, text)
 	end
 end

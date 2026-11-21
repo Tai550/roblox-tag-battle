@@ -17,7 +17,17 @@
 6. 待機に戻り、これを繰り返します。
 
 ラウンド中に入ってきた人は、次のラウンドから参加します（それまでは観戦扱い）。
-ラウンド中に人数が2人を下回ったら、そのラウンドは中止して待機に戻ります（勝ちは記録されません）。
+人間が全員抜けるか、参加者（ボットを含む）が2人を下回ったら、そのラウンドは中止して待機に戻ります（勝ちは記録されません）。
+
+### 人数が足りないときのボット
+
+人間が2人以上いて、8人未満のとき、足りない分をボット（NPC）が参加者に加わります。例として、人間が3人ならボットは5体です。人間が1人以下のときは、これまでどおりラウンドは始まりません。ボットだけでは始まりません。人間がすでに8人以上なら、ボットは入りません（`Config.BotsEnabled` を false にすると、補充そのものを止められます）。
+
+ボットの名前は「ボット1」から順に付きます。頭の上に名前が出て、体は薄い灰色で、人間のアバターと見分けられます。鬼になったときは、人間と同じく少し赤くなり、体に Highlight が付きます。ラウンドが終わるとボットは消えます。サーバーには残りません。
+
+ボットは段位の保存、課金、デッキの変更、試合時間の投票には参加しません。画面への通知も飛びません。タッチされて鬼が交代する流れは人間と同じです。逃げ切りや捕獲の RP と、逃げ切り・鬼タッチの記録は人間にだけ付きます。
+
+ボットの歩く速さと、経路を引き直す間隔は、そのサーバーにいる人間の平均段位に合わせて少し変わります。段位が高いほど速さの倍率は上がり、経路の引き直しは短くなります。倍率の上限は 1.15 です。これは機械学習ではありません。段位ごとの表（`Config.BotStrengthByTier`）を引くだけの段階的な調整です。
 
 ### 記録（leaderstats）
 
@@ -111,6 +121,7 @@ src/
   server/                     → ServerScriptService.Server
     Main.server.lua             起動スクリプト（各モジュールを初期化してラウンドを回す）
     RoundManager.lua            ラウンド進行、鬼の選出、タッチ判定、試合時間の投票集計
+    BotManager.lua              人数不足をボットで補う（移動・拾う・強さの調整）
     ItemManager.lua             ボックスの出現・拾う処理・アイテムの効果
     GameState.lua               ラウンドとプレイヤーの状態、移動速度の決定
     Leaderstats.lua             「逃げ切り」「鬼タッチ」「ランク」「RP」の表示
@@ -166,6 +177,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService | Folder `Server` | |
 | ServerScriptService › Server | Script `Main` | `src/server/Main.server.lua` |
 | ServerScriptService › Server | ModuleScript `RoundManager` | `src/server/RoundManager.lua` |
+| ServerScriptService › Server | ModuleScript `BotManager` | `src/server/BotManager.lua` |
 | ServerScriptService › Server | ModuleScript `ItemManager` | `src/server/ItemManager.lua` |
 | ServerScriptService › Server | ModuleScript `GameState` | `src/server/GameState.lua` |
 | ServerScriptService › Server | ModuleScript `Leaderstats` | `src/server/Leaderstats.lua` |
@@ -186,7 +198,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 
 ### テストのしかた
 
-2人以上必要なので、Studio の「テスト」タブ →「クライアントとサーバー」でプレイヤー数を2〜3にして「開始」すると、ローカルで複数人のテストができます。
+2人以上必要なので、Studio の「テスト」タブ →「クライアントとサーバー」でプレイヤー数を2にして「開始」すると、ローカルでラウンドが始まります。人間が8人未満なら、足りない分はボットが参加します（2人ならボット6体）。ボットの動き（障害物のよけ方、鬼の追い方、ラウンド後に消えること）は、このプレイで見てください。
 
 段位の保存を試すときは、Game Settings → Security →「Enable Studio Access to API Services」をオンにします。オフだと DataStore が使えず、段位はその回 0 から始まります。
 
@@ -239,7 +251,10 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 
 | 変えたいもの | 設定名 | 初期値 |
 |---|---|---|
-| 最低人数 | `Config.MinPlayers` | 2 |
+| 最低人数（人間） | `Config.MinPlayers` | 2 |
+| ボットを含めた目標人数 | `Config.BotFillTarget` | 8 |
+| ボット補充のオンオフ | `Config.BotsEnabled` | true |
+| ボットの速さ倍率の上限 | `Config.BotSpeedMultiplierCap` | 1.15 |
 | 待機時間 | `Config.IntermissionTime` | 15 |
 | 試合時間の候補 / 既定値 | `Config.MatchDurations` / `Config.DefaultDuration` | 60・180・300秒 / 180秒 |
 | 結果表示の時間 | `Config.ResultsTime` | 6 |

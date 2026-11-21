@@ -15,6 +15,7 @@ RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
 RT.modules.TaggerLook = require("./.build/TaggerLook")
+RT.modules.BotManager = require("./.build/BotManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
 
 local Config = RT.modules.Config
@@ -26,6 +27,8 @@ local ItemManager = RT.modules.ItemManager
 local RoundManager = RT.modules.RoundManager
 local MapBuilder = RT.modules.MapBuilder
 local TaggerLook = RT.modules.TaggerLook
+local BotManager = RT.modules.BotManager
+local Leaderstats = RT.modules.Leaderstats
 local GameState = RT.modules.GameState
 local Vector3 = RT.Vector3
 local Color3 = RT.Color3
@@ -852,6 +855,337 @@ do
 	if not ok then
 		error(err)
 	end
+end
+
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+-- 12. ボット：補充人数、強さの上限、Remote と保存のガード
+---------------------------------------------------------------------
+
+do
+	check("人間3人・目標8ならボット5体", BotManager.CountToSpawn(3) == 5)
+	check("人間2人なら目標まで6体", BotManager.CountToSpawn(2) == 6)
+	check("人間7人なら1体", BotManager.CountToSpawn(7) == 1)
+	check("人間8人ならボット0", BotManager.CountToSpawn(8) == 0)
+	check("人間9人以上ならボット0", BotManager.CountToSpawn(9) == 0)
+	check("人間が最低人数未満なら補充しない", BotManager.CountToSpawn(1) == 0 and BotManager.CountToSpawn(0) == 0)
+
+	local savedEnabled = Config.BotsEnabled
+	Config.BotsEnabled = false
+	check("ボット無効なら人数が足りなくても補充しない", BotManager.CountToSpawn(3) == 0)
+	Config.BotsEnabled = savedEnabled
+
+	check("RP 0 は段位表の1（ブロンズ）", BotManager.TierIndexForRP(0) == 1)
+	check("RP 250 は段位表の3（ゴールド）", BotManager.TierIndexForRP(250) == 3)
+	check("RP 1300 は段位表の6（マスター）", BotManager.TierIndexForRP(1300) == 6)
+	check("平均は四捨五入（1と2なら2）", BotManager.AverageTierIndex({ 1, 2 }) == 2)
+	check("平均が空ならブロンズ", BotManager.AverageTierIndex({}) == 1)
+
+	local previousSpeed = 0
+	local previousInterval = math.huge
+	local speedsRise = true
+	local intervalsFall = true
+	for index = 1, #Config.RankTiers do
+		local speed, interval = BotManager.StrengthForTierIndex(index)
+		if speed <= previousSpeed or speed > Config.BotSpeedMultiplierCap then
+			speedsRise = false
+		end
+		if interval >= previousInterval then
+			intervalsFall = false
+		end
+		previousSpeed = speed
+		previousInterval = interval
+	end
+	check("段位が上がるほど速さ倍率は上がり、上限以下", speedsRise)
+	check("段位が上がるほど経路の引き直しは短くなる", intervalsFall)
+
+	local lowSpeed = BotManager.StrengthForTierIndex(BotManager.AverageTierIndex({ 1, 1, 2 }))
+	local highSpeed = BotManager.StrengthForTierIndex(BotManager.AverageTierIndex({ 5, 6, 6 }))
+	check("平均段位が高いほど倍率が大きい", highSpeed > lowSpeed and highSpeed <= Config.BotSpeedMultiplierCap)
+
+	local savedCapRow = Config.BotStrengthByTier[6].SpeedMultiplier
+	Config.BotStrengthByTier[6].SpeedMultiplier = 3
+	local capped = BotManager.StrengthForTierIndex(6)
+	local cappedOver = BotManager.StrengthForTierIndex(99)
+	Config.BotStrengthByTier[6].SpeedMultiplier = savedCapRow
+	check("表の値が大きくても速さ倍率は上限で止まる", capped == Config.BotSpeedMultiplierCap
+		and cappedOver == Config.BotSpeedMultiplierCap)
+	check("上限テストのあと表の値は戻る", Config.BotStrengthByTier[6].SpeedMultiplier == savedCapRow)
+
+	local fleeX, _, fleeReason = BotManager.ChooseGoal({
+		Role = "Runner",
+		X = 0,
+		Z = 0,
+		TaggerX = 5,
+		TaggerZ = 0,
+		Boxes = { { X = 10, Z = 0 } },
+	})
+	check("鬼が近いときは宝箱を諦めて離れる", fleeReason == "flee" and fleeX < 0)
+
+	local itemX, itemZ, itemReason = BotManager.ChooseGoal({
+		Role = "Runner",
+		X = 0,
+		Z = 0,
+		Boxes = { { X = 10, Z = 0 } },
+	})
+	check("鬼が遠い（いない）ときは近くの宝箱へ向かう", itemReason == "item" and itemX == 10 and itemZ == 0)
+
+	local zoneX, _, zoneReason = BotManager.ChooseGoal({
+		Role = "Runner",
+		X = 48,
+		Z = 0,
+		ZoneActive = true,
+		ZoneX = 0,
+		ZoneZ = 0,
+		ZoneRadius = 50,
+		TaggerX = 40,
+		TaggerZ = 0,
+	})
+	check("エリアの外に出そうなら内側へ戻る", zoneReason == "zone" and math.abs(zoneX) < 48)
+
+	local chaseX, _, chaseReason = BotManager.ChooseGoal({
+		Role = "Tagger",
+		X = 0,
+		Z = 0,
+		Runners = { { X = 100, Z = 0 }, { X = 12, Z = 0 } },
+	})
+	check("鬼はいちばん近い逃げる人を追う", chaseReason == "chase" and chaseX == 12)
+
+	local blindX, _, blindReason = BotManager.ChooseGoal({
+		Role = "Tagger",
+		X = 0,
+		Z = 0,
+		Blind = true,
+		BlindAngle = 0,
+		Runners = { { X = 5, Z = 0 } },
+	})
+	check("スモーク中のボット鬼は追わずに歩く", blindReason == "blind" and near(blindX, Config.BotFleeDistance))
+
+	check("ボットはスモークを使わない", BotManager.ShouldUseItem("Smoke", false, 5) == false)
+	check("逃げ中、鬼が近ければダッシュする", BotManager.ShouldUseItem("Dash", false, 20) == true)
+	check("鬼のボットはダッシュ条件では使わない", BotManager.ShouldUseItem("Dash", true, 10) == false)
+	check("鬼が近いときシールドを使う", BotManager.ShouldUseItem("Shield", false, 10) == true)
+	check("鬼が遠いときシールドは使わない", BotManager.ShouldUseItem("Shield", false, 100) == false)
+
+	local stuckTime, shouldJump = BotManager.UpdateStuck(0, 0, 0.4, 0.75, 0.7)
+	check("ほぼ止まっていると行き詰まりが溜まる", near(stuckTime, 0.4) and shouldJump == false)
+	stuckTime, shouldJump = BotManager.UpdateStuck(stuckTime, 0, 0.4, 0.75, 0.7)
+	check("行き詰まりが続くとジャンプする", shouldJump == true)
+	stuckTime, shouldJump = BotManager.UpdateStuck(0.5, 10, 0.4, 0.75, 0.7)
+	check("動いていれば行き詰まりはリセット", stuckTime == 0 and shouldJump == false)
+
+	local calls = {}
+	local function spy(eventName)
+		return function(_, target)
+			table.insert(calls, { eventName, target })
+		end
+	end
+	Remotes.Notify.FireClient = spy("Notify")
+	Remotes.ItemUpdate.FireClient = spy("ItemUpdate")
+	Remotes.RankUp.FireClient = spy("RankUp")
+	Remotes.ZoneUpdate.FireClient = spy("ZoneUpdate")
+	Remotes.DeckUpdate.FireClient = spy("DeckUpdate")
+	Remotes.SmokeEffect.FireClient = spy("Smoke")
+	Remotes.PassUpdate.FireClient = spy("Pass")
+
+	local bot = {
+		IsBot = true,
+		Name = "ボット9",
+		DisplayName = "ボット9",
+		UserId = -9,
+		Parent = RT.Instance.new("Folder"),
+	}
+	local guardOk = pcall(function()
+		RankManager.Award(bot, 500)
+		RankManager.AddCount(bot, "Tagged")
+		RankManager.AddCount(bot, "Survived")
+		RankManager.Save(bot)
+		RankManager.Load(bot)
+		Leaderstats.Set(bot, "RP", 5)
+		Leaderstats.Increment(bot, "Survived")
+		Remotes.NotifyPlayer(bot, "ボットには届かない")
+		ItemManager.SendItemUpdate(bot)
+		DeckManager.SetDeck(bot, { "Dash", "Shield", "Warp" })
+		DeckManager.Release(bot)
+	end)
+	local store = RT.game:GetService("DataStoreService"):GetDataStore(Config.RankDataStoreName)
+	local record = RankManager.Get(bot)
+	check("ボットへの保存・加算はエラーにならない", guardOk == true)
+	check("ボットは RankManager の保存対象にならない", store:GetAsync("-9") == nil)
+	check("ボットの RP と回数は増えない", record.RP == 0 and record.Tagged == 0 and record.Survived == 0)
+
+	local human = RT.Instance.new("Player")
+	human.Name = "HumanNotify"
+	human.Parent = RT.Instance.new("Folder")
+	Remotes.NotifyPlayer(human, "人間には届く")
+
+	local model = RT.Instance.new("Model")
+	local humanoid = RT.Instance.new("Humanoid")
+	humanoid.Name = "Humanoid"
+	humanoid.Health = 100
+	humanoid.Parent = model
+	local root = RT.Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Position = RT.Vector3.new(0, 5, 0)
+	root.Parent = model
+	bot.Character = model
+	GameState.Participants[bot] = true
+	ZoneManager.Start(180)
+	ZoneManager.Stop()
+	GameState.Participants[bot] = nil
+	GameState.ClearData(bot)
+
+	local botHits = 0
+	local humanHits = 0
+	for _, call in ipairs(calls) do
+		if call[2] == bot or (type(call[2]) == "table" and call[2].IsBot == true) then
+			botHits = botHits + 1
+		end
+		if call[2] == human then
+			humanHits = humanHits + 1
+		end
+	end
+	check("Remotes の FireClient はボットに飛ばない", botHits == 0)
+	check("人間への Notify は飛ぶ", humanHits == 1)
+
+	GameState.Phase = "Round"
+	GameState.Tagger = nil
+	local humans = { {}, {}, {} }
+	BotManager.Fill(humans)
+	local spawned = BotManager.GetActive()
+	check("Fill は5体を参加者にする", BotManager.ActiveCount() == 5 and #spawned == 5)
+	local namesOk = spawned[1] ~= nil and spawned[1].Name == "ボット1" and spawned[1].UserId == -1
+		and spawned[2] ~= nil and spawned[2].UserId == -2 and spawned[5].Name == "ボット5"
+	check("名前はボット1から、UserId は -1 からの連番", namesOk)
+	local allJoined = true
+	for _, spawnedBot in ipairs(spawned) do
+		if not GameState.IsParticipant(spawnedBot) or spawnedBot.IsBot ~= true then
+			allJoined = false
+		end
+		if spawnedBot.SpeedMultiplier ~= 1 then
+			allJoined = false
+		end
+	end
+	check("スポーンしたボットは参加者で、ブロンズなら倍率1", allJoined)
+
+	local body = spawned[1] and spawned[1].Character
+	local partNames = {}
+	local humanoidOk = false
+	if body then
+		for _, desc in ipairs(body:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				partNames[desc.Name] = true
+			end
+			if desc:IsA("Humanoid") and desc.Health > 0 then
+				humanoidOk = true
+			end
+		end
+	end
+	local bodyOk = humanoidOk
+	for _, partName in ipairs({ "HumanoidRootPart", "Torso", "Head", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }) do
+		if not partNames[partName] then
+			bodyOk = false
+		end
+	end
+	check("ボットの体は Humanoid と頭・胴・腕・脚", bodyOk)
+	local head = body and body:FindFirstChild("Head")
+	local nameGui = head and head:FindFirstChildOfClass("BillboardGui")
+	local nameLabel = nameGui and nameGui:FindFirstChild("Label")
+	check("頭上にボットの名前が出る", nameLabel ~= nil and nameLabel.Text == "ボット1")
+
+	local headBefore = head and head.Color
+	GameState.Tagger = spawned[1]
+	TaggerLook.Follow(spawned[1])
+	local tinted = head and head.Color and headBefore
+		and not (near(head.Color.G, headBefore.G) and near(head.Color.B, headBefore.B))
+	local highlight = body and body:FindFirstChild(TaggerLook.HighlightName)
+	check("ボットが鬼になると TaggerLook で赤みと Highlight が付く", tinted and highlight ~= nil)
+	TaggerLook.Follow(nil)
+	GameState.Tagger = nil
+	local restored = head and head.Color and headBefore
+		and near(head.Color.R, headBefore.R) and near(head.Color.G, headBefore.G) and near(head.Color.B, headBefore.B)
+	check("鬼をやめるとボットの色が戻る", restored and body:FindFirstChild(TaggerLook.HighlightName) == nil)
+
+	local tickOk = pcall(function()
+		BotManager.Tick()
+	end)
+	check("経路サービスが無くても思考は直進に倒れて止まらない", tickOk == true)
+
+	calls = {}
+	ItemManager.Start()
+	ItemManager.SpawnOne()
+	local container = RT.workspace:FindFirstChild("SpawnedItems")
+	local box = nil
+	for _, child in ipairs(container and container:GetChildren() or {}) do
+		if child.Name == "ItemBox" then
+			box = child
+		end
+	end
+	local arm = body and body:FindFirstChild("Right Arm")
+	local lid = box and box:FindFirstChild("Lid")
+	if lid and arm and lid.Touched then
+		lid.Touched:_Fire(arm)
+	end
+	local held = GameState.GetData(spawned[1]).HeldItems
+	local fromDeck = held[1] == "Dash" or held[1] == "Shield" or held[1] == "Warp"
+	check("ボットも宝箱に触れるとデッキのアイテムを拾う", box ~= nil and #held == 1 and fromDeck)
+	local pickupBotHits = 0
+	for _, call in ipairs(calls) do
+		if call[2] == spawned[1] then
+			pickupBotHits = pickupBotHits + 1
+		end
+	end
+	check("拾ってもボットへは ItemUpdate も Notify も飛ばない", pickupBotHits == 0)
+	ItemManager.Stop()
+
+	local keptCharacter = spawned[1].Character
+	BotManager.DespawnAll()
+	check("ラウンド後はボットが残らない", BotManager.ActiveCount() == 0
+		and keptCharacter.Parent == nil
+		and RT.workspace:FindFirstChild("Bots") == nil
+		and GameState.IsParticipant(spawned[1]) ~= true)
+
+	BotManager.Fill({ {} })
+	check("人間1人の Fill はボットを出さない", BotManager.ActiveCount() == 0)
+	local eight = {}
+	for _ = 1, 8 do
+		table.insert(eight, {})
+	end
+	BotManager.Fill(eight)
+	check("人間8人の Fill はボットを出さない", BotManager.ActiveCount() == 0)
+
+	local function makeRanked(userId, rp)
+		local player = RT.Instance.new("Player")
+		player.Name = "Ranked" .. tostring(userId)
+		player.UserId = userId
+		player.DisplayName = player.Name
+		player.Parent = RT.Instance.new("Folder")
+		RankManager.Load(player)
+		RankManager.Award(player, rp)
+		return player
+	end
+	local masterA = makeRanked(91001, 1300)
+	local masterB = makeRanked(91002, 1300)
+	BotManager.Fill({ masterA, masterB })
+	local strong = BotManager.GetActive()
+	local strongOk = #strong == 6
+	for _, spawnedBot in ipairs(strong) do
+		if spawnedBot.SpeedMultiplier ~= Config.BotSpeedMultiplierCap then
+			strongOk = false
+		end
+		local botHumanoid = spawnedBot.Character and spawnedBot.Character:FindFirstChildOfClass("Humanoid")
+		if not botHumanoid or not near(botHumanoid.WalkSpeed, Config.NormalWalkSpeed * Config.BotSpeedMultiplierCap) then
+			strongOk = false
+		end
+	end
+	check("人間の平均がマスターなら倍率は上限で、歩く速さに掛かる", strongOk)
+	BotManager.DespawnAll()
+
+	GameState.Phase = "Waiting"
+	GameState.Tagger = nil
+	GameState.Participants = {}
+	ZoneManager.Stop()
 end
 
 ---------------------------------------------------------------------

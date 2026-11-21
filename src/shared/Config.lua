@@ -7,7 +7,9 @@ local Config = {}
 ---------------------------------------------------------------------
 -- ラウンド進行
 ---------------------------------------------------------------------
-Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数
+Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数（人間の数。ボットだけでは始まらない）
+Config.BotFillTarget = 8         -- 人間がこれ未満なら、差分をボットで補う目標人数
+Config.BotsEnabled = true        -- false にするとボット補充をしない
 Config.IntermissionTime = 15     -- 待機（インターミッション）の秒数
 Config.ResultsTime = 6           -- 結果表示の秒数
 
@@ -129,6 +131,36 @@ Config.RankPoints = {
 	TaggedAll = 14, -- 鬼が全員捕まえたとき、最後にタッチした鬼へ追加
 	Caught = 4,     -- 捕まった（参加分）
 }
+
+---------------------------------------------------------------------
+-- ボットの強さ（機械学習ではない）
+-- ラウンド開始時、そのサーバーにいる人間の平均段位（RankTiers の位置。1 がブロンズ）で
+-- 表を引くだけ。段位が高いほど歩く速さの倍率は上がり、経路の引き直し間隔は短くなる。
+-- 速さ倍率は BotSpeedMultiplierCap で頭打ち（表の値が大きくても超えない）。
+---------------------------------------------------------------------
+Config.BotSpeedMultiplierCap = 1.15
+Config.BotStrengthByTier = {
+	{ SpeedMultiplier = 1.00, RepathInterval = 1.40 }, -- 1 ブロンズ
+	{ SpeedMultiplier = 1.03, RepathInterval = 1.20 }, -- 2 シルバー
+	{ SpeedMultiplier = 1.06, RepathInterval = 1.00 }, -- 3 ゴールド
+	{ SpeedMultiplier = 1.09, RepathInterval = 0.80 }, -- 4 プラチナ
+	{ SpeedMultiplier = 1.12, RepathInterval = 0.65 }, -- 5 ダイヤ
+	{ SpeedMultiplier = 1.15, RepathInterval = 0.50 }, -- 6 マスター
+}
+
+-- ボットの判断に使う距離（スタッド）と時間（秒）
+Config.BotItemSeekDistance = 40   -- この距離以内の宝箱を取りに行く
+Config.BotItemSafeDistance = 30   -- 鬼がこれより近いときは宝箱を諦めて逃げる
+Config.BotZoneEdgeRatio = 0.85    -- 半径のこの割合より外なら、内側へ戻る
+Config.BotFleeDistance = 28       -- 鬼から離れるとき、この先を目標にする
+Config.BotDashDistance = 45       -- 逃げ中、鬼がこの距離以内ならダッシュを使う
+Config.BotShieldDistance = 18     -- 鬼がこの距離以内ならシールドを使う
+Config.BotStarDistance = 18       -- 鬼がこの距離以内ならスターを使う
+Config.BotWarpDistance = 14       -- 相手がこの距離以内ならワープを使う
+Config.BotBananaDistance = 16     -- 相手がこの距離以内ならバナナを置く
+Config.BotStuckSpeed = 0.75       -- これより遅い（スタッド/秒）状態が続くと行き詰まり
+Config.BotStuckTime = 0.7         -- 行き詰まりとみなすまでの秒数（超えたらジャンプ）
+Config.BotWaypointReach = 3.5     -- 経路の点にこの距離まで近づいたら次の点へ進む
 
 -- 累計 RP から段位テーブルを返す。該当がなければ nil。
 function Config.TierForRP(rp)

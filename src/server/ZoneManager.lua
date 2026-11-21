@@ -162,14 +162,15 @@ end
 ---------------------------------------------------------------------
 
 local function sendZoneUpdate(player, stamina, isOutside)
-	if player and player.Parent then
-		Remotes.ZoneUpdate:FireClient(player, {
-			Radius = currentRadius,
-			Stamina = stamina,
-			MaxStamina = Config.ZoneStaminaMax,
-			IsOutside = isOutside,
-		})
+	if not player or (type(player) == "table" and player.IsBot == true) or not player.Parent then
+		return
 	end
+	Remotes.ZoneUpdate:FireClient(player, {
+		Radius = currentRadius,
+		Stamina = stamina,
+		MaxStamina = Config.ZoneStaminaMax,
+		IsOutside = isOutside,
+	})
 end
 
 local function checkPlayers(step)

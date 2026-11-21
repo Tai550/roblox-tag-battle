@@ -24,6 +24,7 @@ MODULES = [
     ("src/server/ItemManager.lua", "ItemManager"),
     ("src/server/MapBuilder.lua", "MapBuilder"),
     ("src/server/TaggerLook.lua", "TaggerLook"),
+    ("src/server/BotManager.lua", "BotManager"),
     ("src/server/RoundManager.lua", "RoundManager"),
 ]
 
