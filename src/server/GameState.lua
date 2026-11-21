@@ -15,6 +15,7 @@ GameState.PlayersNeeded = 0
 GameState.Message = ""
 GameState.Tagger = nil            -- 今の鬼（Player）
 GameState.TaggerSince = 0         -- 鬼になった時刻（クールダウン判定用）
+GameState.ChosenDuration = Config.DefaultDuration -- 投票で決まった今ラウンドの試合時間（秒）
 GameState.Participants = {}       -- [Player] = true  このラウンドの参加者
 GameState.BeenTagger = {}         -- [Player] = true  このラウンドで一度でも鬼になった人
 GameState.Winners = {}            -- 結果表示用の勝者リスト（Player の配列）
@@ -25,10 +26,15 @@ local playerData = {}
 local function newData()
 	return {
 		HeldItems = {},           -- 持っているアイテムの Id のリスト（古い順。枠数は GetItemSlots）
+		HeldExpireAt = {},        -- HeldItems と同じ並びの使用期限（時刻）。0 は期限なし（購入アイテム）
 		PendingItems = {},        -- ラウンド外に買ったアイテム（次のラウンド開始時に渡す）
 		DashUntil = 0,            -- ダッシュ効果が切れる時刻
 		ShieldUntil = 0,          -- シールドが切れる時刻
+		StarUntil = 0,            -- スター（タッチ無効）が切れる時刻
+		SlipUntil = 0,            -- バナナですべっている最中が切れる時刻
+		SlipDirection = nil,      -- すべる向き（水平方向の Vector3）
 		InvulnerableUntil = 0,    -- シールドで防いだ直後の無敵が切れる時刻
+		ZoneStamina = Config.ZoneStaminaMax, -- エリア外スタミナ（0 になるとエリア内へ戻される）
 		LastUseTime = 0,          -- 最後にアイテム使用を受け付けた時刻
 	}
 end
@@ -133,6 +139,16 @@ end
 
 function GameState.IsDashing(player)
 	return GameState.GetData(player).DashUntil > GameState.Now()
+end
+
+-- スターの効果中（鬼にタッチされない）かどうか
+function GameState.HasStar(player)
+	return GameState.GetData(player).StarUntil > GameState.Now()
+end
+
+-- バナナですべっている最中かどうか
+function GameState.IsSlipping(player)
+	return GameState.GetData(player).SlipUntil > GameState.Now()
 end
 
 -- 役割とアイテム効果から WalkSpeed を決め直す（速度の確定は必ずここで行う）

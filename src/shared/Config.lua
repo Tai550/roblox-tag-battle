@@ -9,8 +9,11 @@ local Config = {}
 ---------------------------------------------------------------------
 Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数
 Config.IntermissionTime = 15     -- 待機（インターミッション）の秒数
-Config.RoundTime = 120           -- 1ラウンドの秒数
 Config.ResultsTime = 6           -- 結果表示の秒数
+
+-- 試合時間はインターミッション中の投票で決める（同数・無投票なら DefaultDuration）
+Config.MatchDurations = { 60, 180, 300 } -- 選べる試合時間（秒）: 1分・3分・5分
+Config.DefaultDuration = 180     -- 投票が割れたとき・無投票のときの試合時間（秒）
 
 ---------------------------------------------------------------------
 -- 移動速度
@@ -28,8 +31,10 @@ Config.TagCheckInterval = 0.1    -- タッチ判定の間隔（秒）
 ---------------------------------------------------------------------
 -- アイテム出現
 ---------------------------------------------------------------------
-Config.ItemSpawnInterval = 10    -- 何秒ごとにアイテムを1つ出現させるか
-Config.MaxItemsOnMap = 3         -- マップ上に同時に置けるアイテムの最大数
+Config.ItemSpawnInterval = 10    -- 何秒ごとにアイテムを1つ出現させるか（ボックスは BoxSpawnInterval を使う）
+Config.MaxItemsOnMap = 3         -- マップ上に同時に置けるアイテムの最大数（ボックスは BoxMaxOnMap を使う）
+Config.BoxSpawnInterval = 8      -- 何秒ごとにボックスを1つ出現させるか
+Config.BoxMaxOnMap = 4           -- マップ上に同時に置けるボックスの最大数
 Config.ItemSpawnFolderName = "ItemSpawns" -- Workspace 内の出現ポイント用フォルダ名
 Config.ItemHeightOffset = 3      -- 出現ポイントの何スタッド上にアイテムを浮かせるか
 
@@ -42,6 +47,38 @@ Config.FallbackSpawnOffsets = {
 	Vector3.new(0, 0, 10),
 	Vector3.new(0, 0, -10),
 }
+
+---------------------------------------------------------------------
+-- 縮小エリア（ゾーン）
+-- ラウンド中、エリアは円形に縮み続ける。外に出続けると専用スタミナが減り、
+-- 0 になるとエリアの中へ戻される（脱落はしない）。
+---------------------------------------------------------------------
+Config.ZoneEndRadius = 18          -- 縮小が止まる最後の半径
+Config.ZoneStartRadiusMin = 50     -- 開始半径の下限
+Config.ZoneStartRadiusMax = 120    -- 開始半径の上限
+Config.ZoneStartRadiusPadding = 15 -- 開始半径 = 出現ポイントの最大距離 + この値
+Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの開始半径
+Config.ZoneShrinkEndRatio = 0.8    -- 試合時間のこの割合が過ぎるまで縮み続ける
+Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
+Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
+Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
+Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
+Config.ZoneWallHeight = 60         -- 壁（円柱）の高さ
+Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
+Config.ZoneWallTransparency = 0.5  -- 壁の透明度
+
+---------------------------------------------------------------------
+-- デッキ構築
+-- 全アイテムの中から3つ選んでデッキにする。フィールドのボックスを拾うと、
+-- 自分のデッキの中からランダムで1つ手に入る。
+---------------------------------------------------------------------
+Config.DeckSize = 3                              -- デッキに入れられる数
+Config.DefaultDeck = { "Dash", "Shield", "Warp" } -- 選んでいない人のデッキ
+
+---------------------------------------------------------------------
+-- フィールドのアイテムボックス
+---------------------------------------------------------------------
+Config.BoxExpireTime = 15  -- ボックスで手に入れたアイテムの使用期限（秒）。過ぎると消える
 
 ---------------------------------------------------------------------
 -- アイテム使用の操作
@@ -114,10 +151,30 @@ Config.Items = {
 		CanTaggerUse = true,
 		HeightOffset = 3,        -- 出現ポイントの何スタッド上に移動するか
 	},
+	Star = {
+		Id = "Star",
+		DisplayName = "スター",
+		Description = "4秒間、鬼にタッチされなくなる",
+		Color = Color3.fromRGB(255, 180, 0),
+		SpawnWeight = 1,
+		CanTaggerUse = false,    -- 鬼には意味がないので使えない
+		Duration = 4,            -- タッチ無効の秒数
+	},
+	Banana = {
+		Id = "Banana",
+		DisplayName = "バナナ",
+		Description = "足元に置く。踏んだ人がすべってしまう",
+		Color = Color3.fromRGB(255, 235, 130),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Duration = 20,           -- 置いたバナナが消えるまでの秒数
+		SlipTime = 1.2,          -- 踏んだ人がすべる秒数
+		SlipSpeed = 26,          -- すべる速さ
+	},
 }
 
 -- アイテムの並び順（抽選や表示で使う）
-Config.ItemOrder = { "Dash", "Smoke", "Shield", "Warp" }
+Config.ItemOrder = { "Dash", "Smoke", "Shield", "Warp", "Star", "Banana" }
 
 function Config.GetItem(itemId)
 	if itemId == nil then
