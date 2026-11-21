@@ -98,9 +98,61 @@ Config.UseItemCooldown = 0.5     -- 連打防止（サーバー側でもチェ�
 -- leaderstats の項目名
 ---------------------------------------------------------------------
 Config.LeaderstatNames = {
-	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数
-	Tagged = "鬼タッチ",          -- 鬼にタッチされて鬼になった回数
+	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数（累計。保存する）
+	Tagged = "鬼タッチ",          -- 鬼にタッチされて鬼になった回数（累計。保存する）
+	Rank = "ランク",              -- 段位名（例: ゴールド）
+	RP = "RP",                    -- 累計ランクポイント
 }
+
+---------------------------------------------------------------------
+-- 段位（ランク）
+-- RP は減らない累積。試合結果で加算され、累計 RP で段位が決まる。
+-- 段位は MinRP 以下の中で、いちばん高い MinRP の段。
+---------------------------------------------------------------------
+Config.RankDataStoreName = "RankV1" -- 保存先の DataStore 名
+Config.RankSaveInterval = 180       -- 全員を定期保存する間隔（秒）
+
+-- 下限 RP の昇順。色は画面の段位表示に使う。
+Config.RankTiers = {
+	{ MinRP = 0, Name = "ブロンズ", Color = Color3.fromRGB(184, 115, 51) },    -- 銅色
+	{ MinRP = 100, Name = "シルバー", Color = Color3.fromRGB(192, 192, 192) }, -- 銀色
+	{ MinRP = 250, Name = "ゴールド", Color = Color3.fromRGB(255, 214, 70) },  -- 金色
+	{ MinRP = 500, Name = "プラチナ", Color = Color3.fromRGB(214, 240, 245) }, -- 水色寄りの白
+	{ MinRP = 850, Name = "ダイヤ", Color = Color3.fromRGB(80, 220, 255) },    -- 明るい水色
+	{ MinRP = 1300, Name = "マスター", Color = Color3.fromRGB(176, 96, 255) }, -- 紫
+}
+
+-- 1回のできごとでもらえる RP。減点はない。
+Config.RankPoints = {
+	Survived = 20,  -- 逃げ切り（最後まで捕まらなかった）
+	Tag = 6,        -- 鬼が1人捕まえるごと
+	TaggedAll = 14, -- 鬼が全員捕まえたとき、最後にタッチした鬼へ追加
+	Caught = 4,     -- 捕まった（参加分）
+}
+
+-- 累計 RP から段位テーブルを返す。該当がなければ nil。
+function Config.TierForRP(rp)
+	rp = tonumber(rp) or 0
+	local best = nil
+	for _, tier in ipairs(Config.RankTiers) do
+		if rp >= tier.MinRP and (best == nil or tier.MinRP >= best.MinRP) then
+			best = tier
+		end
+	end
+	return best
+end
+
+-- 次の段位。すでに最高段なら nil。
+function Config.NextTierForRP(rp)
+	rp = tonumber(rp) or 0
+	local nextTier = nil
+	for _, tier in ipairs(Config.RankTiers) do
+		if tier.MinRP > rp and (nextTier == nil or tier.MinRP < nextTier.MinRP) then
+			nextTier = tier
+		end
+	end
+	return nextTier
+end
 
 ---------------------------------------------------------------------
 -- バトルアイテム定義

@@ -210,6 +210,67 @@ local sharedFolder = RT.Instance.new("Folder")
 sharedFolder.Name = "Shared"
 sharedFolder.Parent = replicatedStorage
 
+---------------------------------------------------------------------
+-- DataStore（メモリ上の表）
+-- RT.DataStoreShouldFail が true のあいだ、GetAsync / SetAsync / UpdateAsync は失敗する。
+---------------------------------------------------------------------
+
+RT.DataStoreShouldFail = false
+
+local function cloneData(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	local copy = {}
+	for key, child in pairs(value) do
+		copy[key] = cloneData(child)
+	end
+	return copy
+end
+
+local dataStores = {}
+
+local function makeDataStore()
+	local records = {}
+	local store = {}
+	function store:GetAsync(key)
+		if RT.DataStoreShouldFail then
+			error("DataStore の取得に失敗しました")
+		end
+		return cloneData(records[tostring(key)])
+	end
+	function store:SetAsync(key, value)
+		if RT.DataStoreShouldFail then
+			error("DataStore への保存に失敗しました")
+		end
+		records[tostring(key)] = cloneData(value)
+	end
+	function store:UpdateAsync(key, transform)
+		if RT.DataStoreShouldFail then
+			error("DataStore の更新に失敗しました")
+		end
+		local newValue = transform(cloneData(records[tostring(key)]))
+		if newValue == nil then
+			return nil
+		end
+		records[tostring(key)] = cloneData(newValue)
+		return cloneData(records[tostring(key)])
+	end
+	return store
+end
+
+local dataStoreService = {
+	GetDataStore = function(_, storeName)
+		local name = tostring(storeName)
+		local store = dataStores[name]
+		if not store then
+			store = makeDataStore()
+			dataStores[name] = store
+		end
+		return store
+	end,
+}
+
 RT.workspace = RT.Instance.new("Workspace")
 
 RT.game = {
@@ -218,8 +279,13 @@ RT.game = {
 			return playersService
 		elseif name == "ReplicatedStorage" then
 			return replicatedStorage
+		elseif name == "DataStoreService" then
+			return dataStoreService
 		end
 		return RT.Instance.new("Service")
+	end,
+	BindToClose = function(_, callback)
+		RT._bindToClose = callback
 	end,
 }
 

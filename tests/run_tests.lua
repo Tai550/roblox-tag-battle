@@ -9,6 +9,7 @@ RT.modules.Config = require("./.build/Config")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
+RT.modules.RankManager = require("./.build/RankManager")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
@@ -16,6 +17,8 @@ RT.modules.RoundManager = require("./.build/RoundManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
 
 local Config = RT.modules.Config
+local RankManager = RT.modules.RankManager
+local Remotes = RT.modules.Remotes
 local ZoneManager = RT.modules.ZoneManager
 local DeckManager = RT.modules.DeckManager
 local ItemManager = RT.modules.ItemManager
@@ -356,6 +359,170 @@ do
 	-- 既存の出現ポイント読み込み（ItemManager）がそのまま連動する
 	local points, isFallback = ItemManager.GetSpawnPoints()
 	check("ItemManager が生成した12点を読む（予備ポイントではない）", #points == 12 and isFallback == false)
+end
+
+---------------------------------------------------------------------
+-- 8. 段位：境界、加算と昇格、保存と復元、DataStore の失敗
+---------------------------------------------------------------------
+
+do
+	local function tierName(rp)
+		local tier = Config.TierForRP(rp)
+		return tier and tier.Name or ""
+	end
+
+	check("RP 0 はブロンズ", tierName(0) == "ブロンズ")
+	check("RP 99 はブロンズ", tierName(99) == "ブロンズ")
+	check("RP 100 はシルバー", tierName(100) == "シルバー")
+	check("RP 249 はシルバー", tierName(249) == "シルバー")
+	check("RP 250 はゴールド", tierName(250) == "ゴールド")
+	check("RP 499 はゴールド", tierName(499) == "ゴールド")
+	check("RP 500 はプラチナ", tierName(500) == "プラチナ")
+	check("RP 849 はプラチナ", tierName(849) == "プラチナ")
+	check("RP 850 はダイヤ", tierName(850) == "ダイヤ")
+	check("RP 1299 はダイヤ", tierName(1299) == "ダイヤ")
+	check("RP 1300 はマスター", tierName(1300) == "マスター")
+	check("RP 5000 もマスター", tierName(5000) == "マスター")
+
+	local nextFrom99 = Config.NextTierForRP(99)
+	check("99 の次の段はシルバー（100）", nextFrom99 ~= nil and nextFrom99.Name == "シルバー" and nextFrom99.MinRP == 100)
+	local nextFrom250 = Config.NextTierForRP(250)
+	check("250 の次の段はプラチナ", nextFrom250 ~= nil and nextFrom250.Name == "プラチナ")
+	check("1300 に次の段はない", Config.NextTierForRP(1300) == nil)
+	check("配点は仕様どおり", Config.RankPoints.Survived == 20 and Config.RankPoints.Tag == 6
+		and Config.RankPoints.TaggedAll == 14 and Config.RankPoints.Caught == 4)
+	check("DataStore 名は RankV1", Config.RankDataStoreName == "RankV1")
+
+	-- モックの GetAsync / SetAsync / UpdateAsync
+	local probe = RT.game:GetService("DataStoreService"):GetDataStore("RankV1Probe")
+	probe:SetAsync("probe", { RP = 1, Survived = 0, Tagged = 0 })
+	local gotProbe = probe:GetAsync("probe")
+	local updated = probe:UpdateAsync("probe", function(old)
+		return { RP = old.RP + 2, Survived = 1, Tagged = 0 }
+	end)
+	local cancelled = probe:UpdateAsync("probe", function()
+		return nil
+	end)
+	check("SetAsync した値を GetAsync で読める", gotProbe ~= nil and gotProbe.RP == 1)
+	check("UpdateAsync は加算して書き戻す", updated ~= nil and updated.RP == 3 and probe:GetAsync("probe").RP == 3)
+	check("無いキーは nil、nil を返す UpdateAsync は更新しない", probe:GetAsync("missing") == nil and cancelled == nil
+		and probe:GetAsync("probe").Survived == 1)
+
+	local fired = { n = 0, last = nil }
+	Remotes.RankUp.FireClient = function(_, _, rankName)
+		fired.n = fired.n + 1
+		fired.last = rankName
+	end
+
+	local function makePlayer(userId)
+		local player = RT.Instance.new("Player")
+		player.Name = "U" .. tostring(userId)
+		player.UserId = userId
+		player.Parent = RT.Instance.new("Folder")
+		local folder = RT.Instance.new("Folder")
+		folder.Name = "leaderstats"
+		for _, key in ipairs({ "Survived", "Tagged", "RP" }) do
+			local value = RT.Instance.new("IntValue")
+			value.Name = Config.LeaderstatNames[key]
+			value.Value = 0
+			value.Parent = folder
+		end
+		local rank = RT.Instance.new("StringValue")
+		rank.Name = Config.LeaderstatNames.Rank
+		rank.Value = ""
+		rank.Parent = folder
+		folder.Parent = player
+		return player
+	end
+
+	local function stat(player, key)
+		local folder = player:FindFirstChild("leaderstats")
+		local value = folder and folder:FindFirstChild(Config.LeaderstatNames[key])
+		return value and value.Value
+	end
+
+	local initOk = pcall(function()
+		RankManager.Init()
+		RankManager.Init()
+		if RT._bindToClose then
+			RT._bindToClose()
+		end
+	end)
+	check("Init と終了時保存はエラーで止まらない", initOk == true)
+
+	local climber = makePlayer(42)
+	RankManager.Load(climber)
+	check("新規は RP 0 から", RankManager.Get(climber).RP == 0 and RankManager.Get(climber).LoadOk == true)
+	RankManager.Award(climber, 99)
+	check("99 では昇格しない", RankManager.Get(climber).RP == 99 and fired.n == 0 and stat(climber, "Rank") == "ブロンズ")
+	RankManager.Award(climber, 1)
+	check("100 でシルバーに上がり RankUp は1回", RankManager.Get(climber).RP == 100 and fired.n == 1 and fired.last == "シルバー")
+	check("leaderstats の RP とランクが追従する", stat(climber, "RP") == 100 and stat(climber, "Rank") == "シルバー")
+	RankManager.Award(climber, 50)
+	RankManager.Award(climber, -10)
+	RankManager.Award(climber, 0)
+	check("段の途中の加算では RankUp は増えない", RankManager.Get(climber).RP == 150 and fired.n == 1)
+	check("負の加算と 0 では RP は減らない", RankManager.Get(climber).RP == 150)
+
+	fired.n = 0
+	fired.last = nil
+	local jumper = makePlayer(43)
+	RankManager.Load(jumper)
+	RankManager.Award(jumper, 1300)
+	check("段をまとめて越えても RankUp は1回（マスター）", fired.n == 1 and fired.last == "マスター"
+		and stat(jumper, "Rank") == "マスター")
+
+	local saver = makePlayer(1001)
+	RankManager.Load(saver)
+	RankManager.Award(saver, 250)
+	RankManager.AddCount(saver, "Survived")
+	RankManager.AddCount(saver, "Survived")
+	RankManager.AddCount(saver, "Tagged")
+	RankManager.Save(saver)
+
+	fired.n = 0
+	fired.last = nil
+	local loaded = makePlayer(1001)
+	RankManager.Load(loaded)
+	local restored = RankManager.Get(loaded)
+	check("読み直すと RP が戻る", restored.RP == 250 and restored.LoadOk == true)
+	check("読み直すと逃げ切りと鬼タッチが戻る", restored.Survived == 2 and restored.Tagged == 1)
+	check("読み直した leaderstats も同じ", stat(loaded, "RP") == 250 and stat(loaded, "Survived") == 2
+		and stat(loaded, "Tagged") == 1 and stat(loaded, "Rank") == "ゴールド")
+	check("保存済みの段位を読み込んでも RankUp は飛ばない", fired.n == 0)
+	RankManager.Load(loaded)
+	check("同じ参加の再読み込みでは RP は増えない", RankManager.Get(loaded).RP == 250)
+
+	-- 失敗しても止まらず 0 から。失敗中の保存で、すでに書いてある記録は消えない。
+	RT.DataStoreShouldFail = true
+	local failedLoadOk, failedSaveOk = true, true
+	local failedPlayer = makePlayer(1001)
+	local loadCallOk = pcall(function()
+		RankManager.Load(failedPlayer)
+	end)
+	if not loadCallOk or RankManager.Get(failedPlayer).RP ~= 0 then
+		failedLoadOk = false
+	end
+	local awardCallOk = pcall(function()
+		RankManager.Award(failedPlayer, 50)
+		RankManager.AddCount(failedPlayer, "Survived")
+	end)
+	if not awardCallOk then
+		failedLoadOk = false
+	end
+	local saveCallOk = pcall(function()
+		RankManager.Save(failedPlayer)
+	end)
+	if not saveCallOk then
+		failedSaveOk = false
+	end
+	RT.DataStoreShouldFail = false
+	local afterFail = makePlayer(1001)
+	RankManager.Load(afterFail)
+	local kept = RankManager.Get(afterFail)
+	check("DataStore が失敗しても読み込みは止まらず 0 から", failedLoadOk and RankManager.Get(failedPlayer).RP == 50
+		and RankManager.Get(failedPlayer).LoadOk == false)
+	check("失敗中の保存でも止まらず、元の RP と回数は残る", failedSaveOk and kept.RP == 250 and kept.Survived == 2 and kept.Tagged == 1)
 end
 
 ---------------------------------------------------------------------

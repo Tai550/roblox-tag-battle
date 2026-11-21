@@ -8,6 +8,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local StateUpdate = Remotes:WaitForChild("StateUpdate")
 local Notify = Remotes:WaitForChild("Notify")
+local RankUp = Remotes:WaitForChild("RankUp")
 
 local localPlayer = Players.LocalPlayer
 
@@ -43,7 +44,7 @@ end
 
 local topFrame = Instance.new("Frame")
 topFrame.Name = "Top"
-topFrame.Size = UDim2.new(0, 460, 0, 120)
+topFrame.Size = UDim2.new(0, 460, 0, 148)
 topFrame.Position = UDim2.new(0.5, 0, 0, 8)
 topFrame.AnchorPoint = Vector2.new(0.5, 0)
 topFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
@@ -54,11 +55,13 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 10)
 corner.Parent = topFrame
 
-local phaseLabel = makeLabel("Phase", topFrame, UDim2.new(1, -16, 0, 26), UDim2.new(0.5, 0, 0, 6), 22)
-local timerLabel = makeLabel("Timer", topFrame, UDim2.new(1, -16, 0, 34), UDim2.new(0.5, 0, 0, 32), 32)
-local roleLabel = makeLabel("Role", topFrame, UDim2.new(1, -16, 0, 24), UDim2.new(0.5, 0, 0, 68), 20)
-local messageLabel = makeLabel("Message", topFrame, UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 94), 16)
+local phaseLabel = makeLabel("Phase", topFrame, UDim2.new(1, -16, 0, 24), UDim2.new(0.5, 0, 0, 4), 20)
+local timerLabel = makeLabel("Timer", topFrame, UDim2.new(1, -16, 0, 32), UDim2.new(0.5, 0, 0, 28), 28)
+local roleLabel = makeLabel("Role", topFrame, UDim2.new(1, -16, 0, 22), UDim2.new(0.5, 0, 0, 60), 18)
+local messageLabel = makeLabel("Message", topFrame, UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 82), 15)
 messageLabel.TextWrapped = true
+local rankLabel = makeLabel("Rank", topFrame, UDim2.new(1, -16, 0, 26), UDim2.new(0.5, 0, 0, 108), 16)
+rankLabel.Text = "ランクを読み込み中"
 
 local notifyLabel = makeLabel("Notify", gui, UDim2.new(0, 600, 0, 36), UDim2.new(0.5, 0, 0.62, 0), 24)
 notifyLabel.TextWrapped = true
@@ -156,6 +159,79 @@ Notify.OnClientEvent:Connect(function(text)
 	task.delay(3, function()
 		if notifyToken == myToken then
 			notifyLabel.Visible = false
+		end
+	end)
+end)
+
+---------------------------------------------------------------------
+-- 自分の段位と RP（leaderstats を読むだけ。新しい Remote は使わない）
+---------------------------------------------------------------------
+
+local function refreshRank()
+	local folder = localPlayer:FindFirstChild("leaderstats")
+	if not folder then
+		rankLabel.Text = "ランクを読み込み中"
+		rankLabel.TextColor3 = COLOR_NEUTRAL
+		return
+	end
+	local rpStat = folder:FindFirstChild(Config.LeaderstatNames.RP)
+	local rankStat = folder:FindFirstChild(Config.LeaderstatNames.Rank)
+	local rp = rpStat and tonumber(rpStat.Value) or 0
+	local rankName = rankStat and rankStat.Value or ""
+	local tier = Config.TierForRP(rp)
+	if rankName == "" and tier then
+		rankName = tier.Name
+	end
+	local nextTier = Config.NextTierForRP(rp)
+	if nextTier then
+		local remain = math.max(0, nextTier.MinRP - rp)
+		rankLabel.Text = string.format("%s  RP %d  次の段位まであと%dRP", rankName, rp, remain)
+	else
+		rankLabel.Text = string.format("%s  RP %d  最高段位", rankName, rp)
+	end
+	rankLabel.TextColor3 = (tier and tier.Color) or COLOR_NEUTRAL
+end
+
+task.spawn(function()
+	local folder = localPlayer:WaitForChild("leaderstats")
+	local rpStat = folder:WaitForChild(Config.LeaderstatNames.RP)
+	local rankStat = folder:WaitForChild(Config.LeaderstatNames.Rank)
+	rpStat.Changed:Connect(refreshRank)
+	rankStat.Changed:Connect(refreshRank)
+	refreshRank()
+end)
+
+---------------------------------------------------------------------
+-- 昇格（段位が上がった瞬間だけ。数秒で消える）
+---------------------------------------------------------------------
+
+local rankUpLabel = makeLabel("RankUp", gui, UDim2.new(0, 640, 0, 44), UDim2.new(0.5, 0, 0.42, 0), 28)
+rankUpLabel.TextColor3 = COLOR_WIN
+rankUpLabel.Visible = false
+
+local rankUpToken = 0
+
+local function colorForRankName(rankName)
+	for _, tier in ipairs(Config.RankTiers) do
+		if tier.Name == rankName then
+			return tier.Color
+		end
+	end
+	return COLOR_WIN
+end
+
+RankUp.OnClientEvent:Connect(function(rankName)
+	if type(rankName) ~= "string" or rankName == "" then
+		return
+	end
+	rankUpToken = rankUpToken + 1
+	local myToken = rankUpToken
+	rankUpLabel.Text = "ランクアップ！ " .. rankName .. "に昇格"
+	rankUpLabel.TextColor3 = colorForRankName(rankName)
+	rankUpLabel.Visible = true
+	task.delay(4, function()
+		if rankUpToken == myToken then
+			rankUpLabel.Visible = false
 		end
 	end)
 end)

@@ -12,12 +12,13 @@
 --   DeckSelect   (クライアント → サーバー) 選んだデッキ（アイテム Id のリスト）。検証はサーバー
 --   DeckUpdate   (サーバー → 本人)  今の自分のデッキ
 --   ZoneUpdate   (サーバー → 本人)  縮小エリアの半径と、自分のエリア外スタミナ・内外判定
+--   RankUp       (サーバー → 本人)  段位が上がった瞬間だけ。引数は新しい段位名
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
 	"StateUpdate", "ItemUpdate", "UseItem", "SmokeEffect", "Notify", "PassUpdate",
-	"DurationVote", "DeckSelect", "DeckUpdate", "ZoneUpdate",
+	"DurationVote", "DeckSelect", "DeckUpdate", "ZoneUpdate", "RankUp",
 }
 
 local folder = ReplicatedStorage:FindFirstChild("Remotes")

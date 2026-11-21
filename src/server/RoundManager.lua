@@ -7,13 +7,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
-local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
+local RankManager = require(script.Parent:WaitForChild("RankManager"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 
 local RoundManager = {}
 
 local broadcastState -- 下の「状態の送信」で定義する（投票ハンドラからも使うため先に宣言）
+
+-- このラウンドで「まだ鬼になっていない人」を最後に捕まえた鬼。
+-- 結果が「逃げ切りゼロ」で確定したときだけ、追加 RP を渡す。
+local sweepTagger = nil
 
 ---------------------------------------------------------------------
 -- 試合時間の投票
@@ -156,6 +160,25 @@ end
 -- タッチ判定
 ---------------------------------------------------------------------
 
+-- タッチが確定したときの記録と RP。
+-- 「全員捕まえた」の追加点は、ここでは保留して勝敗確定時に渡す。
+local function awardForTag(tagger, runner)
+	RankManager.AddCount(runner, "Tagged")
+	RankManager.Award(tagger, Config.RankPoints.Tag)
+	RankManager.Award(runner, Config.RankPoints.Caught)
+
+	local caughtEveryone = true
+	for _, participant in ipairs(GameState.ParticipantList()) do
+		if participant ~= tagger and participant ~= runner and not GameState.BeenTagger[participant] then
+			caughtEveryone = false
+			break
+		end
+	end
+	if caughtEveryone then
+		sweepTagger = tagger
+	end
+end
+
 local function tryTag()
 	local tagger = GameState.Tagger
 	if not tagger then
@@ -186,7 +209,7 @@ local function tryTag()
 					Remotes.NotifyPlayer(runner, "シールドがタッチを防いだ！ 今のうちに逃げよう")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " のシールドに防がれた！")
 				else
-					Leaderstats.Increment(runner, "Tagged")
+					awardForTag(tagger, runner)
 					Remotes.NotifyPlayer(runner, "タッチされた！ 今度はあなたが鬼！")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " にタッチ！ 鬼を交代した")
 					setTagger(runner)
@@ -244,6 +267,7 @@ end
 
 -- ラウンド本体。戻り値: 最後まで終わったら true、人数不足で中止したら false
 local function runRound()
+	sweepTagger = nil
 	GameState.Participants = {}
 	GameState.BeenTagger = {}
 	GameState.Winners = {}
@@ -327,8 +351,13 @@ local function runResults(completed)
 		for _, player in ipairs(GameState.ParticipantList()) do
 			if player.Parent == Players and not GameState.BeenTagger[player] then
 				table.insert(winners, player)
-				Leaderstats.Increment(player, "Survived")
+				RankManager.AddCount(player, "Survived")
+				RankManager.Award(player, Config.RankPoints.Survived)
 			end
+		end
+		-- 逃げ切った人がいない＝鬼側の勝ち。最後にタッチした鬼へ追加点。
+		if #winners == 0 and sweepTagger and sweepTagger.Parent == Players then
+			RankManager.Award(sweepTagger, Config.RankPoints.TaggedAll)
 		end
 	end
 

@@ -20,14 +20,52 @@
 
 ### 記録（leaderstats）
 
-プレイヤーリストに2つの項目が出ます。
+プレイヤーリストに4つの項目が出ます。逃げ切り・鬼タッチ・RP は累計で、次に入ったときも続きから表示されます（[段位](#段位ランク)）。
 
-| 項目 | 増えるとき |
+| 項目 | 意味 |
 |---|---|
-| 逃げ切り | ラウンド終了まで一度も鬼にならなかった |
-| 鬼タッチ | ラウンド中に鬼にタッチされて鬼になった（最初にランダムで選ばれた鬼は数えません） |
+| 逃げ切り | ラウンド終了まで一度も鬼にならなかった回数 |
+| 鬼タッチ | ラウンド中に鬼にタッチされて鬼になった回数（最初にランダムで選ばれた鬼は数えません） |
+| ランク | 今の段位名（例: ゴールド） |
+| RP | 累計ランクポイント |
 
-※ 記録はサーバーにいる間だけです（DataStore での保存はしていません）。
+### 段位（ランク）
+
+遊ぶほど **ランクポイント（RP）** が貯まり、累計で段位が上がります。RPは減りません（降格はありません）。
+
+| 段位 | 累計RP |
+|---|---|
+| ブロンズ | 0 |
+| シルバー | 100 |
+| ゴールド | 250 |
+| プラチナ | 500 |
+| ダイヤ | 850 |
+| マスター | 1300 |
+
+| できごと | RP |
+|---|---|
+| 逃げ切り（最後まで捕まらなかった） | +20 |
+| 鬼が1人捕まえる | +6 |
+| 鬼が全員捕まえた | +14（追加） |
+| 捕まった | +4 |
+
+「鬼が全員捕まえた」は、ラウンドが最後まで行われて逃げ切った人が一人もいないとき、**最後の未タッチ者をタッチした鬼**に追加されます。ラウンドが人数不足で中止したときは、逃げ切りの +20 も、この +14 も入りません（それまでに入った「1人捕まえる +6」と「捕まった +4」はそのままです）。
+
+画面上部に、自分の段位・RP・「次の段位まであと◯RP」が1行で出ます（最高段のマスターは「最高段位」）。段位が上がった瞬間だけ「ランクアップ！ ◯◯に昇格」と数秒出ます。
+
+#### 保存
+
+`RankManager` が DataStore **`RankV1`** に、プレイヤーごとに `{ RP, Survived, Tagged }` を保存します。キーは UserId を文字列にしたものです。「逃げ切り」「鬼タッチ」もこの累計に含まれます。
+
+保存するタイミング:
+
+- プレイヤーが抜けたとき
+- サーバーが閉じるとき（`BindToClose`）
+- 180秒ごと（そのときサーバーにいる全員。`Config.RankSaveInterval`）
+
+読み込みは参加したときです。保存も読み込みも失敗しても試合は止まりません（Output に警告が出ます）。読み込みに失敗したときは、その参加では 0 から表示します。失敗したままの保存は行わないので、通信エラーでそれまでの累計を 0 で上書きすることはありません。
+
+**Studio で保存を試すには**、Game Settings → Security →「Enable Studio Access to API Services」をオンにしてください。オフのままだと DataStore が使えず、段位はその回 0 から始まり、記録は残りません。
 
 ## バトルアイテムとデッキ
 
@@ -56,7 +94,7 @@
   - 2枠目（ダブルアイテム所有者のみ）: **Q キー** / ゲームパッドの **Y ボタン** / 左側のボタン
   - 1枠目を使うと、2枠目のアイテムが1枠目に繰り上がります。
 - 画面左の**ショップ**ボタンで、課金商品の一覧を開けます（[課金](#課金) を参照）。
-- 画面上部に「今のフェーズ」「残り時間」「自分の役割（鬼／逃げる人／観戦中）」が出ます。
+- 画面上部に「今のフェーズ」「残り時間」「自分の役割（鬼／逃げる人／観戦中）」と、自分の段位・RP・次の段位まであと何RPかが出ます。
 - インターミッション中は、画面上の**投票ボタン**（1分／3分／5分）で試合時間を投票できます。
 - 画面左下の**デッキ**ボタンで、ボックスから出るアイテムの組み合わせ（3つ）をいつでも変えられます。
 - ラウンド中は画面右上に「エリアの大きさ」とエリア外スタミナが出ます。エリアの外にいると警告が出ます。
@@ -73,7 +111,8 @@ src/
     RoundManager.lua            ラウンド進行、鬼の選出、タッチ判定、試合時間の投票集計
     ItemManager.lua             ボックスの出現・拾う処理・アイテムの効果
     GameState.lua               ラウンドとプレイヤーの状態、移動速度の決定
-    Leaderstats.lua             「逃げ切り」「鬼タッチ」の記録
+    Leaderstats.lua             「逃げ切り」「鬼タッチ」「ランク」「RP」の表示
+    RankManager.lua             段位の累計と DataStore への保存
     Remotes.lua                 RemoteEvent の作成
     Monetization.lua            課金：レシート処理（アイテムボックス）、Game Pass の所有確認
     SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
@@ -94,6 +133,7 @@ src/
 
 - RemoteEvent はサーバー起動時に `ReplicatedStorage.Remotes` フォルダに自動で作られます（Studio で用意する必要はありません）。
 - クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）、「Game Pass の所有状態を送って」（`PassUpdate`）、「試合時間への投票」（`DurationVote`、秒数だけ）、「選んだデッキ」（`DeckSelect`、アイテム Id のリスト）です。集計・検証・所持・効果・課金の付与は、すべてサーバーが決めます。
+- 段位が上がったときだけ、サーバーがその人に `RankUp`（新しい段位名）を送ります。段位と RP の常時表示は leaderstats を読むだけで、専用の取得リクエストはありません。
 - タッチ判定はサーバーが鬼と逃げる人の距離（`Config.TagDistance`、初期値5スタッド）を0.1秒ごとに測って行います。
 
 ## Roblox Studio での開き方
@@ -126,6 +166,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `ItemManager` | `src/server/ItemManager.lua` |
 | ServerScriptService › Server | ModuleScript `GameState` | `src/server/GameState.lua` |
 | ServerScriptService › Server | ModuleScript `Leaderstats` | `src/server/Leaderstats.lua` |
+| ServerScriptService › Server | ModuleScript `RankManager` | `src/server/RankManager.lua` |
 | ServerScriptService › Server | ModuleScript `Remotes` | `src/server/Remotes.lua` |
 | ServerScriptService › Server | ModuleScript `Monetization` | `src/server/Monetization.lua` |
 | ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
@@ -142,6 +183,8 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 ### テストのしかた
 
 2人以上必要なので、Studio の「テスト」タブ →「クライアントとサーバー」でプレイヤー数を2〜3にして「開始」すると、ローカルで複数人のテストができます。
+
+段位の保存を試すときは、Game Settings → Security →「Enable Studio Access to API Services」をオンにします。オフだと DataStore が使えず、段位はその回 0 から始まります。
 
 ## マップ（コード生成）
 
@@ -194,7 +237,10 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | アイテムの出現間隔 / 同時最大数 | `Config.ItemSpawnInterval` / `Config.MaxItemsOnMap` | 10 / 3 |
 | アイテム使用キー（枠ごと） | `Config.ItemSlotKeys`（表示名は `Config.ItemSlotKeyLabels`） | 1枠目 E / X、2枠目 Q / Y |
 | 通常の所持枠 / ダブルアイテムの所持枠 | `Config.BaseItemSlots` / `Config.Monetization.DoubleItem.ItemSlots` | 1 / 2 |
-| leaderstats の項目名 | `Config.LeaderstatNames` | 逃げ切り / 鬼タッチ |
+| leaderstats の項目名 | `Config.LeaderstatNames` | 逃げ切り / 鬼タッチ / ランク / RP |
+| 段位の境界 | `Config.RankTiers` | ブロンズ 0、シルバー 100、ゴールド 250、プラチナ 500、ダイヤ 850、マスター 1300 |
+| RP の配点 | `Config.RankPoints` | 逃げ切り 20 / 1人捕まえる 6 / 全員捕まえた 14 / 捕まった 4 |
+| 段位の DataStore 名 / 定期保存 | `Config.RankDataStoreName` / `Config.RankSaveInterval` | `RankV1` / 180秒 |
 
 アイテムごとの数字は `Config.Items` の中にあります。
 
@@ -275,5 +321,5 @@ Config.Monetization = {
 ## 注意
 
 - 移動はクライアント側の物理で動くため、チート対策（速度の改ざん検知など）までは入れていません。タッチ判定・アイテムの所持と効果はサーバーで確定しています。
-- 記録の永続保存（DataStore）は入っていません。必要なら `Leaderstats.lua` に追加してください。
+- 段位・逃げ切り・鬼タッチの累計は DataStore `RankV1` に保存します（[段位](#段位ランク)）。Studio では API アクセスをオンにしないと保存されません。読み込みが終わる前に抜けると、その直前の加算は保存されないことがあります。
 - アイテムボックスの二重付与防止の記録と「予約」は、そのサーバーにいる間だけ保持します。予約中（ラウンド外に購入が完了した場合のみ）にゲームを抜けると、その分は失われます。

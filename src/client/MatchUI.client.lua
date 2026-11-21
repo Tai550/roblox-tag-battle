@@ -88,7 +88,8 @@ end
 -- 投票パネル（インターミッション中だけ表示）
 ---------------------------------------------------------------------
 
-local voteFrame = makeFrame("VotePanel", UDim2.new(0, 460, 0, 120), UDim2.new(0.5, 0, 0, 138))
+-- 上部 HUD が段位の1行ぶん高くなったので、その下にずらす
+local voteFrame = makeFrame("VotePanel", UDim2.new(0, 460, 0, 120), UDim2.new(0.5, 0, 0, 164))
 makeLabel(voteFrame, "Title", UDim2.new(1, -16, 0, 24), UDim2.new(0.5, 0, 0, 6), 18, "試合時間に投票しよう！")
 local voteButtons = {}
 for index, duration in ipairs(Config.MatchDurations) do
