@@ -401,7 +401,7 @@ Config.CoinRewards = {
 -- ロビーと部屋
 ---------------------------------------------------------------------
 Config.LobbyPlaceId = 126711017852469 -- ロビー（スタートプレース）
-Config.MatchPlaceId = 0               -- ★ 試合用プレースの ID（作成後に書き換える）
+Config.MatchPlaceId = 133704424283393 -- 試合用プレース
 Config.QuickMaxPlayers = 8            -- 自動で始まる部屋の最大人数
 Config.QuickCountdown = 12            -- 2人そろってから出発までの秒数
 Config.QuickFullCountdown = 4         -- 満員になったら出発までの秒数
