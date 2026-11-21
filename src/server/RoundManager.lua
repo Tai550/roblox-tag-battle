@@ -332,6 +332,20 @@ local function awardRoundRP(player, amount)
 end
 
 -- 「手が届いたらタッチ」：鬼の胸の少し前から、相手の体のいちばん近い表面までの距離で判定する
+-- 体が重なっている・頭の上に乗っているときもタッチ（正面の判定だけだと、真上や真後ろで取りこぼす）
+function RoundManager.IsBodyContact(taggerPos, runner)
+	local root = GameState.GetRootPart(runner)
+	if not root then
+		return false
+	end
+	local offset = root.Position - taggerPos
+	if offset.Magnitude <= Config.TagBodyDistance then
+		return true
+	end
+	local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
+	return flat <= Config.TagStackRadius and math.abs(offset.Y) <= 6
+end
+
 local function isWithinTagReach(origin, character)
 	if not character then
 		return false
@@ -374,7 +388,7 @@ function RoundManager.TryTag()
 	for _, runner in ipairs(GameState.ParticipantList()) do
 		if runner ~= tagger and GameState.IsAlive(runner)
 			and not RoundManager.IsTagBackBlocked(runner, GameState.NoTagBack) then
-			if isWithinTagReach(origin, runner.Character) then
+			if isWithinTagReach(origin, runner.Character) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
 					-- シールドで防いだ直後なのでタッチ無効

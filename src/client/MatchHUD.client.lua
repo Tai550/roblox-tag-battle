@@ -495,11 +495,11 @@ end)
 Notify.OnClientEvent:Connect(showToast)
 
 ---------------------------------------------------------------------
--- 右上：段位と、この試合の記録（タッチ・捕まった回数・獲得 RP）
+-- 左上：段位と、この試合の記録（タッチ・捕まった回数・獲得 RP）
 ---------------------------------------------------------------------
 
-local statsPanel = frame("RoundStats", UDim2.new(0, 190, 0, 46), UDim2.new(1, -10, 0, 6), gui, 0.35)
-statsPanel.AnchorPoint = Vector2.new(1, 0)
+-- 左上のエリア表示のすぐ下（右上はプレイヤーリストと重なるため）
+local statsPanel = frame("RoundStats", UDim2.new(0, 190, 0, 46), UDim2.new(0, 8, 0, 72), gui, 0.35)
 local rankText = label(statsPanel, "", UDim2.new(1, -16, 0, 20), UDim2.new(0, 8, 0, 3), 14, GOLD, true)
 rankText.Name = "Rank"
 local roundText = label(statsPanel, "", UDim2.new(1, -16, 0, 18), UDim2.new(0, 8, 0, 24), 12, WHITE, false)

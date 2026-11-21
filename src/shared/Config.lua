@@ -36,6 +36,8 @@ Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 Config.TagCooldown = 3           -- 鬼になった直後、タッチが無効になる秒数
 Config.TagReachForward = 1.6     -- 鬼のルートから判定の起点を前に出す距離（スタッド）
 Config.TagTouchDistance = 1.4    -- 起点から相手のパーツの表面までの許容距離（スタッド）
+Config.TagBodyDistance = 3.5     -- 体が重なっている（ルート同士がこの距離以内）ならタッチ
+Config.TagStackRadius = 2.5      -- 頭の上に乗っている／下にいる：水平でこの距離以内、高さの差 6 以内ならタッチ
 Config.TagCheckInterval = 0.1    -- タッチ判定の間隔（秒）
 
 ---------------------------------------------------------------------

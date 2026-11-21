@@ -1283,6 +1283,21 @@ do
 end
 
 ---------------------------------------------------------------------
+-- 頭の上に乗っているときもタッチ
+do
+	local runner = { Name = "R" }
+	local model = RT.Instance.new("Model")
+	local root = RT.Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Position = Vector3.new(3.46, 4.02, 8.88)
+	root.Parent = model
+	runner.Character = model
+	GameState.RegisterCharacter(runner, model)
+	check("頭の上に乗った鬼でもタッチになる", RoundManager.IsBodyContact(Vector3.new(3.49, 8.48, 8.29), runner))
+	check("離れていればタッチにならない", not RoundManager.IsBodyContact(Vector3.new(12, 4, 8), runner))
+	GameState.UnregisterCharacter(model)
+end
+
 -- タッチ返しなし
 ---------------------------------------------------------------------
 

@@ -417,10 +417,50 @@ local function buildCharacter(displayName, x, y, z)
 	return model
 end
 
+-- Roblox 標準の R15 の体で作る（コードで組んだ体は Humanoid が歩けないため）。
+-- 作れない環境（テストのモックなど）では、簡素な体に倒す。
+local BOT_COLORS = {
+	Color3.fromRGB(255, 120, 120), Color3.fromRGB(120, 180, 255), Color3.fromRGB(255, 210, 90),
+	Color3.fromRGB(140, 220, 140), Color3.fromRGB(210, 150, 255), Color3.fromRGB(255, 160, 210),
+	Color3.fromRGB(120, 230, 220),
+}
+
+local function buildStandardCharacter(index, displayName, x, y, z)
+	local ok, model = pcall(function()
+		local description = Instance.new("HumanoidDescription")
+		local color = BOT_COLORS[(index - 1) % #BOT_COLORS + 1]
+		description.HeadColor = Color3.fromRGB(255, 220, 180)
+		description.TorsoColor = color
+		description.LeftArmColor = color
+		description.RightArmColor = color
+		description.LeftLegColor = Color3.fromRGB(60, 60, 80)
+		description.RightLegColor = Color3.fromRGB(60, 60, 80)
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+	end)
+	if not ok or not model or type(model.FindFirstChild) ~= "function" then
+		return nil
+	end
+	model.Name = displayName
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayName = displayName
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+	end
+	model:PivotTo(CFrame.new(x, y + 2, z))
+	model.Parent = botFolder()
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if root then
+		pcall(function()
+			root:SetNetworkOwner(nil) -- 動きはサーバーが決める
+		end)
+	end
+	return model
+end
+
 local function createBot(index, total, spawnPart)
 	local name = "ボット" .. tostring(index)
 	local x, y, z = standPosition(index, total, spawnPart)
-	local character = buildCharacter(name, x, y, z)
+	local character = buildStandardCharacter(index, name, x, y, z) or buildCharacter(name, x, y, z)
 	local bot = {
 		IsBot = true,
 		Name = name,
