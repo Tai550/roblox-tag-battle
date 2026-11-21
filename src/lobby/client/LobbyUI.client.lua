@@ -16,6 +16,7 @@ local BuyItem = Remotes:WaitForChild("BuyItem")
 local SetDeck = Remotes:WaitForChild("SetDeck")
 local CreateRoom = Remotes:WaitForChild("CreateRoom")
 local JoinRoom = Remotes:WaitForChild("JoinRoom")
+local RoomCreated = Remotes:WaitForChild("RoomCreated")
 
 local localPlayer = Players.LocalPlayer
 
@@ -80,7 +81,7 @@ end
 
 local coinPill = Instance.new("Frame")
 coinPill.Size = UDim2.new(0, 150, 0, 36)
-coinPill.Position = UDim2.new(0, 8, 0, 4)
+coinPill.Position = UDim2.new(0, 8, 0.5, -125) -- 左のメニューの上（チャットの案内文と重ならない位置）
 coinPill.BackgroundColor3 = DARK
 coinPill.BackgroundTransparency = 0.3
 coinPill.Parent = gui
@@ -317,6 +318,32 @@ corner(codeBox, 8)
 local joinButton = button(roomPanel, "参加", UDim2.new(0, 120, 0, 44), UDim2.new(0.5, 50, 0, 226))
 joinButton.MouseButton1Click:Connect(function()
 	JoinRoom:FireServer((codeBox.Text:gsub("%s", "")))
+end)
+
+-- 部屋を作ったあとに出す合言葉
+local createdBox = Instance.new("Frame")
+createdBox.Size = UDim2.new(1, -32, 0, 110)
+createdBox.Position = UDim2.new(0, 16, 1, -122)
+createdBox.BackgroundColor3 = DARK
+createdBox.Visible = false
+createdBox.Parent = roomPanel
+corner(createdBox, 10)
+local createdCode = label(createdBox, "", UDim2.new(0.6, 0, 0, 56), UDim2.new(0, 16, 0, 8), 40, GOLD, true)
+label(createdBox, "この合言葉を友達に伝えてね", UDim2.new(0.6, 0, 0, 22), UDim2.new(0, 16, 0, 70), 14, MUTED)
+local enterButton = button(createdBox, "部屋に入る", UDim2.new(0.35, 0, 0, 52), UDim2.new(0.62, 0, 0, 28), GREEN)
+local myRoomCode = nil
+enterButton.MouseButton1Click:Connect(function()
+	if myRoomCode then
+		JoinRoom:FireServer(myRoomCode)
+	end
+end)
+RoomCreated.OnClientEvent:Connect(function(code)
+	myRoomCode = code
+	createdCode.Text = "合言葉 " .. tostring(code)
+	createdBox.Visible = true
+	roomPanel.Visible = true
+	deckPanel.Visible = false
+	shopPanel.Visible = false
 end)
 
 ---------------------------------------------------------------------

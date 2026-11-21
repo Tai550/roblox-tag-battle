@@ -283,14 +283,15 @@ print(f"Map: {len(parts) + 1} parts / ItemSpawns: {len(spawn_points)} points")
 parts = []
 LH = 70
 part("LobbyFloor", (2 * LH, 2, 2 * LH), (0, -1, 0), (225, 225, 235), "Concrete")
-part("LobbyPath", (14, 0.2, 2 * LH - 10), (0, 0.1, 0), (190, 200, 220), "Slate")
+part("LobbyPath", (14, 0.2, 80), (0, 0.1, 25), (190, 200, 220), "Slate")  # パッドの手前で止める
 for name, x1, x2, z in [("LWallN", -LH, LH, LH), ("LWallS", -LH, LH, -LH)]:
     wall_x(name, x1, x2, z, 14, 3, (90, 110, 170), "Brick")
 for name, z1, z2, x in [("LWallE", -LH, LH, LH), ("LWallW", -LH, LH, -LH)]:
     wall_z(name, z1, z2, x, 14, 3, (90, 110, 170), "Brick")
 # すぐ遊ぶパッド（LobbyMain がこの名前で探す）
-part("QuickPad", (0.6, 18, 18), (0, 0.3, -30), (60, 230, 120), "Neon", shape=CYLINDER, rot=VERTICAL)
-part("QuickPadRing", (0.4, 22, 22), (0, 0.2, -30), (30, 120, 60), "SmoothPlastic", shape=CYLINDER, rot=VERTICAL)
+# 地面から少し高い台にして、埋もれて見えないことがないようにする（上面は y=1.5）
+part("QuickPadBase", (1.2, 22, 22), (0, 0.6, -30), (30, 120, 60), "SmoothPlastic", shape=CYLINDER, rot=VERTICAL)
+part("QuickPad", (0.3, 18, 18), (0, 1.35, -30), (60, 230, 120), "Neon", shape=CYLINDER, rot=VERTICAL)
 for i, (sx, sz) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)], 1):
     part(f"PadLight{i}", (2, 2, 2), (sx * 11, 6, -30 + sz * 11), (120, 255, 160), "Neon", shape=BALL, children=light(20, 1.5, (0.5, 1.0, 0.6)))
     part(f"PadPole{i}", (0.6, 5, 0.6), (sx * 11, 2.5, -30 + sz * 11), (60, 60, 70), "Metal")

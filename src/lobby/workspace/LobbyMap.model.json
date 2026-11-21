@@ -47,7 +47,7 @@
      "Vector3": [
       14.0,
       0.2,
-      130.0
+      80.0
      ]
     },
     "Color": {
@@ -70,7 +70,7 @@
      "Vector3": [
       0.0,
       0.1,
-      0.0
+      25.0
      ]
     }
    }
@@ -224,26 +224,26 @@
    }
   },
   {
-   "name": "QuickPad",
+   "name": "QuickPadBase",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      0.6,
-      18.0,
-      18.0
+      1.2,
+      22.0,
+      22.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      60,
-      230,
-      120
+      30,
+      120,
+      60
      ]
     },
     "Material": {
-     "Enum": 288
+     "Enum": 272
     },
     "TopSurface": {
      "Enum": 0
@@ -255,7 +255,7 @@
      "CFrame": {
       "position": [
        0.0,
-       0.3,
+       0.6,
        -30.0
       ],
       "orientation": [
@@ -283,26 +283,26 @@
    }
   },
   {
-   "name": "QuickPadRing",
+   "name": "QuickPad",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      0.4,
-      22.0,
-      22.0
+      0.3,
+      18.0,
+      18.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      30,
-      120,
-      60
+      60,
+      230,
+      120
      ]
     },
     "Material": {
-     "Enum": 272
+     "Enum": 288
     },
     "TopSurface": {
      "Enum": 0
@@ -314,7 +314,7 @@
      "CFrame": {
       "position": [
        0.0,
-       0.2,
+       1.35,
        -30.0
       ],
       "orientation": [

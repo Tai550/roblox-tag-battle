@@ -609,7 +609,11 @@ function RoundManager.Run()
 	while true do
 		local mode = MatchSession.Mode
 		local ready
-		if mode == "Stray" then
+		if mode == "Pending" then
+			setPhase("Waiting", "部屋の準備中…")
+			task.wait(0.5)
+			ready = false
+		elseif mode == "Stray" then
 			setPhase("Waiting", "ロビーへ移動します…")
 			task.wait(5)
 			ready = false

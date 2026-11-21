@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TeleportService = game:GetService("TeleportService")
+local MemoryStoreService = game:GetService("MemoryStoreService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
@@ -81,16 +82,24 @@ local function readTeleportData(player)
 	return nil
 end
 
+-- 部屋の情報（TeleportData またはロビーが残した記録）から遊び方を決める
+local function applyRoomInfo(data, fallbackHost)
+	if modeDecided or type(data) ~= "table" then
+		return
+	end
+	if data.Mode ~= "Quick" and data.Mode ~= "Friends" then
+		return
+	end
+	modeDecided = true
+	MatchSession.Mode = data.Mode
+	MatchSession.Expected = tonumber(data.Expected) or 0
+	MatchSession.Code = type(data.Code) == "string" and data.Code or ""
+	hostUserId = tonumber(data.HostUserId) or (fallbackHost and fallbackHost.UserId) or 0
+end
+
 local function onPlayerAdded(player)
 	table.insert(joinOrder, player)
-	local data = readTeleportData(player)
-	if not modeDecided and data and (data.Mode == "Quick" or data.Mode == "Friends") then
-		modeDecided = true
-		MatchSession.Mode = data.Mode
-		MatchSession.Expected = tonumber(data.Expected) or 0
-		MatchSession.Code = type(data.Code) == "string" and data.Code or ""
-		hostUserId = tonumber(data.HostUserId) or player.UserId
-	end
+	applyRoomInfo(readTeleportData(player), player)
 	if MatchSession.Mode == "Stray" then
 		Remotes.NotifyPlayer(player, "ロビーへ移動します…")
 		task.delay(2, function()
@@ -109,7 +118,33 @@ function MatchSession.Init()
 		MatchSession.Mode = "Stray"
 		modeDecided = true
 	else
-		MatchSession.Mode = "Quick" -- 最初のプレイヤーの TeleportData で確定する
+		-- TeleportData か、ロビーが予約サーバーの ID ごとに残した記録で確定する
+		MatchSession.Mode = "Pending"
+		task.spawn(function()
+			local okMap, map = pcall(function()
+				return MemoryStoreService:GetHashMap("RoomByServer_v1")
+			end)
+			for _ = 1, 10 do
+				if modeDecided then
+					return
+				end
+				if okMap and map then
+					local ok, info = pcall(function()
+						return map:GetAsync(game.PrivateServerId)
+					end)
+					if ok and info then
+						applyRoomInfo(info, joinOrder[1])
+						return
+					end
+				end
+				task.wait(1)
+			end
+			-- どちらも見つからなければ「すぐ遊ぶ」として扱う
+			if not modeDecided then
+				modeDecided = true
+				MatchSession.Mode = "Quick"
+			end
+		end)
 	end
 
 	Players.PlayerAdded:Connect(onPlayerAdded)

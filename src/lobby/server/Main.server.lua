@@ -33,6 +33,7 @@ local BuyItem = remote("BuyItem")           -- 本人 → サーバー: アイ�
 local SetDeck = remote("SetDeck")           -- 本人 → サーバー: このデッキにしたい（Id のリスト）
 local CreateRoom = remote("CreateRoom")     -- 本人 → サーバー: 友達部屋を作りたい
 local JoinRoom = remote("JoinRoom")         -- 本人 → サーバー: この合言葉の部屋に入りたい
+local RoomCreated = remote("RoomCreated")   -- サーバー → 本人: 作った部屋の合言葉
 remoteFolder.Parent = ReplicatedStorage
 
 local function notify(player, text)
@@ -130,13 +131,36 @@ local function canTeleport(players)
 	return true
 end
 
+-- 試合サーバーが「自分はどんな部屋か」を調べられるよう、予約サーバーの ID ごとに情報を残す
+local serverInfoOk, serverInfo = pcall(function()
+	return MemoryStoreService:GetHashMap("RoomByServer_v1")
+end)
+if not serverInfoOk then
+	serverInfo = nil
+end
+local function registerServer(privateServerId, info)
+	if serverInfo and privateServerId and privateServerId ~= "" then
+		local ok, err = pcall(function()
+			serverInfo:SetAsync(privateServerId, info, Config.FriendRoomLifetime)
+		end)
+		if not ok then
+			warn("[Lobby] 部屋情報の保存に失敗: " .. tostring(err))
+		end
+	end
+end
+
 -- 予約サーバーへ送る。accessCode を省略すると新しく予約する
 local function teleportToMatch(players, teleportData, accessCode)
 	if not canTeleport(players) then
 		return false
 	end
 	local ok, err = pcall(function()
-		local code = accessCode or TeleportService:ReserveServer(Config.MatchPlaceId)
+		local code = accessCode
+		if not code then
+			local privateServerId
+			code, privateServerId = TeleportService:ReserveServer(Config.MatchPlaceId)
+			registerServer(privateServerId, teleportData)
+		end
 		local options = Instance.new("TeleportOptions")
 		options.ReservedServerAccessCode = code
 		options:SetTeleportData(teleportData)
@@ -145,7 +169,7 @@ local function teleportToMatch(players, teleportData, accessCode)
 	if not ok then
 		warn("[Lobby] 移動に失敗: " .. tostring(err))
 		for _, player in ipairs(players) do
-			notify(player, "移動に失敗しました。もう一度試してね")
+			notify(player, "移動に失敗しました: " .. string.sub(tostring(err), 1, 80))
 		end
 	end
 	return ok
@@ -296,14 +320,15 @@ CreateRoom.OnServerEvent:Connect(function(player)
 				break
 			end
 		end
-		local accessCode = TeleportService:ReserveServer(Config.MatchPlaceId)
+		local accessCode, privateServerId = TeleportService:ReserveServer(Config.MatchPlaceId)
 		rooms:SetAsync(code, { AccessCode = accessCode, HostUserId = player.UserId }, Config.FriendRoomLifetime)
-		notify(player, "友達部屋を作った！ 合言葉は " .. code)
-		teleportToMatch({ player }, { Mode = "Friends", Code = code, HostUserId = player.UserId }, accessCode)
+		registerServer(privateServerId, { Mode = "Friends", Code = code, HostUserId = player.UserId })
+		-- まず合言葉を画面に出す。「部屋に入る」を押すと移動する（その間に友達へ伝えられる）
+		RoomCreated:FireClient(player, code)
 	end)
 	if not ok then
 		warn("[Lobby] 部屋を作れませんでした: " .. tostring(err))
-		notify(player, "部屋を作れませんでした。もう一度試してね")
+		notify(player, "部屋を作れませんでした: " .. string.sub(tostring(err), 1, 80))
 	end
 end)
 

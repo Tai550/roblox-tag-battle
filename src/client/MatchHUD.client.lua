@@ -265,6 +265,10 @@ end)
 -- 観戦（脱落したとき）
 ---------------------------------------------------------------------
 
+-- 友達部屋の合言葉（いつでも見えるよう左下に小さく）
+local codeLabel = label(gui, "", UDim2.new(0, 200, 0, 22), UDim2.new(0, 10, 1, -78), 14, GOLD, true)
+codeLabel.TextStrokeTransparency = 0.4
+
 local spectatePanel = frame("Spectate", UDim2.new(0, 260, 0, 40), UDim2.new(0, 8, 1, -50))
 local spectateLabel = label(spectatePanel, "観戦中", UDim2.new(1, -96, 1, 0), UDim2.new(0, 10, 0, 0), 13, WHITE, true)
 spectateLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -378,6 +382,9 @@ local function renderState()
 		taggerLabel.Text = amTagger and "あなたが鬼！" or ("鬼: " .. (state.TaggerName or ""))
 		topStroke.Enabled = amTagger
 	end
+
+	codeLabel.Text = (state.Mode == "Friends" and state.RoomCode and state.RoomCode ~= "")
+		and ("友達部屋 合言葉 " .. state.RoomCode) or ""
 
 	-- 中央パネル
 	center.Visible = not inRound
