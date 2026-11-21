@@ -41,6 +41,12 @@ end
 
 folder.Parent = ReplicatedStorage
 
+-- 本物のプレイヤーかどうか（ボットのエンティティテーブルではないこと）。
+-- FireClient を飛ばす前の確認に使う。
+function Remotes.IsRealPlayer(player)
+	return player ~= nil and not (type(player) == "table" and player.IsBot == true)
+end
+
 -- 本人の画面にメッセージを出す。ボットに FireClient は飛ばさない。
 function Remotes.NotifyPlayer(player, text)
 	if player == nil or (type(player) == "table" and player.IsBot == true) then

@@ -11,7 +11,7 @@ Config.AdminUserIds = {}         -- 追加の管理者の UserId
 Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数（人間の数。ボットだけでは始まらない）
 Config.BotFillTarget = 8         -- 人間がこれ未満なら、差分をボットで補う目標人数
 Config.BotsEnabled = true        -- false にするとボット補充をしない
-Config.IntermissionTime = 15     -- 待機（インターミッション）の秒数
+Config.IntermissionTime = 9      -- 待機（インターミッション）の秒数
 Config.ResultsTime = 6           -- 結果表示の秒数
 
 -- 試合時間はインターミッション中の投票で決める（同数・無投票なら DefaultDuration）
@@ -22,8 +22,9 @@ Config.DefaultDuration = 180     -- 投票が割れたとき・無投票のと�
 -- 移動速度
 ---------------------------------------------------------------------
 Config.NormalWalkSpeed = 16      -- 逃げる人・観戦中の人の WalkSpeed
-Config.IceSlideDecay = 1.7       -- 入力を離したときの減衰率（1/秒）
-Config.IceSlideSteering = 3.5    -- 入力方向への追従率（1/秒）
+Config.NormalJumpHeight = 7      -- 通常のジャンプの高さ（JumpHeight 方式で使う）
+Config.IceSlideDecay = 0.55      -- 入力を離したときの減衰率（1/秒）。小さいほど長く滑る
+Config.IceSlideSteering = 2.2    -- 入力方向への追従率（1/秒）。小さいほど曲がるときも滑る
 Config.VoltStunTime = 1.2
 Config.VoltRecoveryTime = 2
 Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
@@ -68,6 +69,7 @@ Config.ZoneStartRadiusMin = 50     -- 開始半径の下限
 Config.ZoneStartRadiusMax = 120    -- 開始半径の上限
 Config.ZoneStartRadiusPadding = 15 -- 開始半径 = 出現ポイントの最大距離 + この値
 Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの開始半径
+Config.ZoneShrinkStartRatio = 0    -- 試合時間のこの割合から縮み始める（0 = 最初から縮む。序盤を遅らせたいときは上げる）
 Config.ZoneShrinkEndRatio = 0.8    -- 試合時間のこの割合が過ぎるまで縮み続ける
 Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
 Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
@@ -76,6 +78,7 @@ Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
 Config.ZoneWallHeight = 60         -- 壁（円柱）の高さ
 Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
 Config.ZoneWallTransparency = 0.5  -- 壁の透明度
+Config.ZoneWallSegments = 48       -- 壁を円周に並べるパネルの数
 
 ---------------------------------------------------------------------
 -- デッキ構築
@@ -84,6 +87,7 @@ Config.ZoneWallTransparency = 0.5  -- 壁の透明度
 ---------------------------------------------------------------------
 Config.DeckSize = 3                              -- デッキに入れられる数
 Config.DefaultDeck = { "Dash", "Shield", "Warp" } -- 選んでいない人のデッキ
+Config.StarterItems = { "Dash", "Smoke", "Shield", "Warp", "Star", "Banana" } -- 最初から持っているアイテム（基本の6種）
 
 ---------------------------------------------------------------------
 -- フィールドのアイテムボックス
@@ -108,8 +112,10 @@ Config.UseItemCooldown = 0.5     -- 連打防止（サーバー側でもチェ�
 -- leaderstats の項目名
 ---------------------------------------------------------------------
 Config.LeaderstatNames = {
-	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数（累計。保存する）
-	Tagged = "鬼タッチ",          -- 鬼にタッチされて鬼になった回数（累計。保存する）
+	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数（累計の記録用。プレイヤーリストには出さない）
+	Tagged = "鬼回数",            -- この試合で鬼になった回数（試合ごとに 0 に戻す）
+	Returns = "送還",             -- この試合でエリア外から中央へ送還された回数（試合ごとに 0 に戻す）
+	Coins = "コイン",             -- ロビーで出す所持コイン
 	Rank = "ランク",              -- 段位名（例: ゴールド）
 	RP = "RP",                    -- 累計ランクポイント
 }

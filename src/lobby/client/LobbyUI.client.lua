@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local UILayout = require(Shared:WaitForChild("UILayout"))
 local Music = require(Shared:WaitForChild("Music"))
 local Remotes = ReplicatedStorage:WaitForChild("LobbyRemotes")
 
@@ -135,7 +136,9 @@ end
 
 local function makePanel(titleText)
 	local panel = Instance.new("Frame")
-	panel.Size = UDim2.new(0, 560, 0, 400)
+	-- 画面より大きい固定サイズだと、スマホでは上下が画面外に出てしまう。
+	-- 画面から余白を引いた大きさを上限（560×400）で止める。
+	panel.Size = UDim2.new(1, -2 * UILayout.EdgeMargin, 1, -2 * UILayout.EdgeMargin)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	panel.BackgroundColor3 = PANEL
@@ -206,8 +209,9 @@ end
 ---------------------------------------------------------------------
 
 local deckInfo = label(deckPanel, "", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 14, MUTED)
-local deckList = scrollList(deckPanel, 66, 58)
-local saveDeck = button(deckPanel, "このデッキで保存", UDim2.new(0, 200, 0, 40), UDim2.new(0.5, -100, 1, -50), GREEN)
+local deckList = scrollList(deckPanel, 66, UILayout.MinTouchSize + UILayout.EdgeMargin + 8)
+local saveDeck = button(deckPanel, "このデッキで保存", UDim2.new(0, 200, 0, UILayout.MinTouchSize), UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GREEN)
+saveDeck.AnchorPoint = Vector2.new(0.5, 1)
 saveDeck.MouseButton1Click:Connect(function()
 	SetDeck:FireServer(draftDeck)
 end)

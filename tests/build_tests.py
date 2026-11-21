@@ -20,6 +20,7 @@ MODULES = [
     ("src/server/Remotes.lua", "Remotes"),
     ("src/server/Leaderstats.lua", "Leaderstats"),
     ("src/server/RankManager.lua", "RankManager"),
+    ("src/serverlib/PlayerDataStore.lua", "PlayerDataStore"),
     ("src/server/DeckManager.lua", "DeckManager"),
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),

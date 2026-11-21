@@ -11,6 +11,7 @@ RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
 RT.modules.RankManager = require("./.build/RankManager")
+RT.modules.PlayerDataStore = require("./.build/PlayerDataStore")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
@@ -224,7 +225,7 @@ do
 	check("300回引けばデッキの3種すべて出る", seenCount == 3)
 
 	-- デッキを変更したら、その中からだけ出る
-	local okSet = DeckManager.SetDeck(fakePlayer, { "Smoke", "Star", "Banana" })
+	local okSet = RT.modules.PlayerDataStore.SetDeck(fakePlayer, { "Smoke", "Star", "Banana" })
 	check("デッキ変更が受理される", okSet == true)
 	local changedSet = { Smoke = true, Star = true, Banana = true }
 	local allInChanged = true
@@ -237,7 +238,7 @@ do
 	check("変更後の抽選もデッキの中からだけ出る", allInChanged)
 
 	-- 不正なデッキ変更は今のデッキを壊さない
-	local okBad = DeckManager.SetDeck(fakePlayer, { "Dash", "Dash", "Dash" })
+	local okBad = RT.modules.PlayerDataStore.SetDeck(fakePlayer, { "Dash", "Dash", "Dash" })
 	check("不正なデッキ変更は却下される", okBad == false)
 	local stillIn = true
 	for _ = 1, 100 do
@@ -567,8 +568,7 @@ do
 	local restored = RankManager.Get(loaded)
 	check("読み直すと RP が戻る", restored.RP == 250 and restored.LoadOk == true)
 	check("読み直すと逃げ切りと鬼タッチが戻る", restored.Survived == 2 and restored.Tagged == 1)
-	check("読み直した leaderstats も同じ", stat(loaded, "RP") == 250 and stat(loaded, "Survived") == 2
-		and stat(loaded, "Tagged") == 1 and stat(loaded, "Rank") == "ゴールド")
+	check("読み直した leaderstats も同じ", stat(loaded, "RP") == 250 and stat(loaded, "Rank") == "ゴールド")
 	check("保存済みの段位を読み込んでも RankUp は飛ばない", fired.n == 0)
 	RankManager.Load(loaded)
 	check("同じ参加の再読み込みでは RP は増えない", RankManager.Get(loaded).RP == 250)
@@ -1108,7 +1108,8 @@ do
 		Leaderstats.Increment(bot, "Survived")
 		Remotes.NotifyPlayer(bot, "ボットには届かない")
 		ItemManager.SendItemUpdate(bot)
-		DeckManager.SetDeck(bot, { "Dash", "Shield", "Warp" })
+		DeckManager.GetDeck(bot)
+		DeckManager.PickFromDeck(bot)
 		DeckManager.Release(bot)
 	end)
 	local store = RT.game:GetService("DataStoreService"):GetDataStore(Config.RankDataStoreName)
@@ -1403,12 +1404,12 @@ do
 	hazard.Touched:_Fire(botRoot)
 	check("帯電部品との接触で人間と鬼ボットが痺れる",
 		near(data.StunUntil, now + 1.2) and GameState.IsStunned(bot)
-		and humanoid.WalkSpeed == 0 and humanoid.JumpPower == 0 and humanoid.JumpHeight == 0
+		and humanoid.WalkSpeed == 0 and humanoid.JumpHeight == 0
 		and botHumanoid.WalkSpeed == 0)
 	now += 1.2
 	ItemManager.Tick()
 	check("痺れの終了で速度とジャンプが戻る", data.StunUntil == 0 and humanoid.WalkSpeed == Config.NormalWalkSpeed
-		and humanoid.JumpPower == 50 and humanoid.JumpHeight == 7)
+		and humanoid.JumpHeight == Config.NormalJumpHeight)
 	now += 1.9
 	hazard.Touched:_Fire(root)
 	check("痺れの終了後2秒間は再発しない", data.StunUntil == 0)
