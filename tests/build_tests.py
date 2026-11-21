@@ -22,8 +22,9 @@ MODULES = [
     ("src/server/DeckManager.lua", "DeckManager"),
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),
-    ("src/server/RoundManager.lua", "RoundManager"),
     ("src/server/MapBuilder.lua", "MapBuilder"),
+    ("src/server/TaggerLook.lua", "TaggerLook"),
+    ("src/server/RoundManager.lua", "RoundManager"),
 ]
 
 PRELUDE = """-- [test] Roblox API mock prelude

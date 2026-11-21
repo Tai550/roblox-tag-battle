@@ -10,6 +10,8 @@ local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local RankManager = require(script.Parent:WaitForChild("RankManager"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
+local TaggerLook = require(script.Parent:WaitForChild("TaggerLook"))
 
 local RoundManager = {}
 
@@ -145,6 +147,8 @@ local function setTagger(newTagger)
 	if oldTagger and oldTagger ~= newTagger then
 		GameState.RefreshSpeed(oldTagger)
 	end
+	-- 鬼の見た目は GameState.Tagger と必ず同じ相手に付ける（交代・離脱後の再選出もここ）
+	TaggerLook.Follow(newTagger)
 	broadcastState()
 end
 
@@ -282,6 +286,11 @@ local function runRound()
 		return nil -- そもそも始められない（キャラクター未読み込みなど）
 	end
 
+	-- ラウンドが始まる直前（インターミッションのあと、試合の処理より前）にマップを用意する。
+	-- 1回目は渋谷、2回目はパーク、以降は交互。ここはラウンドにつき一度だけなので、
+	-- Phase が Round のあいだにマップは変わらない。始められなかったときは進めない。
+	MapBuilder.BuildNextRound()
+
 	local duration = GameState.ChosenDuration
 
 	GameState.Phase = "Round"
@@ -363,6 +372,7 @@ local function runResults(completed)
 
 	GameState.Phase = "Results"
 	GameState.Tagger = nil
+	TaggerLook.Follow(nil) -- ラウンド終了で、残っている鬼の色と Highlight を全員分外す
 	GameState.Winners = winners
 	GameState.RefreshAllSpeeds()
 
@@ -403,6 +413,7 @@ local function onCharacterAdded(player, character)
 	if humanoid then
 		GameState.RefreshSpeed(player)
 		ItemManager.OnCharacterAdded(player)
+		TaggerLook.OnCharacterAdded(player) -- 鬼のままリスポーンしたら色と Highlight を付け直す
 	end
 end
 
@@ -424,6 +435,7 @@ function RoundManager.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		GameState.Participants[player] = nil
 		GameState.BeenTagger[player] = nil
+		TaggerLook.Clear(player)
 		GameState.ClearData(player)
 		votes[player] = nil
 		refreshVoteDisplay()

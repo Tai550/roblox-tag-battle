@@ -11,6 +11,7 @@ local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 
 -- マップと Workspace.ItemSpawns を、どの Init よりも先に（試合開始より前に）用意する。
 -- ItemManager / ZoneManager は試合開始時に ItemSpawns を読むので、ここで作ればそのまま連動する。
+-- 起動直後（1ラウンド目）は渋谷。2ラウンド目以降の入れ替えは RoundManager が行う。
 MapBuilder.Build()
 
 Leaderstats.Init()

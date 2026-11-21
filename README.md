@@ -1,7 +1,7 @@
 # バトルアイテム付き鬼ごっこ（Roblox）
 
 ラウンド制の鬼ごっこに、マップに出てくる「バトルアイテム」を組み合わせた Roblox ゲームです。
-スクリプト一式を Rojo 形式でまとめています。マップ（渋谷風の街）はサーバー起動時にコードで自動生成されます（[マップ（コード生成）](#マップコード生成) を参照）。
+スクリプト一式を Rojo 形式でまとめています。マップはサーバー起動時にコードで自動生成されます。1ラウンド目は渋谷風の街、2ラウンド目は広いパークで、以降はラウンドごとに交互です（[マップ（コード生成）](#マップコード生成) を参照）。
 
 ## ゲームの説明
 
@@ -11,6 +11,7 @@
 4. **ラウンド（投票で決まった時間）**: 鬼が逃げる人にタッチすると、タッチされた人が次の鬼になります。
    - 鬼になった直後の3秒間はタッチできません（タッチ返し防止）。
    - 鬼は少し足が速くなります（WalkSpeed 20。通常は16）。
+   - 鬼のキャラクターは少し赤みがかった色になり、体に薄い赤い光（輪郭つきの Highlight）が付きます。鬼でなくなると元の色に戻ります。リスポーンしても、鬼のあいだは付け直されます。
    - **エリアが縮みます**: ピンクの円柱の壁で示されるエリアが、試合時間の80%をかけて半径18まで縮み続けます。エリアの外に出続けると専用スタミナが減り、0になるとエリアの中へ戻されます（脱落にはなりません）。
 5. **結果表示**: ラウンド中に一度も鬼にならずに逃げ切った人が勝ちです。
 6. 待機に戻り、これを繰り返します。
@@ -73,6 +74,7 @@
 
 ラウンド中、出現ポイントに10秒ごとに**アイテムボックス**が1つ出てきます（同時に最大3つ。縮小エリアの内側にだけ出ます）。
 ボックスに触れると、**自分のデッキの中からランダムで1つ**が手に入ります。手に入れたアイテムには**15秒の使用期限**があり、過ぎると消えます。
+フィールドに出る箱は、光る立方体ではなく木の宝箱です（金色の帯と鍵穴、蓋の境目の細い光）。置かれているあいだ、ゆっくり上下して回転します。触って中身が手に入る動きは今までどおりです。
 持てるのは1つだけです（ゲームパス「ダブルアイテム」を持っていると2つまで。枠が空いていれば拾えます）。
 
 ※ ショップで買う「アイテムボックス」は今までどおりで、全アイテムの中からランダムに1つ手に入り、使用期限はありません。
@@ -116,9 +118,10 @@ src/
     Remotes.lua                 RemoteEvent の作成
     Monetization.lua            課金：レシート処理（アイテムボックス）、Game Pass の所有確認
     SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
+    TaggerLook.lua              鬼の見た目（少し赤い色と Highlight の付け外し）
     ZoneManager.lua             縮小エリア（中心・半径の計算、壁、エリア外スタミナ）
     DeckManager.lua             デッキ構築（選択の検証、デッキからの抽選）
-    MapBuilder.lua              渋谷風の街マップと出現ポイント（ItemSpawns）をコードで生成
+    MapBuilder.lua              渋谷とパークのマップ、出現ポイント（ItemSpawns）をコードで生成
   client/                     → StarterPlayer.StarterPlayerScripts.Client
     HUD.client.lua              役割・残り時間・人数待ち・結果・お知らせの表示
     ItemControls.client.lua     アイテムボタンとキー入力、効果の残り時間表示
@@ -170,6 +173,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `Remotes` | `src/server/Remotes.lua` |
 | ServerScriptService › Server | ModuleScript `Monetization` | `src/server/Monetization.lua` |
 | ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
+| ServerScriptService › Server | ModuleScript `TaggerLook` | `src/server/TaggerLook.lua` |
 | ServerScriptService › Server | ModuleScript `ZoneManager` | `src/server/ZoneManager.lua` |
 | ServerScriptService › Server | ModuleScript `DeckManager` | `src/server/DeckManager.lua` |
 | ServerScriptService › Server | ModuleScript `MapBuilder` | `src/server/MapBuilder.lua` |
@@ -188,17 +192,30 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 
 ## マップ（コード生成）
 
-マップは `src/server/MapBuilder.lua` がコードで作ります。`Main.server.lua` が起動時に、他の初期化より先に `MapBuilder.Build()` を1回呼び、次のものを Workspace に生成します。
+マップは `src/server/MapBuilder.lua` がコードで作ります。`Main.server.lua` が起動時に、他の初期化より先に `MapBuilder.Build()` を1回呼び、渋谷の街を Workspace に生成します。ラウンドが実際に始まる直前に `MapBuilder.BuildNextRound()` が呼ばれ、**1ラウンド目は渋谷、2ラウンド目はパーク、以降は交互**です。入れ替えはラウンドの開始前だけで、試合中（ラウンドのあいだ）にはマップは変わりません。今どちらかは `MapBuilder.CurrentMap`（`"Shibuya"` または `"Park"`）で分かります。
 
-- `Workspace.Map`: 220×220 スタッドの渋谷風の街。中心がスクランブル交差点（十字の道路・4方向の横断歩道・中央線）、少し高い歩道の街区、ビル20棟（高さ20〜70）、大型スクリーン「SHIBUYA」のランドマーク、木のある広場、駅前風の広場、植え込み・自販機・バス停・信号機・街灯・バリケードなどの障害物、外周の透明な壁。
+どちらのマップも、次のものを Workspace に作ります（すでにあれば消してから作り直します）。
+
+- `Workspace.Map`
+- `Workspace.ItemSpawns` … アイテムの出現ポイント。ItemManager / ZoneManager は試合開始時にこのフォルダを読むので、広いパークでも同じ計算のまま連動します。
+
+### 渋谷（1ラウンド目、以降は奇数ラウンド）
+
+- 220×220 スタッドの渋谷風の街。中心がスクランブル交差点（十字の道路・4方向の横断歩道・中央線）、少し高い歩道の街区、ビル20棟（高さ20〜70）、大型スクリーン「SHIBUYA」のランドマーク、木のある広場、駅前風の広場、植え込み・自販機・バス停・信号機・街灯・バリケードなどの障害物、外周の透明な壁。
   - 低いビル3棟には側面にスロープがあり、屋上に登れます（鬼ごっこの逃げ道）。
   - プレイヤーのスポーン（SpawnLocation）は駅前広場にあります。
-- `Workspace.ItemSpawns`: アイテムの出現ポイント12点（交差点・路地・屋上2点・広場など）。ItemManager / ZoneManager は試合開始時にこのフォルダを読むので、そのまま連動します。
+- 出現ポイントは12点（交差点・路地・屋上2点・広場など）。
+
+### パーク（2ラウンド目、以降は偶数ラウンド）
+
+- およそ 340×340 スタッドの、広くて見通しのよい公園。地面は芝生。中央に円形の舗装広場があり、プレイヤーのスポーンはそこです。
+- 障害物は渋谷より少なく、直線で長く走れるように周囲へ寄せてあります。低い丘、岩、木の群れ、ベンチ、低いフェンス、池に見立てた青い面（歩けますが泳げません）、あずまや、低めの小屋が数棟です。外周は渋谷と同じく透明な壁です。
+- 出現ポイントは14点。屋外に、マップ全体へ広く散らしてあります（屋上はありません）。
 
 注意点:
 
 - **Studio で place を開いただけではマップは見えません。** 「プレイ」などでサーバーが起動したときに生成されます（編集画面には残りません）。
-- 乱数は使っていないので、毎回同じマップになります。配置を変えたいときは `MapBuilder.lua` の上のほうにある表（`BUILDINGS`、`ITEM_SPAWNS` など）の数字を書き換えます。
+- 乱数は使っていないので、同じ種類のマップは毎回同じ形になります。配置を変えたいときは `MapBuilder.lua` の上のほうにある表（`BUILDINGS`、`ITEM_SPAWNS`、パークの `PARK_SPAWNS` など）の数字を書き換えます。
 - `Build()` は、すでに `Workspace.Map` と `Workspace.ItemSpawns` があれば消してから作り直します。Studio で自分で作った `ItemSpawns` フォルダも置き換わるので、自作のマップを使うときは次の手順で無効化してください。
 - **マップを無効化するには**、`Main.server.lua` の `MapBuilder.Build()` の行を消す（またはコメントアウトする）だけです。その場合は下の「マップ側の準備」の手順で、自分のマップと ItemSpawns を用意します。
 

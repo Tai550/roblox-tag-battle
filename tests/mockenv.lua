@@ -56,17 +56,45 @@ RT.UDim2 = {
 	end,
 }
 
-local CFrameMT = {
-	__mul = function(a, _)
-		return a
-	end,
-}
+local CFrameMT = {}
+CFrameMT.__index = CFrameMT
+-- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
+CFrameMT.__mul = function(a, b)
+	return setmetatable({
+		X = a.X or 0,
+		Y = a.Y or 0,
+		Z = a.Z or 0,
+		RotX = (b and b.RotX) or 0,
+		RotY = (b and b.RotY) or 0,
+		RotZ = (b and b.RotZ) or 0,
+		LookVector = RT.Vector3.new(0, 0, -1),
+		Position = RT.Vector3.new(a.X or 0, a.Y or 0, a.Z or 0),
+	}, CFrameMT)
+end
 RT.CFrame = {
-	new = function(...)
-		return setmetatable({ LookVector = RT.Vector3.new(0, 0, -1) }, CFrameMT)
+	new = function(x, y, z)
+		return setmetatable({
+			X = x or 0,
+			Y = y or 0,
+			Z = z or 0,
+			RotX = 0,
+			RotY = 0,
+			RotZ = 0,
+			LookVector = RT.Vector3.new(0, 0, -1),
+			Position = RT.Vector3.new(x or 0, y or 0, z or 0),
+		}, CFrameMT)
 	end,
-	Angles = function(...)
-		return setmetatable({}, CFrameMT)
+	Angles = function(rx, ry, rz)
+		return setmetatable({
+			X = 0,
+			Y = 0,
+			Z = 0,
+			RotX = rx or 0,
+			RotY = ry or 0,
+			RotZ = rz or 0,
+			LookVector = RT.Vector3.new(0, 0, -1),
+			Position = RT.Vector3.new(0, 0, 0),
+		}, CFrameMT)
 	end,
 }
 
@@ -94,6 +122,39 @@ local fakeEvent = {
 	end,
 }
 
+-- Touched / Heartbeat / DescendantAdded 用。Connect した関数は _Fire で呼べる。
+local function makeSignal()
+	local callbacks = {}
+	local signal = {}
+	function signal:Connect(fn)
+		table.insert(callbacks, fn)
+		local connected = true
+		return {
+			Disconnect = function()
+				if not connected then
+					return
+				end
+				connected = false
+				for index = #callbacks, 1, -1 do
+					if callbacks[index] == fn then
+						table.remove(callbacks, index)
+					end
+				end
+			end,
+		}
+	end
+	function signal:_Fire(...)
+		local snapshot = {}
+		for index, fn in ipairs(callbacks) do
+			snapshot[index] = fn
+		end
+		for _, fn in ipairs(snapshot) do
+			fn(...)
+		end
+	end
+	return signal
+end
+
 local instanceMethods = {}
 function instanceMethods.FindFirstChild(self, name)
 	for _, child in ipairs(rawget(self, "_children")) do
@@ -111,7 +172,22 @@ function instanceMethods.WaitForChild(self, name)
 	-- 子がなければ「モジュール名の目印」を返す（fakeRequire が解決する）
 	return { __moduleName = name }
 end
-function instanceMethods.FindFirstChildOfClass(_, _)
+function instanceMethods.FindFirstChildOfClass(self, className)
+	for _, child in ipairs(rawget(self, "_children") or {}) do
+		if instanceMethods.IsA(child, className) then
+			return child
+		end
+	end
+	return nil
+end
+function instanceMethods.FindFirstAncestorOfClass(self, className)
+	local current = rawget(self, "Parent")
+	while type(current) == "table" and rawget(current, "ClassName") do
+		if instanceMethods.IsA(current, className) then
+			return current
+		end
+		current = rawget(current, "Parent")
+	end
 	return nil
 end
 function instanceMethods.GetChildren(self)
@@ -133,7 +209,13 @@ function instanceMethods.GetDescendants(self)
 	return list
 end
 -- BasePart として扱うクラス（Part の仲間）
-local BASE_PART_CLASSES = { Part = true, WedgePart = true, SpawnLocation = true, TrussPart = true }
+local BASE_PART_CLASSES = {
+	Part = true,
+	WedgePart = true,
+	SpawnLocation = true,
+	TrussPart = true,
+	MeshPart = true,
+}
 function instanceMethods.IsA(self, className)
 	if className == "BasePart" then
 		return BASE_PART_CLASSES[rawget(self, "ClassName")] == true
@@ -169,6 +251,17 @@ local instanceMT = {
 		end
 		if key == "OnServerEvent" or key == "OnClientEvent" then
 			return fakeEvent
+		end
+		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded" then
+			local signals = rawget(self, "_signals")
+			if not signals then
+				signals = {}
+				rawset(self, "_signals", signals)
+			end
+			if not signals[key] then
+				signals[key] = makeSignal()
+			end
+			return signals[key]
 		end
 		return nil
 	end,
@@ -271,18 +364,23 @@ local dataStoreService = {
 	end,
 }
 
+local services = {
+	Players = playersService,
+	ReplicatedStorage = replicatedStorage,
+	DataStoreService = dataStoreService,
+}
+
 RT.workspace = RT.Instance.new("Workspace")
 
 RT.game = {
 	GetService = function(_, name)
-		if name == "Players" then
-			return playersService
-		elseif name == "ReplicatedStorage" then
-			return replicatedStorage
-		elseif name == "DataStoreService" then
-			return dataStoreService
+		local service = services[name]
+		if not service then
+			service = RT.Instance.new("Service")
+			service.Name = name
+			services[name] = service
 		end
-		return RT.Instance.new("Service")
+		return service
 	end,
 	BindToClose = function(_, callback)
 		RT._bindToClose = callback

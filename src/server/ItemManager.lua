@@ -21,6 +21,7 @@ local STAR_EFFECT_NAME = "TagStarEffect"
 local active = false
 local spawnLoopToken = 0
 local spawnedItems = {}     -- [Part] = { IsBox = true, PointKey = ... } フィールドのボックス
+local boxMotions = {}       -- [Part] = Heartbeat の接続（箱を消したら必ず切る）
 local occupiedPoints = {}   -- [PointKey] = Part
 local placedBananas = {}    -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }
 local warnedNoSpawns = false
@@ -203,13 +204,45 @@ local function pickRandomItemId(filter)
 	return candidates[#candidates]
 end
 
+local function stopBoxMotion(part)
+	local conn = boxMotions[part]
+	if not conn then
+		return
+	end
+	boxMotions[part] = nil
+	conn:Disconnect()
+end
+
 local function removeItem(part)
+	stopBoxMotion(part)
 	local info = spawnedItems[part]
 	if info then
 		occupiedPoints[info.PointKey] = nil
 		spawnedItems[part] = nil
 	end
 	part:Destroy()
+end
+
+-- テストから、浮遊の接続が残っていないことを数える
+function ItemManager.ActiveBoxMotions()
+	local count = 0
+	for _ in pairs(boxMotions) do
+		count = count + 1
+	end
+	return count
+end
+
+-- 置いてからの秒数に対する上下（スタッド）と、Y 軸の回転（ラジアン）
+-- 上下は振幅 0.4、回転は 1 秒に 30 度。計算だけなのでテストからも呼べる。
+function ItemManager.BoxMotionAt(elapsed)
+	local bob = math.sin(elapsed * math.pi) * 0.4
+	local yaw = math.rad(30) * elapsed
+	return bob, yaw
+end
+
+-- 浮遊の経過時間。テストからはこの関数を差し替えて時刻を固定する（os は書き換えられない）。
+function ItemManager.MotionNow()
+	return os.clock()
 end
 
 -- フィールドのボックスに触れたとき：自分のデッキからランダムで1つ手に入る。
@@ -249,34 +282,178 @@ local function onBoxTouched(part, hit)
 	))
 end
 
+-- 宝箱の部品を本体へ溶接する。本体が動くと一緒に動く。
+-- 触れた判定は spawn 側で各 Part の Touched を本体の処理へつなぐ。
+local function attachPiece(root, name, size, pos, color, material, transparency)
+	local piece = Instance.new("Part")
+	piece.Name = name
+	piece.Size = size
+	piece.CFrame = CFrame.new(pos.X, pos.Y, pos.Z)
+	piece.Position = pos
+	piece.Anchored = true
+	piece.CanCollide = false
+	piece.CanTouch = true
+	piece.Massless = true
+	piece.Material = material
+	piece.Color = color
+	piece.Transparency = transparency or 0
+	piece.TopSurface = Enum.SurfaceType.Smooth
+	piece.BottomSurface = Enum.SurfaceType.Smooth
+	piece.Parent = root
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = name .. "Weld"
+	weld.Part0 = root
+	weld.Part1 = piece
+	weld.Parent = piece
+	piece.Anchored = false
+	return piece
+end
+
+-- フィールドに置く宝箱。戻り値は Touched を受ける本体 Part（名前は ItemBox）。
+-- 購入の GrantItemBox はここを通らない。
 local function createBoxPart(position)
-	local part = Instance.new("Part")
-	part.Name = "ItemBox"
-	part.Size = Vector3.new(3, 3, 3)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromRGB(255, 160, 30)
-	part.Position = position
+	local wood = Color3.fromRGB(118, 76, 42)
+	local woodLid = Color3.fromRGB(150, 104, 58)
+	local gold = Color3.fromRGB(214, 170, 62)
+	local goldBright = Color3.fromRGB(255, 205, 90)
+	local glow = Color3.fromRGB(255, 190, 110)
+
+	-- 少し縦長の木の箱
+	local bodySize = Vector3.new(2.4, 2.6, 2.0)
+	local lidSize = Vector3.new(2.7, 0.42, 2.25)
+
+	local root = Instance.new("Part")
+	root.Name = "ItemBox"
+	root.Size = bodySize
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanTouch = true
+	root.Material = Enum.Material.Wood
+	root.Color = wood
+	root.CFrame = CFrame.new(position.X, position.Y, position.Z)
+	root.Position = position
+	root.TopSurface = Enum.SurfaceType.Smooth
+	root.BottomSurface = Enum.SurfaceType.Smooth
+
+	local lidCenter = Vector3.new(
+		position.X,
+		position.Y + bodySize.Y / 2 + lidSize.Y / 2,
+		position.Z
+	)
+	attachPiece(root, "Lid", lidSize, lidCenter, woodLid, Enum.Material.Wood, 0)
+
+	-- 蓋の前後だけ、細い金色の縁
+	local trimZ = lidSize.Z / 2 + 0.04
+	local trimSize = Vector3.new(lidSize.X, lidSize.Y, 0.12)
+	attachPiece(
+		root, "LidTrimFront", trimSize,
+		Vector3.new(lidCenter.X, lidCenter.Y, lidCenter.Z + trimZ),
+		gold, Enum.Material.Metal, 0
+	)
+	attachPiece(
+		root, "LidTrimBack", trimSize,
+		Vector3.new(lidCenter.X, lidCenter.Y, lidCenter.Z - trimZ),
+		gold, Enum.Material.Metal, 0
+	)
+
+	-- 本体の中央を縦に巻く金色の帯（前面・後面・蓋の上）
+	local faceZ = bodySize.Z / 2 + 0.06
+	attachPiece(
+		root, "BandFront", Vector3.new(0.36, bodySize.Y, 0.12),
+		Vector3.new(position.X, position.Y, position.Z + faceZ),
+		gold, Enum.Material.Metal, 0
+	)
+	attachPiece(
+		root, "BandBack", Vector3.new(0.36, bodySize.Y, 0.12),
+		Vector3.new(position.X, position.Y, position.Z - faceZ),
+		gold, Enum.Material.Metal, 0
+	)
+	attachPiece(
+		root, "BandTop", Vector3.new(0.36, 0.12, lidSize.Z),
+		Vector3.new(position.X, lidCenter.Y + lidSize.Y / 2 + 0.06, position.Z),
+		gold, Enum.Material.Metal, 0
+	)
+
+	-- 正面の小さな鍵穴
+	attachPiece(
+		root, "Keyhole", Vector3.new(0.28, 0.4, 0.14),
+		Vector3.new(position.X, position.Y - 0.15, position.Z + faceZ + 0.1),
+		goldBright, Enum.Material.Metal, 0
+	)
+
+	-- 蓋の境目に細い光
+	local seam = attachPiece(
+		root, "SeamGlow", Vector3.new(bodySize.X + 0.2, 0.08, bodySize.Z + 0.2),
+		Vector3.new(position.X, position.Y + bodySize.Y / 2, position.Z),
+		glow, Enum.Material.Neon, 0.15
+	)
+	local light = Instance.new("PointLight")
+	light.Name = "ChestGlow"
+	light.Color = glow
+	light.Brightness = 0.55
+	light.Range = 10
+	light.Shadows = false
+	light.Parent = seam
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.new(0, 140, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+	billboard.Name = "LabelGui"
+	billboard.Size = UDim2.new(0, 140, 0, 36)
+	billboard.StudsOffset = Vector3.new(0, bodySize.Y / 2 + lidSize.Y + 1.4, 0)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 80
-	billboard.Parent = part
+	billboard.Parent = root
 
 	local label = Instance.new("TextLabel")
+	label.Name = "Label"
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.BackgroundTransparency = 1
-	label.Text = "アイテムボックス"
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.TextStrokeTransparency = 0.3
+	label.Text = "宝箱"
+	label.TextColor3 = Color3.fromRGB(255, 220, 140)
+	label.TextStrokeColor3 = Color3.fromRGB(90, 58, 28)
+	label.TextStrokeTransparency = 0.4
 	label.TextScaled = true
 	label.Font = Enum.Font.GothamBold
 	label.Parent = billboard
 
-	return part
+	return root
+end
+ItemManager.CreateBoxPart = createBoxPart
+
+-- 本体と、溶接した部品のどれに触れても同じ拾う処理になるようにする
+local function connectBoxTouch(part)
+	local function onHit(hit)
+		onBoxTouched(part, hit)
+	end
+	part.Touched:Connect(onHit)
+	for _, desc in ipairs(part:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Touched:Connect(onHit)
+		end
+	end
+end
+
+-- 置かれているあいだだけ、ゆっくり上下して回転する。消したら接続を切る。
+local function startBoxMotion(part)
+	local runService = game:GetService("RunService")
+	local heartbeat = runService and runService.Heartbeat
+	if not heartbeat or type(heartbeat.Connect) ~= "function" then
+		return
+	end
+	local originX = part.Position.X
+	local originY = part.Position.Y
+	local originZ = part.Position.Z
+	local started = ItemManager.MotionNow()
+	local conn
+	conn = heartbeat:Connect(function()
+		if boxMotions[part] ~= conn or part.Parent == nil then
+			stopBoxMotion(part)
+			return
+		end
+		local bob, yaw = ItemManager.BoxMotionAt(ItemManager.MotionNow() - started)
+		part.CFrame = CFrame.new(originX, originY + bob, originZ) * CFrame.Angles(0, yaw, 0)
+	end)
+	boxMotions[part] = conn
 end
 
 local zoneBoxCounter = 0
@@ -326,10 +503,9 @@ local function spawnOne()
 	spawnedItems[part] = { IsBox = true, PointKey = point.Key }
 	occupiedPoints[point.Key] = part
 
-	part.Touched:Connect(function(hit)
-		onBoxTouched(part, hit)
-	end)
+	connectBoxTouch(part)
 	part.Parent = getItemContainer()
+	startBoxMotion(part)
 end
 
 ---------------------------------------------------------------------
@@ -709,6 +885,11 @@ function ItemManager.OnSlotsChanged(player)
 		table.remove(data.HeldExpireAt, 1)
 	end
 	sendItemUpdate(player)
+end
+
+-- フィールドの箱を1つ出す（ラウンド中・Start 済みであること）。テストからも使う。
+function ItemManager.SpawnOne()
+	spawnOne()
 end
 
 -- ラウンド開始時に呼ぶ: アイテムの定期出現を始める

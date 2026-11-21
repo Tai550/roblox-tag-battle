@@ -13,8 +13,9 @@ RT.modules.RankManager = require("./.build/RankManager")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
-RT.modules.RoundManager = require("./.build/RoundManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
+RT.modules.TaggerLook = require("./.build/TaggerLook")
+RT.modules.RoundManager = require("./.build/RoundManager")
 
 local Config = RT.modules.Config
 local RankManager = RT.modules.RankManager
@@ -23,7 +24,11 @@ local ZoneManager = RT.modules.ZoneManager
 local DeckManager = RT.modules.DeckManager
 local ItemManager = RT.modules.ItemManager
 local RoundManager = RT.modules.RoundManager
+local MapBuilder = RT.modules.MapBuilder
+local TaggerLook = RT.modules.TaggerLook
+local GameState = RT.modules.GameState
 local Vector3 = RT.Vector3
+local Color3 = RT.Color3
 
 ---------------------------------------------------------------------
 -- 小さなテスト道具
@@ -523,6 +528,330 @@ do
 	check("DataStore が失敗しても読み込みは止まらず 0 から", failedLoadOk and RankManager.Get(failedPlayer).RP == 50
 		and RankManager.Get(failedPlayer).LoadOk == false)
 	check("失敗中の保存でも止まらず、元の RP と回数は残る", failedSaveOk and kept.RP == 250 and kept.Survived == 2 and kept.Tagged == 1)
+end
+
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+-- 9. 鬼の見た目：少し赤くして Highlight。交代とラウンド終了で元に戻る
+---------------------------------------------------------------------
+
+do
+	local function sameColor(part, color)
+		return part.Color ~= nil
+			and near(part.Color.R, color.R)
+			and near(part.Color.G, color.G)
+			and near(part.Color.B, color.B)
+	end
+
+	local function makeCharacter(headColor, torsoColor, rootColor)
+		local model = RT.Instance.new("Model")
+		model.Name = "Character"
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Name = "Humanoid"
+		humanoid.Health = 100
+		humanoid.Parent = model
+		local function addPart(name, color)
+			local part = RT.Instance.new("Part")
+			part.Name = name
+			part.Color = color
+			part.Parent = model
+			return part
+		end
+		addPart("HumanoidRootPart", rootColor)
+		local head = addPart("Head", headColor)
+		local torso = addPart("Torso", torsoColor)
+		return model, head, torso
+	end
+
+	local white = Color3.fromRGB(255, 255, 255)
+	local blue = Color3.fromRGB(80, 120, 200)
+	local skin = Color3.fromRGB(255, 204, 153)
+	local mixedWhite = TaggerLook.MixColor(white)
+	local mixedBlue = TaggerLook.MixColor(blue)
+
+	check("赤を混ぜる割合は 0.45", TaggerLook.TintAlpha == 0.45)
+	check("白に赤を 0.45 混ぜると少し赤い", near(mixedWhite.R, 255)
+		and near(mixedWhite.G, 255 + (90 - 255) * 0.45)
+		and near(mixedWhite.B, 255 + (90 - 255) * 0.45))
+	check("真っ赤にはならない", mixedWhite.G > 140 and mixedWhite.B > 140)
+
+	local playerA = RT.Instance.new("Player")
+	playerA.Name = "TaggerA"
+	local charA, headA, torsoA = makeCharacter(white, blue, skin)
+	playerA.Character = charA
+
+	local playerB = RT.Instance.new("Player")
+	playerB.Name = "TaggerB"
+	local charB, headB = makeCharacter(white, white, white)
+	playerB.Character = charB
+
+	GameState.Tagger = playerA
+	TaggerLook.Follow(playerA)
+	local highlightA = charA:FindFirstChild(TaggerLook.HighlightName)
+	check("鬼の各 Part が元の色と赤の中間になる", sameColor(headA, mixedWhite) and sameColor(torsoA, mixedBlue))
+	check("鬼には Highlight が付き、塗りは薄め", highlightA ~= nil
+		and highlightA.FillTransparency >= 0.6 and highlightA.FillTransparency < 1
+		and highlightA.OutlineTransparency < 1)
+	check("鬼でない人には色も Highlight も付かない", sameColor(headB, white)
+		and charB:FindFirstChild(TaggerLook.HighlightName) == nil)
+
+	TaggerLook.Follow(playerA)
+	check("同じ鬼に二度付けても色は二重に混ざらない", sameColor(headA, mixedWhite)
+		and not sameColor(headA, TaggerLook.MixColor(mixedWhite)))
+
+	GameState.Tagger = playerB
+	TaggerLook.Follow(playerB)
+	local highlightB = charB:FindFirstChild(TaggerLook.HighlightName)
+	check("交代すると前の鬼は元の色に戻り Highlight が消える", sameColor(headA, white)
+		and sameColor(torsoA, blue) and charA:FindFirstChild(TaggerLook.HighlightName) == nil)
+	check("次の鬼に色と Highlight が付く", sameColor(headB, mixedWhite) and highlightB ~= nil
+		and highlightB.FillTransparency >= 0.6)
+
+	local fresh = Color3.fromRGB(10, 20, 30)
+	local charB2, headB2 = makeCharacter(fresh, fresh, fresh)
+	playerB.Character = charB2
+	TaggerLook.OnCharacterAdded(playerB)
+	check("鬼のままリスポーンすると新しい体に付け直す", charB:FindFirstChild(TaggerLook.HighlightName) == nil
+		and sameColor(headB2, TaggerLook.MixColor(fresh))
+		and charB2:FindFirstChild(TaggerLook.HighlightName) ~= nil)
+
+	GameState.Tagger = nil
+	TaggerLook.Follow(nil)
+	check("ラウンド終了で全員の色と Highlight が外れる", sameColor(headA, white)
+		and sameColor(headB2, fresh) and sameColor(torsoA, blue)
+		and charA:FindFirstChild(TaggerLook.HighlightName) == nil
+		and charB2:FindFirstChild(TaggerLook.HighlightName) == nil)
+	TaggerLook.OnCharacterAdded(playerA)
+	check("鬼でないときのリスポーンでは色を付けない", sameColor(headA, white)
+		and charA:FindFirstChild(TaggerLook.HighlightName) == nil)
+end
+
+---------------------------------------------------------------------
+-- 10. マップの入れ替え：渋谷 → パーク → 渋谷。点数と範囲、ゾーン半径
+---------------------------------------------------------------------
+
+do
+	local workspace = RT.workspace
+
+	local function baseParts(root)
+		local list = {}
+		if not root then
+			return list
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				table.insert(list, desc)
+			end
+		end
+		return list
+	end
+
+	local function spawnFolder()
+		return workspace:FindFirstChild(Config.ItemSpawnFolderName)
+	end
+
+	local baseline = MapBuilder.Build()
+	check("Build() は渋谷のまま（交互の回数は進めない）", baseline.MapId == "Shibuya"
+		and MapBuilder.CurrentMap == "Shibuya" and baseline.ItemSpawns == 12)
+
+	local first = MapBuilder.BuildNextRound()
+	local firstSpawns = baseParts(spawnFolder())
+	local firstInside = true
+	for _, part in ipairs(firstSpawns) do
+		if math.abs(part.Position.X) > 115 or math.abs(part.Position.Z) > 115 then
+			firstInside = false
+		end
+	end
+	check("入れ替え1回目は渋谷（12点・同じ Part 数）", first.MapId == "Shibuya"
+		and MapBuilder.CurrentMap == "Shibuya" and #firstSpawns == 12
+		and first.PartCount == baseline.PartCount and first.ClimbableBuildings >= 2)
+	check("渋谷の出現ポイントは従来の範囲内", firstInside)
+	local shibuyaPoints, shibuyaFallback = ItemManager.GetSpawnPoints()
+	check("渋谷の出現ポイントを ItemManager がそのまま読む", #shibuyaPoints == 12 and shibuyaFallback == false)
+
+	local second = MapBuilder.BuildNextRound()
+	local parkMap = workspace:FindFirstChild("Map")
+	local parkSpawns = baseParts(spawnFolder())
+	local parkParts = baseParts(parkMap)
+	local inPark, spreadsBeyond, hasPos, hasNeg = true, false, false, false
+	for _, part in ipairs(parkSpawns) do
+		if math.abs(part.Position.X) > MapBuilder.ParkHalf or math.abs(part.Position.Z) > MapBuilder.ParkHalf then
+			inPark = false
+		end
+		if math.abs(part.Position.X) > 115 or math.abs(part.Position.Z) > 115 then
+			spreadsBeyond = true
+		end
+		if part.Position.X > 0 or part.Position.Z > 0 then
+			hasPos = true
+		end
+		if part.Position.X < 0 or part.Position.Z < 0 then
+			hasNeg = true
+		end
+	end
+	local spawnLocations = 0
+	local spawnAtCenter = false
+	local wallCount = 0
+	local grassOk = false
+	local white = 0
+	for _, part in ipairs(parkParts) do
+		if part.ClassName == "SpawnLocation" then
+			spawnLocations = spawnLocations + 1
+			if math.abs(part.Position.X) < 1 and math.abs(part.Position.Z) < 1 then
+				spawnAtCenter = true
+			end
+		end
+		if part.Name == "InvisibleWall" and part.Transparency == 1 then
+			wallCount = wallCount + 1
+		end
+		if part.Name == "Grass" and part.Size.X >= 340 and part.Size.Z >= 340 then
+			grassOk = true
+		end
+		local color = part.Color
+		if color and color.R == 255 and color.G == 255 and color.B == 255 then
+			white = white + 1
+		end
+	end
+	check("入れ替え2回目はパーク（14点）", second.MapId == "Park" and MapBuilder.CurrentMap == "Park"
+		and second.ItemSpawns == 14 and #parkSpawns == 14 and #MapBuilder.ParkSpawnPositions() == 14)
+	check("パークの出現ポイントは 340×340 の内側で、渋谷より外側まで散らばる", inPark and spreadsBeyond and hasPos and hasNeg)
+	check("パークの Part 数は 500 以下", second.PartCount <= 500 and second.PartCount == #parkParts + #parkSpawns)
+	print(string.format("    （パークの BasePart %d ＋ 出現ポイント %d ＝ %d）", #parkParts, #parkSpawns, second.PartCount))
+	check("パークは中央広場にスポーンが1つ、外周の透明な壁が4枚、芝生の地面", spawnLocations == 1
+		and spawnAtCenter and wallCount == 4 and grassOk)
+	check("パークは渋谷の横断歩道（白い帯）を持たない", white < 36 and second.ClimbableBuildings == 0)
+
+	local parkPoints, parkFallback = ItemManager.GetSpawnPoints()
+	local _, _, _, parkRadius = ZoneManager.ComputeGeometry(parkPoints, false)
+	check("パークの出現ポイントでもゾーンの開始半径が計算できる", #parkPoints == 14 and parkFallback == false
+		and parkRadius >= Config.ZoneStartRadiusMin and parkRadius <= Config.ZoneStartRadiusMax)
+	check("広いパークの開始半径は上限 120 に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
+
+	-- Build() は交互の回数を進めない。次の入れ替えは 3 回目なので渋谷に戻る。
+	local rebuilt = MapBuilder.Build()
+	check("途中の Build() は渋谷を作り直すだけ", rebuilt.MapId == "Shibuya" and MapBuilder.CurrentMap == "Shibuya")
+	local third = MapBuilder.BuildNextRound()
+	local thirdSpawns = baseParts(spawnFolder())
+	check("入れ替え3回目は再び渋谷（12点）", third.MapId == "Shibuya" and MapBuilder.CurrentMap == "Shibuya"
+		and #thirdSpawns == 12 and third.ItemSpawns == 12)
+end
+
+---------------------------------------------------------------------
+-- 11. フィールドの宝箱：複数 Part、触れると従来どおりアイテムが手に入る
+---------------------------------------------------------------------
+
+do
+	local players = RT.game:GetService("Players")
+	local savedLookup = players.GetPlayerFromCharacter
+	local savedMotionNow = ItemManager.MotionNow
+	local ok, err = pcall(function()
+		MapBuilder.Build()
+		ZoneManager.Stop()
+		GameState.Phase = "Round"
+		GameState.Tagger = nil
+
+		local player = RT.Instance.new("Player")
+		player.Name = "Picker"
+		player.Parent = RT.Instance.new("Folder")
+		local character = RT.Instance.new("Model")
+		character.Name = "PickerCharacter"
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Name = "Humanoid"
+		humanoid.Health = 100
+		humanoid.Parent = character
+		local hand = RT.Instance.new("Part")
+		hand.Name = "RightHand"
+		hand.Parent = character
+		player.Character = character
+		GameState.Participants[player] = true
+		players.GetPlayerFromCharacter = function(_, model)
+			if model == character then
+				return player
+			end
+			return nil
+		end
+
+		local now = 10000
+		ItemManager.MotionNow = function()
+			return now
+		end
+		ItemManager.Start()
+		ItemManager.SpawnOne()
+
+		local container = RT.workspace:FindFirstChild("SpawnedItems")
+		local box = nil
+		for _, child in ipairs(container and container:GetChildren() or {}) do
+			if child.Name == "ItemBox" then
+				box = child
+			end
+		end
+		check("フィールドに ItemBox が出る", box ~= nil)
+		check("浮遊の接続が1つ付く", ItemManager.ActiveBoxMotions() == 1)
+
+		local partCount = 0
+		if box and box:IsA("BasePart") then
+			partCount = 1
+		end
+		for _, desc in ipairs(box and box:GetDescendants() or {}) do
+			if desc:IsA("BasePart") then
+				partCount = partCount + 1
+			end
+		end
+		check("宝箱は複数の Part からなる", partCount >= 8)
+		local piecesOk = box ~= nil
+		for _, name in ipairs({
+			"Lid", "LidTrimFront", "LidTrimBack", "BandFront", "BandBack", "BandTop", "Keyhole", "SeamGlow",
+		}) do
+			if not box or not box:FindFirstChild(name) then
+				piecesOk = false
+			end
+		end
+		check("蓋・金色の縁と帯・鍵穴・光の線がある", piecesOk)
+		local seam = box and box:FindFirstChild("SeamGlow")
+		check("本体は木、境目は Neon、PointLight が付く", box ~= nil
+			and box.Material == RT.Enum.Material.Wood
+			and seam ~= nil and seam.Material == RT.Enum.Material.Neon
+			and seam:FindFirstChild("ChestGlow") ~= nil)
+		local gui = box and box:FindFirstChildOfClass("BillboardGui")
+		local label = gui and gui:FindFirstChild("Label")
+		local textColor = label and label.TextColor3
+		check("ラベルは宝箱の文言と色", label ~= nil and label.Text == "宝箱"
+			and textColor ~= nil and not (textColor.R == textColor.G and textColor.G == textColor.B))
+
+		local originX = box.Position.X
+		local originY = box.Position.Y
+		now = 10000.5
+		RT.game:GetService("RunService").Heartbeat:_Fire()
+		check("0.5秒で 0.4 スタッド上がる", near(box.CFrame.Y, originY + 0.4) and near(box.CFrame.X, originX))
+		now = 10001
+		RT.game:GetService("RunService").Heartbeat:_Fire()
+		check("1秒で元の高さに戻り、30度回る", near(box.CFrame.Y, originY) and near(box.CFrame.RotY, math.rad(30)))
+		local bob, yaw = ItemManager.BoxMotionAt(1.5)
+		check("1.5秒の計算は下へ 0.4、45度", near(bob, -0.4) and near(yaw, math.rad(45)))
+
+		local lid = box:FindFirstChild("Lid")
+		lid.Touched:_Fire(hand)
+		local data = GameState.GetData(player)
+		local fromDeck = data.HeldItems[1] == "Dash" or data.HeldItems[1] == "Shield" or data.HeldItems[1] == "Warp"
+		check("蓋に触れてもデッキのアイテムが1つ手に入る", #data.HeldItems == 1 and fromDeck
+			and data.HeldExpireAt[1] > 0)
+		check("拾うと箱は消え、浮遊の接続も残らない", box.Parent == nil and ItemManager.ActiveBoxMotions() == 0)
+
+		box.CFrame = RT.CFrame.new(1, 2, 3)
+		now = 10004
+		RT.game:GetService("RunService").Heartbeat:_Fire()
+		check("消したあとの Heartbeat ではもう動かない", near(box.CFrame.X, 1) and near(box.CFrame.Y, 2) and near(box.CFrame.Z, 3))
+
+		ItemManager.Stop()
+		GameState.Participants[player] = nil
+		GameState.ClearData(player)
+		GameState.Phase = "Waiting"
+	end)
+	ItemManager.MotionNow = savedMotionNow
+	players.GetPlayerFromCharacter = savedLookup
+	if not ok then
+		error(err)
+	end
 end
 
 ---------------------------------------------------------------------

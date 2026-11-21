@@ -1,13 +1,17 @@
--- MapBuilder: 渋谷風の街マップをコードで生成する（ServerScriptService.Server.MapBuilder）
+-- MapBuilder: マップをコードで生成する（ServerScriptService.Server.MapBuilder）
 --
--- MapBuilder.Build() を呼ぶと Workspace に次を作る。
---   Workspace.Map        … 地面・道路・横断歩道・歩道・ビル・小物・外周の透明な壁・SpawnLocation
---   Workspace.ItemSpawns … アイテムの出現ポイント（12点）。ItemManager / ZoneManager がそのまま使う
--- 既に Map / ItemSpawns があれば消してから作り直す（何回呼んでも同じマップになる）。
+-- MapBuilder.Build() は渋谷風の街を作る（サーバー起動時・1ラウンド目）。
+-- MapBuilder.BuildPark() は広いパークを作る（2ラウンド目）。
+-- MapBuilder.BuildNextRound() は呼ぶたびに渋谷 → パーク → 渋谷 … と入れ替える。
+-- どちらも Workspace に次を作る。
+--   Workspace.Map        … 地面・障害物・外周の透明な壁・SpawnLocation
+--   Workspace.ItemSpawns … アイテムの出現ポイント。ItemManager / ZoneManager がそのまま使う
+-- 既に Map / ItemSpawns があれば消してから作り直す。
 --
 -- 座標の決まり（上から見て）
---   舞台は 220×220（-110〜110）。中心 (0, 0) がスクランブル交差点。
+--   渋谷は 220×220（-110〜110）。中心 (0, 0) がスクランブル交差点。
 --   道路は幅36（-18〜18）で X 方向・Z 方向に1本ずつ。残りの4区画が街区（歩道を少し高くした台）。
+--   パークは 340×340（-170〜170）。中心の円形広場以外は開けて、障害物は周囲に寄せる。
 --   乱数は使わない。配置はすべて下の表に書いた固定値。
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,6 +21,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local MapBuilder = {}
 
 MapBuilder.MapFolderName = "Map"
+MapBuilder.CurrentMap = nil -- "Shibuya" または "Park"。Build / BuildPark / BuildNextRound が更新する
 
 ---------------------------------------------------------------------
 -- 寸法
@@ -206,6 +211,140 @@ local ITEM_SPAWNS = {
 MapBuilder.ItemSpawnCount = #ITEM_SPAWNS
 
 ---------------------------------------------------------------------
+-- パーク（340×340。広くて見通しがよい。障害物は周囲に寄せる）
+---------------------------------------------------------------------
+
+local PARK_HALF = 170
+local PARK_GRASS_TOP = 0
+local PARK_PLAZA_TOP = 0.5 -- 中央の円形広場の上面
+local PARK_WALL_HEIGHT = 36
+
+MapBuilder.ParkHalf = PARK_HALF
+
+local PARK = {
+	Grass = Color3.fromRGB(86, 148, 72),
+	GrassDark = Color3.fromRGB(68, 122, 58),
+	Path = Color3.fromRGB(186, 168, 132),
+	Plaza = Color3.fromRGB(168, 164, 156),
+	Water = Color3.fromRGB(64, 140, 186),
+	Bank = Color3.fromRGB(78, 124, 78),
+	Lily = Color3.fromRGB(72, 156, 86),
+	Mound = Color3.fromRGB(108, 142, 76),
+	Rock = Color3.fromRGB(132, 130, 124),
+	Trunk = Color3.fromRGB(112, 80, 50),
+	Leaves = Color3.fromRGB(58, 136, 66),
+	Bench = Color3.fromRGB(132, 92, 58),
+	Fence = Color3.fromRGB(168, 166, 158),
+	Wood = Color3.fromRGB(148, 112, 74),
+	Roof = Color3.fromRGB(122, 74, 58),
+	Door = Color3.fromRGB(92, 64, 44),
+	Pillar = Color3.fromRGB(186, 160, 120),
+	FlowerRed = Color3.fromRGB(214, 96, 112),
+	FlowerYellow = Color3.fromRGB(230, 196, 72),
+	Lamp = Color3.fromRGB(255, 236, 190),
+	Pole = Color3.fromRGB(96, 100, 104),
+	SpawnPad = Color3.fromRGB(176, 214, 170),
+}
+
+-- 出現ポイント（14点、屋外のみ）。surface は置く面の高さ（中心はその3スタッド上）
+local PARK_SPAWNS = {
+	{ x = 14, z = 10, surface = PARK_PLAZA_TOP },    -- 1 中央広場
+	{ x = -16, z = 18, surface = PARK_PLAZA_TOP },   -- 2 中央広場
+	{ x = 20, z = -12, surface = PARK_PLAZA_TOP },   -- 3 中央広場
+	{ x = 58, z = 22, surface = PARK_GRASS_TOP },    -- 4 東の芝生
+	{ x = -62, z = 28, surface = PARK_GRASS_TOP },   -- 5 西の芝生
+	{ x = 36, z = 62, surface = PARK_GRASS_TOP },    -- 6 北の芝生
+	{ x = -40, z = -48, surface = PARK_GRASS_TOP },  -- 7 南の芝生（池の手前）
+	{ x = 100, z = -30, surface = PARK_GRASS_TOP },  -- 8 東、あずまやの北
+	{ x = -130, z = 125, surface = PARK_GRASS_TOP }, -- 9 北西の木立の向こう
+	{ x = 150, z = 95, surface = PARK_GRASS_TOP },   -- 10 北東の外れ
+	{ x = -158, z = -125, surface = PARK_GRASS_TOP },-- 11 南西の隅
+	{ x = 78, z = 150, surface = PARK_GRASS_TOP },   -- 12 北の外れ
+	{ x = 155, z = -155, surface = PARK_GRASS_TOP }, -- 13 南東の隅
+	{ x = -95, z = 150, surface = PARK_GRASS_TOP },  -- 14 北の外れ（西寄り）
+}
+MapBuilder.ParkSpawnCount = #PARK_SPAWNS
+
+-- 中央から放射する散歩道（軸上。長さ40、内端は広場のふち）
+local PARK_PATHS = {
+	{ x = 0, z = -54, sx = 8, sz = 40 },
+	{ x = 0, z = 54, sx = 8, sz = 40 },
+	{ x = 54, z = 0, sx = 40, sz = 8 },
+	{ x = -54, z = 0, sx = 40, sz = 8 },
+}
+
+-- 池（歩けはする。泳げない。青い面）
+local PARK_POND = { x = -105, z = -65, w = 40, d = 26 }
+
+-- 低い丘（半分地面に埋めた球）
+local PARK_MOUNDS = {
+	{ x = 105, z = 105, sx = 22, sy = 7, sz = 18 },
+	{ x = -115, z = 115, sx = 20, sy = 6, sz = 16 },
+	{ x = 145, z = -115, sx = 22, sy = 6, sz = 18 },
+	{ x = -155, z = -45, sx = 16, sy = 5, sz = 14 },
+	{ x = 45, z = -115, sx = 18, sy = 5, sz = 16 },
+}
+
+local PARK_ROCKS = {
+	{ x = 90, z = 85, sx = 4.5, sy = 3.2, sz = 4 },
+	{ x = 140, z = -90, sx = 5, sy = 3.4, sz = 4.2 },
+	{ x = -90, z = 100, sx = 3.8, sy = 2.8, sz = 3.6 },
+	{ x = -150, z = -70, sx = 4.2, sy = 3, sz = 3.8 },
+	{ x = 55, z = 85, sx = 3.4, sy = 2.4, sz = 3.2 },
+	{ x = -35, z = 78, sx = 3.6, sy = 2.6, sz = 3.4 },
+}
+
+-- 木の群れ（中心の見通しは空け、四隅に寄せる）
+local PARK_TREES = {
+	{ x = -118, z = 72 }, { x = -132, z = 78 }, { x = -122, z = 90 }, { x = -136, z = 64 },
+	{ x = 112, z = 118 }, { x = 128, z = 124 }, { x = 118, z = 136 },
+	{ x = -108, z = -112 }, { x = -122, z = -124 }, { x = -112, z = -134 },
+	{ x = 108, z = -125 }, { x = 122, z = -138 },
+}
+
+local PARK_BENCHES = {
+	{ x = 34, z = 34 }, { x = -34, z = 34 }, { x = 34, z = -34 }, { x = -34, z = -34 },
+	{ x = -78, z = -48 }, { x = 52, z = -58 },
+}
+
+-- 低いフェンス（along は長い向き）。中央の直線は塞がない
+local PARK_FENCES = {
+	{ x = -128, z = 100, along = "X", length = 22 },
+	{ x = 120, z = 148, along = "X", length = 20 },
+	{ x = -115, z = -148, along = "X", length = 18 },
+	{ x = 150, z = -120, along = "Z", length = 16 },
+	{ x = -160, z = 40, along = "Z", length = 18 },
+	{ x = 96, z = 158, along = "X", length = 16 },
+}
+
+-- あずまや（屋根と柱）。南東寄りの芝生
+local PARK_GAZEBO = { x = 72, z = -78, floor = 14, height = 7.5 }
+
+-- 低めの小屋（登れない。高さは 8〜10）
+local PARK_HUTS = {
+	{ x = 125, z = 45, w = 16, d = 12, h = 9 },
+	{ x = -145, z = 20, w = 14, d = 12, h = 8 },
+	{ x = 25, z = 140, w = 16, d = 14, h = 10 },
+	{ x = -55, z = -148, w = 18, d = 14, h = 9 },
+}
+
+local PARK_FLOWERS = {
+	{ x = 48, z = 48, color = "FlowerRed" },
+	{ x = -48, z = 48, color = "FlowerYellow" },
+	{ x = 48, z = -48, color = "FlowerYellow" },
+	{ x = -48, z = -48, color = "FlowerRed" },
+	{ x = 10, z = 70, color = "FlowerRed" },
+	{ x = -70, z = 10, color = "FlowerYellow" },
+}
+
+-- 広場の外側、道の軸からはずらす
+local PARK_LAMPS = {
+	{ x = 40, z = -22 }, { x = -22, z = -40 }, { x = 22, z = 40 }, { x = -40, z = 22 },
+}
+
+local PARK_PLAYER_SPAWN = { x = 0, z = 0, size = 12 }
+
+---------------------------------------------------------------------
 -- 部品を作る小さな道具
 ---------------------------------------------------------------------
 
@@ -245,7 +384,7 @@ local function makeFolder(parent, name)
 end
 
 -- 縦に立てた円柱（Roblox の円柱は X 軸方向が長さなので Z 軸で90度回す）
-local function makeColumn(parent, name, x, bottomY, z, height, diameter, color)
+local function makeColumn(parent, name, x, bottomY, z, height, diameter, color, material)
 	return makePart(parent, {
 		Name = name,
 		Shape = Enum.PartType.Cylinder,
@@ -253,6 +392,7 @@ local function makeColumn(parent, name, x, bottomY, z, height, diameter, color)
 		Pos = { x, bottomY + height / 2, z },
 		RotZ = 90,
 		Color = color,
+		Material = material,
 	})
 end
 
@@ -705,10 +845,19 @@ function MapBuilder.ItemSpawnPositions()
 	return list
 end
 
-local function buildItemSpawns()
+-- パークの出現ポイント（テストからも呼べる）
+function MapBuilder.ParkSpawnPositions()
+	local list = {}
+	for _, s in ipairs(PARK_SPAWNS) do
+		table.insert(list, { x = s.x, y = s.surface + SPAWN_LIFT, z = s.z })
+	end
+	return list
+end
+
+local function buildItemSpawns(positions)
 	local folder = Instance.new("Folder")
 	folder.Name = Config.ItemSpawnFolderName
-	for index, p in ipairs(MapBuilder.ItemSpawnPositions()) do
+	for index, p in ipairs(positions) do
 		makePart(folder, {
 			Name = "Spawn" .. index,
 			Size = { 2, 1, 2 },
@@ -720,12 +869,7 @@ local function buildItemSpawns()
 	return folder
 end
 
----------------------------------------------------------------------
--- 公開関数
----------------------------------------------------------------------
-
--- マップ一式を作り直す。戻り値は集計（Part 数・屋上に登れる建物の数）
-function MapBuilder.Build()
+local function clearExistingMap()
 	local oldMap = workspace:FindFirstChild(MapBuilder.MapFolderName)
 	if oldMap then
 		oldMap:Destroy()
@@ -734,8 +878,291 @@ function MapBuilder.Build()
 	if oldSpawns then
 		oldSpawns:Destroy()
 	end
-
 	partCount = 0
+end
+
+---------------------------------------------------------------------
+-- パークの生成
+---------------------------------------------------------------------
+
+local function buildParkGround(map)
+	local folder = makeFolder(map, "Ground")
+	makePart(folder, {
+		Name = "Grass",
+		Size = { PARK_HALF * 2, 2, PARK_HALF * 2 },
+		Pos = { 0, -1, 0 },
+		Color = PARK.Grass,
+		Material = Enum.Material.Grass,
+	})
+	-- 円形の舗装（円柱を寝かせて薄い円盤にする）
+	makeColumn(folder, "Plaza", 0, PARK_GRASS_TOP, 0, PARK_PLAZA_TOP, 72, PARK.Plaza, Enum.Material.Concrete)
+	for _, path in ipairs(PARK_PATHS) do
+		makePart(folder, {
+			Name = "Path",
+			Size = { path.sx, 0.3, path.sz },
+			Pos = { path.x, 0.15, path.z },
+			Color = PARK.Path,
+			Material = Enum.Material.Concrete,
+		})
+	end
+end
+
+local function buildParkBoundary(map)
+	local folder = makeFolder(map, "Boundary")
+	local thickness = 2
+	local offset = PARK_HALF + thickness / 2
+	local length = PARK_HALF * 2 + thickness * 2
+	for _, sign in ipairs({ 1, -1 }) do
+		makePart(folder, {
+			Name = "InvisibleWall",
+			Size = { thickness, PARK_WALL_HEIGHT, length },
+			Pos = { sign * offset, PARK_WALL_HEIGHT / 2, 0 },
+			Transparency = 1,
+		})
+		makePart(folder, {
+			Name = "InvisibleWall",
+			Size = { length, PARK_WALL_HEIGHT, thickness },
+			Pos = { 0, PARK_WALL_HEIGHT / 2, sign * offset },
+			Transparency = 1,
+		})
+	end
+end
+
+local function buildParkProps(map)
+	local folder = makeFolder(map, "Props")
+	local pond = PARK_POND
+
+	makePart(folder, {
+		Name = "PondBank",
+		Size = { pond.w + 6, 0.3, pond.d + 6 },
+		Pos = { pond.x, 0.15, pond.z },
+		Color = PARK.Bank,
+		Material = Enum.Material.Grass,
+	})
+	makePart(folder, {
+		Name = "Pond",
+		Size = { pond.w, 0.25, pond.d },
+		Pos = { pond.x, 0.28, pond.z },
+		Color = PARK.Water,
+		Material = Enum.Material.Water,
+		Transparency = 0.15,
+	})
+	for _, lily in ipairs({ { x = -8, z = -4 }, { x = 6, z = 5 }, { x = -2, z = 8 } }) do
+		makePart(folder, {
+			Name = "Lily",
+			Size = { 3.2, 0.12, 3.2 },
+			Pos = { pond.x + lily.x, 0.42, pond.z + lily.z },
+			Color = PARK.Lily,
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+		})
+	end
+
+	for _, mound in ipairs(PARK_MOUNDS) do
+		makePart(folder, {
+			Name = "Mound",
+			Shape = Enum.PartType.Ball,
+			Size = { mound.sx, mound.sy, mound.sz },
+			Pos = { mound.x, mound.sy / 2 - 1.5, mound.z },
+			Color = PARK.Mound,
+			Material = Enum.Material.Grass,
+		})
+	end
+
+	for _, rock in ipairs(PARK_ROCKS) do
+		makePart(folder, {
+			Name = "Rock",
+			Shape = Enum.PartType.Ball,
+			Size = { rock.sx, rock.sy, rock.sz },
+			Pos = { rock.x, rock.sy / 2 - 0.4, rock.z },
+			Color = PARK.Rock,
+			Material = Enum.Material.Slate,
+		})
+	end
+
+	for _, tree in ipairs(PARK_TREES) do
+		makeColumn(folder, "TreeTrunk", tree.x, PARK_GRASS_TOP, tree.z, 7, 1.3, PARK.Trunk, Enum.Material.Wood)
+		makePart(folder, {
+			Name = "TreeLeaves",
+			Shape = Enum.PartType.Ball,
+			Size = { 7.5, 7.5, 7.5 },
+			Pos = { tree.x, 10.2, tree.z },
+			Color = PARK.Leaves,
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+		})
+	end
+
+	for _, bench in ipairs(PARK_BENCHES) do
+		makePart(folder, {
+			Name = "Bench",
+			Size = { 5, 0.4, 1.6 },
+			Pos = { bench.x, 1.2, bench.z },
+			Color = PARK.Bench,
+			Material = Enum.Material.Wood,
+		})
+		makePart(folder, {
+			Name = "BenchBack",
+			Size = { 5, 1.2, 0.3 },
+			Pos = { bench.x, 2.0, bench.z + 0.7 },
+			Color = PARK.Bench,
+			Material = Enum.Material.Wood,
+		})
+	end
+
+	for _, fence in ipairs(PARK_FENCES) do
+		local sx, sz = alongSize(fence.along, fence.length, 0.4)
+		makePart(folder, {
+			Name = "FenceRail",
+			Size = { sx, 2, sz },
+			Pos = { fence.x, 1.1, fence.z },
+			Color = PARK.Fence,
+			Material = Enum.Material.Wood,
+		})
+		local half = fence.length / 2 - 0.3
+		for _, sign in ipairs({ -1, 1 }) do
+			local px, pz = fence.x, fence.z
+			if fence.along == "X" then
+				px = fence.x + sign * half
+			else
+				pz = fence.z + sign * half
+			end
+			makePart(folder, {
+				Name = "FencePost",
+				Size = { 0.45, 2.6, 0.45 },
+				Pos = { px, 1.3, pz },
+				Color = PARK.Fence,
+				Material = Enum.Material.Wood,
+			})
+		end
+	end
+
+	local gazebo = PARK_GAZEBO
+	makePart(folder, {
+		Name = "GazeboFloor",
+		Size = { gazebo.floor, 0.4, gazebo.floor },
+		Pos = { gazebo.x, 0.2, gazebo.z },
+		Color = PARK.Path,
+		Material = Enum.Material.Wood,
+	})
+	local corner = gazebo.floor / 2 - 1.2
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			makeColumn(
+				folder,
+				"GazeboPillar",
+				gazebo.x + sx * corner,
+				0.4,
+				gazebo.z + sz * corner,
+				gazebo.height,
+				0.9,
+				PARK.Pillar,
+				Enum.Material.Wood
+			)
+		end
+	end
+	makePart(folder, {
+		Name = "GazeboRoof",
+		Size = { gazebo.floor + 2, 0.6, gazebo.floor + 2 },
+		Pos = { gazebo.x, 0.4 + gazebo.height + 0.3, gazebo.z },
+		Color = PARK.Roof,
+		Material = Enum.Material.Wood,
+	})
+
+	for _, hut in ipairs(PARK_HUTS) do
+		makePart(folder, {
+			Name = "HutBody",
+			Size = { hut.w, hut.h, hut.d },
+			Pos = { hut.x, hut.h / 2, hut.z },
+			Color = PARK.Wood,
+			Material = Enum.Material.Wood,
+		})
+		makePart(folder, {
+			Name = "HutRoof",
+			Size = { hut.w + 1.6, 0.8, hut.d + 1.6 },
+			Pos = { hut.x, hut.h + 0.4, hut.z },
+			Color = PARK.Roof,
+			Material = Enum.Material.Wood,
+		})
+		makePart(folder, {
+			Name = "HutDoor",
+			Size = { 1.8, hut.h * 0.55, 0.16 },
+			Pos = { hut.x, hut.h * 0.28, hut.z - hut.d / 2 - 0.08 },
+			Color = PARK.Door,
+			Material = Enum.Material.Wood,
+			CanCollide = false,
+		})
+	end
+
+	for _, flower in ipairs(PARK_FLOWERS) do
+		makePart(folder, {
+			Name = "Flower",
+			Size = { 1.6, 0.7, 1.6 },
+			Pos = { flower.x, 0.35, flower.z },
+			Color = PARK[flower.color],
+			Material = Enum.Material.Grass,
+			CanCollide = false,
+		})
+	end
+
+	for _, lamp in ipairs(PARK_LAMPS) do
+		makeColumn(folder, "LampPole", lamp.x, PARK_GRASS_TOP, lamp.z, 8, 0.45, PARK.Pole)
+		makePart(folder, {
+			Name = "Lamp",
+			Size = { 1.4, 0.5, 1.4 },
+			Pos = { lamp.x, 8.3, lamp.z },
+			Color = PARK.Lamp,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+		})
+	end
+end
+
+local function buildParkPlayerSpawn(map)
+	local spawn = makePart(map, {
+		Name = "PlayerSpawn",
+		ClassName = "SpawnLocation",
+		Size = { PARK_PLAYER_SPAWN.size, 1, PARK_PLAYER_SPAWN.size },
+		Pos = { PARK_PLAYER_SPAWN.x, PARK_PLAZA_TOP + 0.5, PARK_PLAYER_SPAWN.z },
+		Color = PARK.SpawnPad,
+		Transparency = 0.25,
+	})
+	spawn.Neutral = true
+	return spawn
+end
+
+-- 広いパークを作り直す。戻り値は集計（Part 数・出現ポイント数・マップ名）
+function MapBuilder.BuildPark()
+	clearExistingMap()
+	local map = Instance.new("Folder")
+	map.Name = MapBuilder.MapFolderName
+
+	buildParkGround(map)
+	buildParkBoundary(map)
+	buildParkProps(map)
+	buildParkPlayerSpawn(map)
+	local spawns = buildItemSpawns(MapBuilder.ParkSpawnPositions())
+
+	map.Parent = workspace
+	spawns.Parent = workspace
+	MapBuilder.CurrentMap = "Park"
+
+	return {
+		PartCount = partCount,
+		ClimbableBuildings = 0,
+		ItemSpawns = #PARK_SPAWNS,
+		MapId = "Park",
+	}
+end
+
+---------------------------------------------------------------------
+-- 公開関数
+---------------------------------------------------------------------
+
+-- 渋谷のマップ一式を作り直す。戻り値は集計（Part 数・屋上に登れる建物の数）
+-- ラウンドの交互には進めない（起動時の1回目は、この関数のまま渋谷になる）。
+function MapBuilder.Build()
+	clearExistingMap()
 	local map = Instance.new("Folder")
 	map.Name = MapBuilder.MapFolderName
 
@@ -745,17 +1172,31 @@ function MapBuilder.Build()
 	local climbable = buildBuildings(map)
 	buildProps(map)
 	buildPlayerSpawn(map)
-	local spawns = buildItemSpawns()
+	local spawns = buildItemSpawns(MapBuilder.ItemSpawnPositions())
 
 	-- 中身を作り終えてから Workspace に置く（1回でまとめて反映される）
 	map.Parent = workspace
 	spawns.Parent = workspace
+	MapBuilder.CurrentMap = "Shibuya"
 
 	return {
 		PartCount = partCount,
 		ClimbableBuildings = climbable,
 		ItemSpawns = #ITEM_SPAWNS,
+		MapId = "Shibuya",
 	}
+end
+
+-- ラウンドごとに呼ぶ。1回目は渋谷、2回目はパーク、以降は交互。
+-- Build() 自体はこの回数を進めない（起動時に渋谷を作っても、最初のラウンドは渋谷のまま）。
+local mapTurn = 0
+
+function MapBuilder.BuildNextRound()
+	mapTurn = mapTurn + 1
+	if mapTurn % 2 == 1 then
+		return MapBuilder.Build()
+	end
+	return MapBuilder.BuildPark()
 end
 
 return MapBuilder
