@@ -20,6 +20,7 @@ local roundDuration = 0             -- 今ラウンドの試合時間（秒）
 local startClock = 0                -- ラウンド開始時刻（GameState.Now 基準）
 local lastCheckClock = 0            -- 前回 内外判定をした時刻
 local wallPart = nil
+local skySpawnPoints = nil
 
 ---------------------------------------------------------------------
 -- 計算だけの関数（テストからも呼べるよう、状態に触らない形で公開）
@@ -154,6 +155,24 @@ local function respawnInside(player)
 		center.Y + Config.ItemHeightOffset,
 		center.Z + math.sin(angle) * dist
 	)
+	if skySpawnPoints then
+		-- ランダム座標が空中にならないよう、ゾーン内の既存の出現ポイントに戻す。
+		local points = {}
+		for _, point in ipairs(skySpawnPoints) do
+			if ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, point.Position) then
+				table.insert(points, point)
+			end
+		end
+		local point = points[math.random(1, math.max(1, #points))]
+		if not point then
+			return
+		end
+		position = point.Position + Vector3.new(0, Config.ItemHeightOffset + 1, 0)
+		local root = GameState.GetRootPart(player)
+		if root then
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
+	end
 	character:PivotTo(CFrame.new(position))
 end
 
@@ -212,6 +231,7 @@ function ZoneManager.Start(duration)
 	-- ItemManager との循環参照を避けるため、ここで遅れて require する
 	local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 	local points, isFallback = ItemManager.GetSpawnPoints()
+	skySpawnPoints = workspace:GetAttribute("CurrentMap") == "Sky" and points or nil
 
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry(points, isFallback)
 	center = Vector3.new(cx, cy, cz)
@@ -249,6 +269,7 @@ end
 -- ラウンド終了時に呼ぶ
 function ZoneManager.Stop()
 	active = false
+	skySpawnPoints = nil
 	removeWall()
 end
 

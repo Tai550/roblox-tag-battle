@@ -107,7 +107,7 @@ local function refreshButton()
 			if expireLeft > 0 then
 				nameLine = nameLine .. string.format("（あと%d秒）", math.ceil(expireLeft))
 			end
-			button.Text = nameLine .. "\n" .. useHint(slot)
+			button.Text = nameLine .. "\n" .. (def.Passive and "落下時に自動で発動" or useHint(slot))
 			button.BackgroundColor3 = def.Color
 			button.TextColor3 = Color3.fromRGB(20, 20, 20)
 		else
@@ -177,7 +177,8 @@ local function requestUse(slot)
 	if now - lastRequest < 0.2 then
 		return
 	end
-	if slot > maxSlots or not heldItems[slot] then
+	local def = Config.GetItem(heldItems[slot])
+	if slot > maxSlots or not def or def.Passive then
 		return
 	end
 	lastRequest = now

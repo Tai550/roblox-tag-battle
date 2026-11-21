@@ -136,6 +136,10 @@ broadcastState = function()
 	for _, duration in ipairs(Config.MatchDurations) do
 		countsForClient[tostring(duration)] = voteCounts[duration] or 0
 	end
+	local eliminatedIds = {}
+	for player in pairs(GameState.Eliminated) do
+		table.insert(eliminatedIds, player.UserId)
+	end
 	Remotes.StateUpdate:FireAllClients({
 		Phase = GameState.Phase,
 		TimeLeft = math.max(0, math.ceil(GameState.TimeLeft)),
@@ -145,6 +149,7 @@ broadcastState = function()
 		TaggerName = tagger and tagger.DisplayName or "",
 		Participants = userIdList(GameState.ParticipantList()),
 		Winners = userIdList(GameState.Winners),
+		Eliminated = eliminatedIds,
 		Message = GameState.Message,
 		ChosenDuration = displayDuration,
 		VoteCounts = countsForClient,
@@ -289,12 +294,94 @@ local function runIntermission()
 	return true
 end
 
+local function moveToSpawn(player, spawn, offsetX, offsetZ)
+	local root = GameState.GetRootPart(player)
+	if not spawn or not root then
+		return
+	end
+	local pos = spawn.Position
+	local destination = CFrame.new(pos.X + offsetX, pos.Y + spawn.Size.Y / 2 + 4, pos.Z + offsetZ)
+	player.Character:PivotTo(destination)
+	root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+	return destination
+end
+
+local function spectateFall(player, spawn)
+	moveToSpawn(player, spawn, 0, 0)
+	local root = GameState.GetRootPart(player)
+	if root and not root.Anchored then
+		root.Anchored = true
+		GameState.GetData(player).SpectatorRoot = root
+	end
+end
+
+local function releaseSpectator(player)
+	local data = GameState.GetData(player)
+	if data.SpectatorRoot then
+		data.SpectatorRoot.Anchored = false
+		data.SpectatorRoot = nil
+	end
+end
+
+local function replaceMissingTagger()
+	if not GameState.IsParticipant(GameState.Tagger) then
+		local replacement = pickRandomParticipant()
+		setTagger(replacement)
+		Remotes.NotifyPlayer(replacement, "鬼が抜けたので、あなたが新しい鬼です！")
+		return true
+	end
+	return false
+end
+
+function RoundManager.CheckSkyFalls()
+	if GameState.Phase ~= "Round" or MapBuilder.CurrentMap ~= "Sky" then
+		return
+	end
+	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+	local spawn = map and map:FindFirstChild("PlayerSpawn")
+	local platforms = MapBuilder.GetSkyPlatforms()
+	if not platforms then
+		return
+	end
+	local query = RaycastParams.new()
+	query.FilterType = Enum.RaycastFilterType.Include
+	query.FilterDescendantsInstances = { platforms }
+	local eliminated = false
+	for _, player in ipairs(GameState.ParticipantList()) do
+		local root = GameState.GetRootPart(player)
+		local humanoid = GameState.GetHumanoid(player)
+		if root and humanoid and humanoid.Health > 0 then
+			local data = GameState.GetData(player)
+			if root.Position.Y < Config.FallEliminateY then
+				if not ItemManager.TrySafetyLine(player) then
+					GameState.Eliminated[player] = "落下で脱落"
+					GameState.Participants[player] = nil
+					spectateFall(player, spawn)
+					GameState.RefreshSpeed(player)
+					Remotes.NotifyPlayer(player, "落下で脱落しました。ラウンド終了まで観戦します")
+					eliminated = true
+				end
+			elseif humanoid.FloorMaterial ~= Enum.Material.Air then
+				local reach = math.max(6, humanoid.HipHeight + root.Size.Y / 2 + 1)
+				local feet = workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), query)
+				if feet then
+					data.LastSkyStand = player.Character:GetPivot()
+				end
+			end
+		end
+	end
+	if eliminated and not replaceMissingTagger() then
+		broadcastState()
+	end
+end
+
 -- ラウンド本体。戻り値: 最後まで終わったら true、人数不足で中止したら false
 local function runRound()
 	sweepTagger = nil
 	GameState.Participants = {}
 	GameState.BeenTagger = {}
 	GameState.Winners = {}
+	GameState.Eliminated = {}
 	BotManager.DespawnAll()
 	local humans = {}
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -311,14 +398,29 @@ local function runRound()
 	end
 
 	-- ラウンドが始まる直前（インターミッションのあと、試合の処理より前）にマップを用意する。
-	-- 1回目は渋谷、2回目はパーク、以降は交互。ここはラウンドにつき一度だけなので、
-	-- Phase が Round のあいだにマップは変わらない。始められなかったときは進めない。
+	local previousMap = MapBuilder.CurrentMap
 	MapBuilder.BuildNextRound()
+	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+	local sky = MapBuilder.CurrentMap == "Sky"
+	local spawn = map:FindFirstChild("PlayerSpawn")
+	if sky then
+		spawn = MapBuilder.GetSkyPlatforms():FindFirstChild("ArenaStart")
+	end
+	if sky or previousMap ~= MapBuilder.CurrentMap then
+		for index, player in ipairs(humans) do
+			local angle = (index - 1) * math.pi * 2 / #humans
+			local destination = moveToSpawn(player, spawn, math.cos(angle) * 4, math.sin(angle) * 4)
+			if sky then
+				GameState.GetData(player).LastSkyStand = destination
+			end
+		end
+	end
+	Remotes.Notify:FireAllClients("次のマップ：" .. MapBuilder.GetCurrentMapInfo().Name)
 
 	local duration = GameState.ChosenDuration
 
 	GameState.Phase = "Round"
-	GameState.Message = ""
+	GameState.Message = "次のマップ：" .. MapBuilder.GetCurrentMapInfo().Name
 	GameState.TimeLeft = duration
 	-- 人間が目標未満のときだけ差分をボットで補う。マップ生成のあと（スポーン位置が決まったあと）
 	BotManager.Fill(humans)
@@ -348,19 +450,24 @@ local function runRound()
 				GameState.BeenTagger[player] = nil
 			end
 		end
-		-- 人間が一人もいなくなったらボットだけでは続けない。合計が最低人数未満でも中止。
-		if countHumanParticipants() < 1 or GameState.CountParticipants() < Config.MinPlayers then
+		local watchingHuman = false
+		for player in pairs(GameState.Eliminated) do
+			if not isBot(player) and player.Parent == Players then
+				watchingHuman = true
+				break
+			end
+		end
+		if countHumanParticipants() < 1 and not watchingHuman then
 			completed = false
 			break
 		end
 
-		-- 鬼が抜けたら、残った参加者からランダムに次の鬼を選ぶ
-		local tagger = GameState.Tagger
-		if not tagger or not GameState.IsParticipant(tagger) then
-			local replacement = pickRandomParticipant()
-			setTagger(replacement)
-			Remotes.NotifyPlayer(replacement, "鬼が抜けたので、あなたが新しい鬼です！")
+		RoundManager.CheckSkyFalls()
+		if GameState.CountParticipants() < Config.MinPlayers then
+			completed = sky and next(GameState.Eliminated) ~= nil
+			break
 		end
+		replaceMissingTagger()
 
 		tryTag()
 		BotManager.Tick()
@@ -369,6 +476,9 @@ local function runRound()
 
 		if now >= nextBroadcast then
 			GameState.TimeLeft = left
+			if duration - left >= 3 then
+				GameState.Message = ""
+			end
 			broadcastState()
 			nextBroadcast = now + 1
 		end
@@ -381,6 +491,9 @@ end
 
 local function runResults(completed)
 	BotManager.Halt()
+	for player in pairs(GameState.Eliminated) do
+		releaseSpectator(player)
+	end
 	ItemManager.Stop()
 	ZoneManager.Stop()
 
@@ -411,6 +524,8 @@ local function runResults(completed)
 
 	if not completed then
 		GameState.Message = "人数が足りなくなったため、ラウンドを中止しました"
+	elseif GameState.CountParticipants() == 0 and next(GameState.Eliminated) then
+		GameState.Message = "落下で脱落し、試合に残った参加者はいません"
 	elseif #winners == 0 then
 		GameState.Message = "逃げ切った人はいませんでした… 鬼の勝ち！"
 	else
@@ -435,6 +550,7 @@ local function runResults(completed)
 	GameState.Participants = {}
 	GameState.BeenTagger = {}
 	GameState.Winners = {}
+	GameState.Eliminated = {}
 	BotManager.DespawnAll() -- ラウンドが終わったらボットを残さない
 end
 
@@ -445,6 +561,17 @@ end
 local function onCharacterAdded(player, character)
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if humanoid then
+		if GameState.Phase == "Round" and MapBuilder.CurrentMap == "Sky" then
+			if GameState.Eliminated[player] then
+				local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+				releaseSpectator(player)
+				spectateFall(player, map and map:FindFirstChild("PlayerSpawn"))
+			elseif GameState.IsParticipant(player) then
+				local platforms = MapBuilder.GetSkyPlatforms()
+				GameState.GetData(player).LastSkyStand =
+					moveToSpawn(player, platforms and platforms:FindFirstChild("ArenaStart"), 0, 0)
+			end
+		end
 		GameState.RefreshSpeed(player)
 		ItemManager.OnCharacterAdded(player)
 		TaggerLook.OnCharacterAdded(player) -- 鬼のままリスポーンしたら色と Highlight を付け直す
@@ -470,6 +597,10 @@ function RoundManager.Init()
 		GameState.Participants[player] = nil
 		GameState.BeenTagger[player] = nil
 		TaggerLook.Clear(player)
+		ItemManager.EndPhase(player)
+		GameState.ClearStun(player)
+		releaseSpectator(player)
+		GameState.Eliminated[player] = nil
 		GameState.ClearData(player)
 		votes[player] = nil
 		refreshVoteDisplay()

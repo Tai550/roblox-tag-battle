@@ -12,8 +12,8 @@ RT.modules.Leaderstats = require("./.build/Leaderstats")
 RT.modules.RankManager = require("./.build/RankManager")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
-RT.modules.ItemManager = require("./.build/ItemManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
+RT.modules.ItemManager = require("./.build/ItemManager")
 RT.modules.TaggerLook = require("./.build/TaggerLook")
 RT.modules.BotManager = require("./.build/BotManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
@@ -655,7 +655,7 @@ do
 	end
 
 	local baseline = MapBuilder.Build()
-	check("Build() は渋谷のまま（交互の回数は進めない）", baseline.MapId == "Shibuya"
+	check("Build() は渋谷のまま（ローテーションの回数は進めない）", baseline.MapId == "Shibuya"
 		and MapBuilder.CurrentMap == "Shibuya" and baseline.ItemSpawns == 12)
 
 	local first = MapBuilder.BuildNextRound()
@@ -669,11 +669,15 @@ do
 	check("入れ替え1回目は渋谷（12点・同じ Part 数）", first.MapId == "Shibuya"
 		and MapBuilder.CurrentMap == "Shibuya" and #firstSpawns == 12
 		and first.PartCount == baseline.PartCount and first.ClimbableBuildings >= 2)
+	check("渋谷の Workspace 属性が一致する", workspace:GetAttribute("CurrentMap") == "Shibuya"
+		and workspace:GetAttribute("CurrentGimmick") == "None")
 	check("渋谷の出現ポイントは従来の範囲内", firstInside)
 	local shibuyaPoints, shibuyaFallback = ItemManager.GetSpawnPoints()
 	check("渋谷の出現ポイントを ItemManager がそのまま読む", #shibuyaPoints == 12 and shibuyaFallback == false)
 
 	local second = MapBuilder.BuildNextRound()
+	check("パークの Workspace 属性が一致する", workspace:GetAttribute("CurrentMap") == "Park"
+		and workspace:GetAttribute("CurrentGimmick") == "None")
 	local parkMap = workspace:FindFirstChild("Map")
 	local parkSpawns = baseParts(spawnFolder())
 	local parkParts = baseParts(parkMap)
@@ -730,13 +734,39 @@ do
 		and parkRadius >= Config.ZoneStartRadiusMin and parkRadius <= Config.ZoneStartRadiusMax)
 	check("広いパークの開始半径は上限 120 に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
 
-	-- Build() は交互の回数を進めない。次の入れ替えは 3 回目なので渋谷に戻る。
+	-- 明示的な Build() は表示中のマップだけを作り直す。
 	local rebuilt = MapBuilder.Build()
 	check("途中の Build() は渋谷を作り直すだけ", rebuilt.MapId == "Shibuya" and MapBuilder.CurrentMap == "Shibuya")
-	local third = MapBuilder.BuildNextRound()
-	local thirdSpawns = baseParts(spawnFolder())
-	check("入れ替え3回目は再び渋谷（12点）", third.MapId == "Shibuya" and MapBuilder.CurrentMap == "Shibuya"
-		and #thirdSpawns == 12 and third.ItemSpawns == 12)
+	local lighting = RT.game:GetService("Lighting")
+	local originalBrightness = lighting.Brightness
+	local dungeonLimits = { Cave = 400, Ice = 300, Volt = 350, Sky = 300 }
+	for _, expected in ipairs({
+		{ "Cave", "None", "Phase" },
+		{ "Ice", "Ice", "SpikeBoots" },
+		{ "Volt", "Volt", "Insulate" },
+		{ "Sky", "None", "SafetyLine" },
+		{ "Shibuya", "None" },
+	}) do
+		local id, gimmick, item = table.unpack(expected)
+		local summary = MapBuilder.BuildNextRound()
+		local info = MapBuilder.GetCurrentMapInfo()
+		check(id .. " に進み、属性とマップ情報が一致する", summary.MapId == id and MapBuilder.CurrentMap == id
+			and info.Id == id and info.Gimmick == gimmick and info.ExclusiveItemId == item
+			and RT.workspace:GetAttribute("CurrentMap") == id and RT.workspace:GetAttribute("CurrentGimmick") == gimmick)
+		check(id .. " の出現ポイントは12点", #baseParts(spawnFolder()) == 12 and summary.ItemSpawns == 12)
+		if dungeonLimits[id] then
+			local count = #baseParts(RT.workspace:FindFirstChild(MapBuilder.MapFolderName)) + #baseParts(spawnFolder())
+			check(id .. " の Part 数は集計と上限に合う（実測 " .. count .. "）",
+				count == summary.PartCount and count <= dungeonLimits[id])
+		end
+		if id == "Cave" then
+			check("洞窟では暗くなる", lighting.Brightness < originalBrightness)
+		elseif id == "Ice" then
+			check("氷床では照明が元に戻る", lighting.Brightness == originalBrightness)
+		end
+	end
+	check("渋谷とパークの属性はギミックなし", RT.workspace:GetAttribute("CurrentGimmick") == "None"
+		and first.MapId == "Shibuya" and second.MapId == "Park")
 end
 
 ---------------------------------------------------------------------
@@ -1190,7 +1220,188 @@ end
 
 ---------------------------------------------------------------------
 
+-- ダンジョン固有アイテム・接触・落下の判定
+do
+	local exclusive = { Cave = "Phase", Ice = "SpikeBoots", Volt = "Insulate", Sky = "SafetyLine" }
+	for _, map in ipairs({ "Shibuya", "Park", "Cave", "Ice", "Volt", "Sky" }) do
+		local pool = ItemManager.GetFieldPool(Config.DefaultDeck, map)
+		local correct = #pool == #Config.DefaultDeck + (exclusive[map] and 1 or 0)
+		for _, id in pairs(exclusive) do
+			correct = correct and ((table.find(pool, id) ~= nil) == (exclusive[map] == id))
+		end
+		check(map .. " のフィールド抽選には対応する固有アイテムだけ入る", correct)
+	end
+	for _, id in pairs(exclusive) do
+		local valid = DeckManager.ValidateDeck({ "Dash", "Warp", id })
+		check(id .. " はデッキの表示と選択から除外される", not valid and not table.find(Config.ItemOrder, id))
+	end
+	local buyer = RT.Instance.new("Player")
+	buyer.Parent = RT.Instance.new("Folder")
+	GameState.Phase = "Round"
+	GameState.Participants[buyer] = true
+	ItemManager.Start()
+	local standardOnly = true
+	for _ = 1, 80 do
+		local id = ItemManager.GrantItemBox(buyer)
+		standardOnly = standardOnly and id ~= nil and Config.Items[id].ExclusiveMap == nil
+	end
+	check("購入アイテムボックスは通常アイテムだけを付与する", standardOnly)
+	GameState.ClearData(buyer)
+	GameState.Participants[buyer] = nil
+	ItemManager.Stop()
+
+	local slide = Config.IceVelocity(Vector3.new(16, 0, 0), Vector3.new(0, 0, 0), 16, 0.2)
+	check("氷床で入力を離すと水平速度が減衰して残る", slide.X > 0 and slide.X < 16)
+	local turn = Config.IceVelocity(Vector3.new(16, 0, 0), Vector3.new(0, 0, 1), 16, 0.2)
+	check("氷床で曲がると元の方向の速度が残りつつ新しい方向へ進む", turn.X > 0 and turn.Z > 0)
+
+	local function makePlayer(id, isBot)
+		local player = isBot and { IsBot = true } or RT.Instance.new("Player")
+		player.UserId = id
+		player.DisplayName = "Dungeon " .. id
+		local character = RT.Instance.new("Model")
+		character.Parent = RT.workspace
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(0, 4, 0)
+		root.Color = Color3.fromRGB(80, 90, 100)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.JumpPower = 50
+		humanoid.JumpHeight = 7
+		humanoid.FloorMaterial = RT.Enum.Material.Slate
+		humanoid.Parent = character
+		GameState.Participants[player] = true
+		GameState.RegisterCharacter(player, character)
+		return player, root, humanoid
+	end
+
+	local now = 100
+	local realNow = GameState.Now
+	GameState.Now = function() return now end
+	GameState.Phase = "Round"
+	ItemManager.Start()
+	local player, root, humanoid = makePlayer(15000, false)
+	local bot, botRoot, botHumanoid = makePlayer(-15000, true)
+	local data = GameState.GetData(player)
+	local function give(id)
+		data.HeldItems = { id }
+		data.HeldExpireAt = { 0 }
+	end
+	local function advanceTo(id)
+		repeat
+			MapBuilder.BuildNextRound()
+		until MapBuilder.CurrentMap == id
+		return RT.workspace:FindFirstChild(MapBuilder.MapFolderName)
+	end
+
+	local cave = advanceTo("Cave")
+	local wall = cave:FindFirstChild("CaveInnerWalls"):GetChildren()[1]
+	local physics = RT.game:GetService("PhysicsService")
+	check("壁抜けグループは洞窟内壁だけと非衝突",
+		not physics:CollisionGroupsAreCollidable(wall.CollisionGroup, MapBuilder.PhaseGroup)
+		and physics:CollisionGroupsAreCollidable("Default", MapBuilder.PhaseGroup))
+	root.CollisionGroup = "AvatarOriginal"
+	give("Phase")
+	ItemManager.TryUse(player, 1)
+	check("壁抜けを使うと2.5秒の効果と衝突グループが適用される",
+		near(data.PhaseUntil, now + 2.5) and root.CollisionGroup == MapBuilder.PhaseGroup and #data.HeldItems == 0)
+	root.Position = Vector3.new(15, 4, 15)
+	RT.workspace._overlap = function(part, params)
+		assert(params.FilterDescendantsInstances[1] == wall.Parent)
+		return part == root and { wall } or {}
+	end
+	now += 2.5
+	ItemManager.Tick()
+	check("内壁にめり込んでいたら使用開始位置へ戻る", root.Position.X == 0 and root.Position.Z == 0)
+	check("壁抜け終了で元の衝突グループに戻る", data.PhaseUntil == 0 and root.CollisionGroup == "AvatarOriginal")
+	RT.workspace._overlap = nil
+
+	advanceTo("Ice")
+	give("SpikeBoots")
+	ItemManager.TryUse(player, 1)
+	check("スパイクブーツの効果は5秒間", near(data.SpikeBootsUntil, now + 5) and #data.HeldItems == 0)
+
+	local volt = advanceTo("Volt")
+	local hazard = volt:FindFirstChild("VoltHazard")
+	GameState.Tagger = bot
+	hazard.Touched:_Fire(root)
+	hazard.Touched:_Fire(botRoot)
+	check("帯電部品との接触で人間と鬼ボットが痺れる",
+		near(data.StunUntil, now + 1.2) and GameState.IsStunned(bot)
+		and humanoid.WalkSpeed == 0 and humanoid.JumpPower == 0 and humanoid.JumpHeight == 0
+		and botHumanoid.WalkSpeed == 0)
+	now += 1.2
+	ItemManager.Tick()
+	check("痺れの終了で速度とジャンプが戻る", data.StunUntil == 0 and humanoid.WalkSpeed == Config.NormalWalkSpeed
+		and humanoid.JumpPower == 50 and humanoid.JumpHeight == 7)
+	now += 1.9
+	hazard.Touched:_Fire(root)
+	check("痺れの終了後2秒間は再発しない", data.StunUntil == 0)
+	now += 0.2
+	give("Insulate")
+	ItemManager.TryUse(player, 1)
+	hazard.Touched:_Fire(root)
+	check("絶縁の6秒間は痺れない", near(data.InsulateUntil, now + 6) and data.StunUntil == 0)
+	hazard.Touched:_Fire(botRoot)
+	check("回復時間が過ぎたら再び痺れる", near(GameState.GetData(bot).StunUntil, now + 1.2))
+	now += 6
+	hazard.Touched:_Fire(root)
+	check("絶縁の期限が過ぎると再び痺れる", near(data.StunUntil, now + 1.2))
+	now += 1.2
+	ItemManager.Tick()
+
+	local sky = advanceTo("Sky")
+	root.Position = Vector3.new(7, 54, 8)
+	botRoot.Position = Vector3.new(0, 54, 0)
+	RT.workspace._raycast = function(_, _, params)
+		return { Instance = params.FilterDescendantsInstances[1]:FindFirstChild("ArenaStart") }
+	end
+	RoundManager.CheckSkyFalls()
+	RT.workspace._raycast = nil
+	check("立っていた足場を復帰先として記録する", data.LastSkyStand and data.LastSkyStand.Position.X == 7)
+	data.HeldItems = { "Dash", "SafetyLine" }
+	data.HeldExpireAt = { now + 15, 0 }
+	root.Position = Vector3.new(0, Config.FallEliminateY, 0)
+	RoundManager.CheckSkyFalls()
+	check("落下しきい値と同じ高さでは命綱を消費しない", #data.HeldItems == 2)
+	root.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
+	RoundManager.CheckSkyFalls()
+	check("落下時に命綱で足場へ戻り、命綱だけが消費される", GameState.IsParticipant(player)
+		and root.Position.X == 7 and root.Position.Y == 54 and #data.HeldItems == 1
+		and data.HeldItems[1] == "Dash" and #data.HeldExpireAt == 1 and data.HeldExpireAt[1] == now + 15)
+	local botData = GameState.GetData(bot)
+	botData.HeldItems = { "SafetyLine" }
+	botData.HeldExpireAt = { 0 }
+	GameState.Tagger = bot
+	botRoot.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
+	RoundManager.CheckSkyFalls()
+	check("鬼ボットは命綱を使わず、落下脱落すると残った人へ鬼が交代する",
+		not GameState.IsParticipant(bot) and GameState.Eliminated[bot] == "落下で脱落"
+		and #botData.HeldItems == 1 and GameState.Tagger == player)
+	root.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
+	RoundManager.CheckSkyFalls()
+	check("命綱は一度限りで、次の落下では脱落して観戦位置へ移る",
+		not GameState.IsParticipant(player) and GameState.Eliminated[player] == "落下で脱落"
+		and root.Anchored and root.Position.Y > sky:FindFirstChild("PlayerSpawn").Position.Y
+		and GameState.Tagger == nil)
+
+	TaggerLook.Follow(nil)
+	ItemManager.Stop()
+	for _, entity in ipairs({ player, bot }) do
+		GameState.UnregisterCharacter(entity.Character)
+		GameState.ClearData(entity)
+		entity.Character:Destroy()
+	end
+	GameState.Eliminated = {}
+	GameState.BeenTagger = {}
+	GameState.Now = realNow
+	GameState.Phase = "Waiting"
+end
+
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))
 if failed > 0 then
-	os.exit(1)
+	error("テストが失敗しました")
 end

@@ -29,6 +29,10 @@ Vector3MT.__sub = function(a, b)
 	return RT.Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z)
 end
 
+Vector3MT.__mul = function(a, b)
+	return RT.Vector3.new(a.X * b, a.Y * b, a.Z * b)
+end
+
 RT.Vector3 = {
 	new = function(x, y, z)
 		return setmetatable({ X = x or 0, Y = y or 0, Z = z or 0 }, Vector3MT)
@@ -155,7 +159,38 @@ local function makeSignal()
 	return signal
 end
 
+RT.PhysicalProperties = { new = function(...) return { ... } end }
+RT.OverlapParams = { new = function() return {} end }
+RT.RaycastParams = { new = function() return {} end }
+
 local instanceMethods = {}
+
+function instanceMethods.SetAttribute(self, name, value)
+	self._attributes[name] = value
+end
+function instanceMethods.GetAttribute(self, name)
+	return self._attributes[name]
+end
+function instanceMethods.GetServerTimeNow()
+	return os.clock()
+end
+function instanceMethods.GetPartsInPart(self, part, params)
+	return self._overlap and self._overlap(part, params) or {}
+end
+function instanceMethods.Raycast(self, origin, direction, params)
+	return self._raycast and self._raycast(origin, direction, params)
+end
+function instanceMethods.GetPivot(self)
+	local root = self:FindFirstChild("HumanoidRootPart")
+	return RT.CFrame.new(root.Position.X, root.Position.Y, root.Position.Z)
+end
+function instanceMethods.PivotTo(self, pivot)
+	local root = self:FindFirstChild("HumanoidRootPart")
+	if root then
+		root.CFrame = pivot
+		root.Position = pivot.Position
+	end
+end
 function instanceMethods.FindFirstChild(self, name)
 	for _, child in ipairs(rawget(self, "_children")) do
 		if child.Name == name then
@@ -278,7 +313,14 @@ local instanceMT = {
 
 RT.Instance = {
 	new = function(className)
-		local obj = { ClassName = className, Name = className, _children = {} }
+		local obj = { ClassName = className, Name = className, _children = {}, _attributes = {} }
+		if BASE_PART_CLASSES[className] then
+			obj.CollisionGroup = "Default"
+			obj.Size = RT.Vector3.new(1, 1, 1)
+			obj.AssemblyLinearVelocity = RT.Vector3.new(0, 0, 0)
+		elseif className == "Humanoid" then
+			obj.HipHeight = 0
+		end
 		return setmetatable(obj, instanceMT)
 	end,
 }
@@ -364,7 +406,20 @@ local dataStoreService = {
 	end,
 }
 
+local collisionGroups = {}
+local collisions = {}
 local services = {
+	Lighting = { Brightness = 2 },
+	PhysicsService = {
+		IsCollisionGroupRegistered = function(_, group) return collisionGroups[group] == true end,
+		RegisterCollisionGroup = function(_, group) collisionGroups[group] = true end,
+		CollisionGroupSetCollidable = function(_, a, b, collidable)
+			collisions[a .. ":" .. b] = collidable
+		end,
+		CollisionGroupsAreCollidable = function(_, a, b)
+			return collisions[a .. ":" .. b] ~= false and collisions[b .. ":" .. a] ~= false
+		end,
+	},
 	Players = playersService,
 	ReplicatedStorage = replicatedStorage,
 	DataStoreService = dataStoreService,

@@ -5,6 +5,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local RankManager = require(script.Parent:WaitForChild("RankManager"))
@@ -445,7 +446,7 @@ local function computePath(fromPos, toPos)
 	end
 	local created, path = pcall(function()
 		return service:CreatePath({
-			AgentRadius = 2,
+			AgentRadius = MapBuilder.CurrentMap == "Sky" and 1 or 2,
 			AgentHeight = 5,
 			AgentCanJump = true,
 			WaypointSpacing = 4,
@@ -493,14 +494,34 @@ local function moveTo(humanoid, position)
 end
 
 local function followPath(bot, humanoid, root, goal, now)
-	local need = bot.Waypoints == nil or bot.NextRepathAt == nil or now >= bot.NextRepathAt
+	local sky = MapBuilder.CurrentMap == "Sky"
+	local need = bot.NextRepathAt == nil or now >= bot.NextRepathAt
+		or (not sky and bot.Waypoints == nil)
 	if need then
-		bot.Waypoints = computePath(root.Position, goal)
+		local target = goal
+		if sky then
+			local platform = MapBuilder.GetNearestSkyPlatform(goal)
+			if platform then
+				local top = platform.Position.Y + platform.Size.Y / 2
+				target = Vector3.new(goal.X, top, goal.Z)
+				if math.abs(goal.X - platform.Position.X) > platform.Size.X / 2 - 2
+					or math.abs(goal.Z - platform.Position.Z) > platform.Size.Z / 2 - 2 then
+					target = Vector3.new(platform.Position.X, top, platform.Position.Z)
+				end
+			end
+		end
+		bot.PathTarget = target
+		bot.Waypoints = computePath(root.Position, target)
+		if sky and not bot.Waypoints then
+			local nearest = MapBuilder.GetNearestSkyPlatform(root.Position)
+			bot.PathTarget = nearest and (nearest.Position + Vector3.new(0, nearest.Size.Y / 2, 0))
+				or root.Position
+		end
 		bot.WaypointIndex = 1
 		bot.NextRepathAt = now + roundRepathInterval
 	end
 
-	local target = goal
+	local target = sky and (bot.PathTarget or root.Position) or goal
 	local waypoints = bot.Waypoints
 	if waypoints then
 		local index = bot.WaypointIndex or 1
@@ -514,7 +535,7 @@ local function followPath(bot, humanoid, root, goal, now)
 				local dx = root.Position.X - wpPos.X
 				local dy = root.Position.Y - wpPos.Y
 				local dz = root.Position.Z - wpPos.Z
-				local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+				local dist = math.sqrt(dx * dx + dz * dz + (sky and 0 or dy * dy))
 				if dist <= reach then
 					if wp.Action == Enum.PathWaypointAction.Jump then
 						humanoid.Jump = true
@@ -529,7 +550,7 @@ local function followPath(bot, humanoid, root, goal, now)
 		bot.WaypointIndex = index
 		if waypoints[index] == nil then
 			bot.Waypoints = nil
-			target = goal
+			target = sky and bot.PathTarget or goal
 		end
 	end
 	moveTo(humanoid, target)
@@ -600,7 +621,7 @@ end
 local function think(bot, now)
 	local root = GameState.GetRootPart(bot)
 	local humanoid = GameState.GetHumanoid(bot)
-	if not root or not root.Position or not humanoid then
+	if not root or not root.Position or not humanoid or GameState.IsStunned(bot) then
 		return
 	end
 	local pos = root.Position
@@ -768,7 +789,8 @@ function BotManager.Fill(humans)
 		return
 	end
 
-	local spawnPart = findSpawnPart()
+	local platforms = MapBuilder.GetSkyPlatforms()
+	local spawnPart = platforms and platforms:FindFirstChild("ArenaStart") or findSpawnPart()
 	for index = 1, count do
 		local bot = createBot(index, count, spawnPart)
 		bot.SpeedMultiplier = speed
@@ -779,6 +801,27 @@ function BotManager.Fill(humans)
 		table.insert(activeBots, bot)
 	end
 end
+
+-- サーバー所有のボットは、人間と同じ式で毎フレーム氷上の慣性を更新する。
+game:GetService("RunService").Heartbeat:Connect(function(dt)
+	if GameState.Phase ~= "Round" or MapBuilder.CurrentMap ~= "Ice" then
+		return
+	end
+	for _, bot in ipairs(activeBots) do
+		local humanoid = GameState.GetHumanoid(bot)
+		local root = GameState.GetRootPart(bot)
+		local data = GameState.GetData(bot)
+		if root and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
+			and data.SpikeBootsUntil <= GameState.Now() and not GameState.IsSlipping(bot) then
+			local actual = root.AssemblyLinearVelocity
+			local previous = bot.IceVelocity or Vector3.new(actual.X, 0, actual.Z)
+			bot.IceVelocity = Config.IceVelocity(previous, humanoid.MoveDirection, humanoid.WalkSpeed, dt)
+			root.AssemblyLinearVelocity = Vector3.new(bot.IceVelocity.X, actual.Y, bot.IceVelocity.Z)
+		else
+			bot.IceVelocity = nil
+		end
+	end
+end)
 
 function BotManager.Tick()
 	if #activeBots == 0 or GameState.Phase ~= "Round" then

@@ -129,7 +129,9 @@ local function onStateUpdate(state)
 	elseif phase == "Results" then
 		phaseLabel.Text = "結果発表"
 		timerLabel.Text = ""
-		if containsUserId(state.Winners, myId) then
+		if containsUserId(state.Eliminated, myId) then
+			roleLabel.Text = "落下で脱落"
+		elseif containsUserId(state.Winners, myId) then
 			roleLabel.Text = "あなたの勝ち！ 逃げ切り成功！"
 			roleLabel.TextColor3 = COLOR_WIN
 		elseif isParticipant then
