@@ -4,15 +4,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(shared:WaitForChild("Config"))
+local BrandColors = Config.BrandColors
 local UILayout = require(shared:WaitForChild("UILayout"))
 local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AdminRequest")
 
 local edge = UILayout.EdgeMargin
 local touchSize = UILayout.MinTouchSize
-local background = Color3.fromRGB(20, 28, 41)
-local buttonColor = Color3.fromRGB(46, 61, 81)
-local selectedColor = Color3.fromRGB(31, 100, 115)
-local textColor = Color3.fromRGB(242, 247, 252)
+local background = BrandColors.Surface
+local buttonColor = BrandColors.Primary
+local selectedColor = BrandColors.Accent
+local textColor = BrandColors.White
 
 local function make(className, parent, properties)
 	local object = Instance.new(className)
@@ -80,6 +81,7 @@ title.Size = UDim2.new(1, -88, 0, touchSize)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextSize = 18
 local close = textControl("TextButton", panel, "閉じる", touchSize)
+close.BackgroundColor3 = BrandColors.Secondary
 close.AnchorPoint = Vector2.new(1, 0)
 close.Position = UDim2.new(1, -8, 0, 4)
 close.Size = UDim2.fromOffset(64, touchSize)
@@ -95,10 +97,15 @@ feedback.Size = UDim2.new(1, -16, 0, 40)
 feedback.TextSize = 13
 
 local pages, tabButtons = {}, {}
+local function setSelected(button, selected)
+	button.BackgroundColor3 = selected and selectedColor or buttonColor
+	button.TextColor3 = selected and background or textColor
+end
+
 local function selectPage(index)
 	for i, page in ipairs(pages) do
 		page.Visible = i == index
-		tabButtons[i].BackgroundColor3 = i == index and selectedColor or buttonColor
+		setSelected(tabButtons[i], i == index)
 	end
 end
 
@@ -132,8 +139,10 @@ local function row(className, page, order, text, height)
 	return control
 end
 
-local function actionButton(page, order, text, callback)
+local function actionButton(page, order, text, callback, color)
 	local button = row("TextButton", page, order, text)
+	button.BackgroundColor3 = color or buttonColor
+	button.TextColor3 = color == selectedColor and background or textColor
 	button.Activated:Connect(callback)
 	return button
 end
@@ -141,7 +150,7 @@ end
 local function input(page, order, placeholder)
 	local box = row("TextBox", page, order, "")
 	box.PlaceholderText = placeholder
-	box.PlaceholderColor3 = Color3.fromRGB(194, 205, 220)
+	box.PlaceholderColor3 = BrandColors.White
 	box.ClearTextOnFocus = false
 	return box
 end
@@ -189,9 +198,9 @@ end
 local botCount = row("TextLabel", pages[1], 2, "", 24)
 local playersList = list(pages[1], 3)
 local reason = input(pages[1], 4, "キック・BANの理由（任意）")
-actionButton(pages[1], 5, "キック", function() targetAction("Kick", reason.Text) end)
-actionButton(pages[1], 6, "BAN", function() targetAction("Ban", reason.Text) end)
-actionButton(pages[1], 7, "鬼にする（試合中）", function() targetAction("Tagger") end)
+actionButton(pages[1], 5, "キック", function() targetAction("Kick", reason.Text) end, BrandColors.Danger)
+actionButton(pages[1], 6, "BAN", function() targetAction("Ban", reason.Text) end, BrandColors.Danger)
+actionButton(pages[1], 7, "鬼にする（試合中）", function() targetAction("Tagger") end, BrandColors.Danger)
 actionButton(pages[1], 8, "自分のところへ呼ぶ", function() targetAction("Bring") end)
 actionButton(pages[1], 9, "選んだ人のところへ行く", function() targetAction("GoTo") end)
 actionButton(pages[1], 10, "BAN一覧を取得", function() request("ListBans") end)
@@ -208,10 +217,10 @@ unban.Visible = false
 local announcement = input(pages[2], 1, "全員に表示するお知らせ")
 announcement.MultiLine = true
 announcement.Size = UDim2.new(1, -8, 0, 100)
-actionButton(pages[2], 2, "全員に表示", function() request("Announce", announcement.Text) end)
+actionButton(pages[2], 2, "全員に表示", function() request("Announce", announcement.Text) end, BrandColors.Accent)
 
-actionButton(pages[3], 1, "ラウンドを今すぐ始める", function() request("StartRound") end)
-actionButton(pages[3], 2, "ラウンドを今すぐ終わらせる", function() request("EndRound") end)
+actionButton(pages[3], 1, "ラウンドを今すぐ始める", function() request("StartRound") end, BrandColors.Accent)
+actionButton(pages[3], 2, "ラウンドを今すぐ終わらせる", function() request("EndRound") end, BrandColors.Danger)
 actionButton(pages[3], 3, "次のマップへ進める", function() request("NextMap") end)
 local botsEnabled
 local bots = actionButton(pages[3], 4, "ボット補充", function()
@@ -257,13 +266,12 @@ local function populateList(parent, entries, selected, click)
 			click(entry)
 			for _, sibling in ipairs(parent:GetChildren()) do
 				if sibling:IsA("GuiButton") then
-					sibling.BackgroundColor3 = buttonColor
+					setSelected(sibling, sibling.Name == tostring(entry.UserId))
 				end
 			end
-			parent:FindFirstChild(tostring(entry.UserId)).BackgroundColor3 = selectedColor
 		end)
 		button.Name = tostring(entry.UserId)
-		button.BackgroundColor3 = entry.UserId == selected and selectedColor or buttonColor
+		setSelected(button, entry.UserId == selected)
 	end
 end
 

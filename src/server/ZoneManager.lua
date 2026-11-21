@@ -135,7 +135,7 @@ local function makePanel()
 end
 
 -- 壁は「薄いパネルを円周に並べた輪」で作る。
--- 中身の詰まった円柱にすると、エリアの中にいる間ずっと画面がピンクに染まるため。
+-- 中身の詰まった円柱にすると、エリアの中にいる間ずっと画面が壁の色に染まるため。
 local function updateWall()
 	if not wallModel then
 		wallModel = Instance.new("Model")

@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local BrandColors = Config.BrandColors
 local UILayout = require(Shared:WaitForChild("UILayout"))
 local Music = require(Shared:WaitForChild("Music"))
 local Remotes = ReplicatedStorage:WaitForChild("LobbyRemotes")
@@ -22,13 +23,9 @@ local SoloPlay = Remotes:WaitForChild("SoloPlay")
 
 local localPlayer = Players.LocalPlayer
 
-local DARK = Color3.fromRGB(20, 22, 30)
-local PANEL = Color3.fromRGB(32, 35, 48)
-local WHITE = Color3.fromRGB(255, 255, 255)
-local MUTED = Color3.fromRGB(170, 175, 190)
-local GOLD = Color3.fromRGB(255, 205, 60)
-local BLUE = Color3.fromRGB(70, 110, 230)
-local GREEN = Color3.fromRGB(40, 170, 90)
+local DARK = BrandColors.Surface
+local WHITE = BrandColors.White
+local GOLD = BrandColors.Accent
 
 Music.Play("Lobby")
 
@@ -40,7 +37,7 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "LobbyUI"
 gui.ResetOnSpawn = false
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
-require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("UILayout")).ApplySafeArea(gui)
+UILayout.ApplySafeArea(gui)
 
 local function corner(parent, radius)
 	local c = Instance.new("UICorner")
@@ -70,8 +67,8 @@ local function button(parent, text, size, position, color)
 	b.Text = text
 	b.TextSize = 15
 	b.Font = Enum.Font.GothamBold
-	b.TextColor3 = WHITE
-	b.BackgroundColor3 = color or BLUE
+	b.TextColor3 = color == GOLD and DARK or WHITE
+	b.BackgroundColor3 = color or BrandColors.Primary
 	b.BorderSizePixel = 0
 	b.Parent = parent
 	corner(b, 8)
@@ -97,9 +94,9 @@ menu.Size = UDim2.new(0, 120, 0, 4 * 50)
 menu.Position = UDim2.new(0, 8, 0.5, -75)
 menu.Parent = gui
 local deckButton = button(menu, "デッキ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 0))
-local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50), Color3.fromRGB(200, 130, 40))
-local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100), GREEN)
-local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150), Color3.fromRGB(150, 80, 220))
+local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50))
+local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100))
+local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150), BrandColors.Accent)
 soloButton.MouseButton1Click:Connect(function()
 	SoloPlay:FireServer()
 end)
@@ -141,7 +138,7 @@ local function makePanel(titleText)
 	panel.Size = UDim2.new(1, -2 * UILayout.EdgeMargin, 1, -2 * UILayout.EdgeMargin)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
-	panel.BackgroundColor3 = PANEL
+	panel.BackgroundColor3 = DARK
 	panel.Visible = false
 	panel.Parent = gui
 	corner(panel, 12)
@@ -149,7 +146,7 @@ local function makePanel(titleText)
 	constraint.MaxSize = Vector2.new(560, 400)
 	constraint.Parent = panel
 	label(panel, titleText, UDim2.new(1, -80, 0, 30), UDim2.new(0, 16, 0, 10), 20, WHITE, true)
-	local close = button(panel, "×", UDim2.new(0, 36, 0, 30), UDim2.new(1, -46, 0, 10), Color3.fromRGB(90, 90, 110))
+	local close = button(panel, "×", UDim2.new(0, 36, 0, 30), UDim2.new(1, -46, 0, 10), BrandColors.Secondary)
 	close.MouseButton1Click:Connect(function()
 		panel.Visible = false
 	end)
@@ -183,6 +180,7 @@ local function scrollList(panel, top, bottomSpace)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarImageColor3 = BrandColors.Secondary
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.CanvasSize = UDim2.new()
 	scroll.Parent = panel
@@ -208,9 +206,9 @@ end
 -- デッキ画面
 ---------------------------------------------------------------------
 
-local deckInfo = label(deckPanel, "", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 14, MUTED)
+local deckInfo = label(deckPanel, "", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 14, WHITE)
 local deckList = scrollList(deckPanel, 66, UILayout.MinTouchSize + UILayout.EdgeMargin + 8)
-local saveDeck = button(deckPanel, "このデッキで保存", UDim2.new(0, 200, 0, UILayout.MinTouchSize), UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GREEN)
+local saveDeck = button(deckPanel, "このデッキで保存", UDim2.new(0, 200, 0, UILayout.MinTouchSize), UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GOLD)
 saveDeck.AnchorPoint = Vector2.new(0.5, 1)
 saveDeck.MouseButton1Click:Connect(function()
 	SetDeck:FireServer(draftDeck)
@@ -227,10 +225,15 @@ local function renderDeck()
 		local def = Config.Items[itemId]
 		if def and myData.Owned[itemId] then
 			local selected = table.find(draftDeck, itemId) ~= nil
-			local row = button(deckList, "", UDim2.new(1, -8, 0, 46), UDim2.new(), selected and BLUE or DARK)
+			local row = button(deckList, "", UDim2.new(1, -8, 0, 46), UDim2.new(), selected and GOLD or BrandColors.Primary)
 			row.LayoutOrder = index
 			row.TextXAlignment = Enum.TextXAlignment.Left
 			row.Text = string.format("  %s %s %s\n  %s", selected and "✓" or "　", tierTag(def), def.DisplayName, def.Description)
+			local itemMark = Instance.new("UIStroke")
+			itemMark.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			itemMark.Color = def.Color
+			itemMark.Thickness = 2
+			itemMark.Parent = row
 			row.TextSize = 13
 			row.TextWrapped = true
 			row.MouseButton1Click:Connect(function()
@@ -252,8 +255,8 @@ end
 -- ショップ画面
 ---------------------------------------------------------------------
 
-label(shopPanel, "試合でもらえるコインで、新しいアイテムを買える（梅 → 竹 → 松 の順に強い）",
-	UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 13, MUTED)
+label(shopPanel, "試合でもらえるコインで、新しいアイテムを買える（B → A → S の順に強い）",
+	UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 13, WHITE)
 local shopList = scrollList(shopPanel, 66, 12)
 
 local function renderShop()
@@ -267,25 +270,26 @@ local function renderShop()
 		if def then
 			local row = Instance.new("Frame")
 			row.Size = UDim2.new(1, -8, 0, 54)
-			row.BackgroundColor3 = DARK
+			row.BackgroundColor3 = BrandColors.Primary
 			row.LayoutOrder = index
 			row.Parent = shopList
 			corner(row, 8)
 			local tier = Config.Tiers[def.Tier]
 			local tag = label(row, Config.GetTierName(def.Tier), UDim2.new(0, 28, 0, 28), UDim2.new(0, 8, 0.5, -14), 16, DARK, true)
+			tag.TextColor3 = def.Tier == "S" and WHITE or DARK
 			tag.BackgroundTransparency = 0
-			tag.BackgroundColor3 = tier and tier.Color or MUTED
+			tag.BackgroundColor3 = tier and tier.Color or WHITE
 			tag.TextXAlignment = Enum.TextXAlignment.Center
 			corner(tag, 6)
-			label(row, def.DisplayName, UDim2.new(1, -170, 0, 20), UDim2.new(0, 44, 0, 5), 15, WHITE, true)
-			label(row, def.Description, UDim2.new(1, -170, 0, 26), UDim2.new(0, 44, 0, 25), 12, MUTED)
+			label(row, def.DisplayName, UDim2.new(1, -170, 0, 20), UDim2.new(0, 44, 0, 5), 15, def.Color, true)
+			label(row, def.Description, UDim2.new(1, -170, 0, 26), UDim2.new(0, 44, 0, 25), 12, WHITE)
 			local owned = myData.Owned[itemId]
 			local price = def.Price or 0
-			local text, color = string.format("%d コイン", price), Color3.fromRGB(200, 130, 40)
+			local text, color = string.format("%d コイン", price), BrandColors.Accent
 			if owned then
-				text, color = "持っている", Color3.fromRGB(70, 75, 95)
+				text, color = "持っている", BrandColors.Primary
 			elseif myData.Coins < price then
-				color = Color3.fromRGB(110, 90, 70)
+				color = BrandColors.Secondary
 			end
 			local buy = button(row, text, UDim2.new(0, 110, 0, 36), UDim2.new(1, -118, 0.5, -18), color)
 			buy.TextSize = 14
@@ -307,8 +311,8 @@ end
 ---------------------------------------------------------------------
 
 label(roomPanel, "部屋を作ると合言葉が出ます。友達はその合言葉を入れると同じ部屋に入れます。\n部屋ではホストが「開始」を押すたびに何回でも遊べます。",
-	UDim2.new(1, -32, 0, 60), UDim2.new(0, 16, 0, 46), 14, MUTED)
-local createButton = button(roomPanel, "部屋を作る", UDim2.new(0, 220, 0, 46), UDim2.new(0.5, -110, 0, 120), GREEN)
+	UDim2.new(1, -32, 0, 60), UDim2.new(0, 16, 0, 46), 14, WHITE)
+local createButton = button(roomPanel, "部屋を作る", UDim2.new(0, 220, 0, 46), UDim2.new(0.5, -110, 0, 120), GOLD)
 createButton.MouseButton1Click:Connect(function()
 	CreateRoom:FireServer()
 end)
@@ -321,11 +325,12 @@ codeBox.Text = ""
 codeBox.TextSize = 22
 codeBox.Font = Enum.Font.GothamBold
 codeBox.TextColor3 = WHITE
+codeBox.PlaceholderColor3 = WHITE
 codeBox.BackgroundColor3 = DARK
 codeBox.ClearTextOnFocus = false
 codeBox.Parent = roomPanel
 corner(codeBox, 8)
-local joinButton = button(roomPanel, "参加", UDim2.new(0, 120, 0, 44), UDim2.new(0.5, 50, 0, 226))
+local joinButton = button(roomPanel, "参加", UDim2.new(0, 120, 0, 44), UDim2.new(0.5, 50, 0, 226), GOLD)
 joinButton.MouseButton1Click:Connect(function()
 	JoinRoom:FireServer((codeBox.Text:gsub("%s", "")))
 end)
@@ -339,8 +344,8 @@ createdBox.Visible = false
 createdBox.Parent = roomPanel
 corner(createdBox, 10)
 local createdCode = label(createdBox, "", UDim2.new(0.6, 0, 0, 56), UDim2.new(0, 16, 0, 8), 40, GOLD, true)
-label(createdBox, "この合言葉を友達に伝えてね", UDim2.new(0.6, 0, 0, 22), UDim2.new(0, 16, 0, 70), 14, MUTED)
-local enterButton = button(createdBox, "部屋に入る", UDim2.new(0.35, 0, 0, 52), UDim2.new(0.62, 0, 0, 28), GREEN)
+label(createdBox, "この合言葉を友達に伝えてね", UDim2.new(0.6, 0, 0, 22), UDim2.new(0, 16, 0, 70), 14, WHITE)
+local enterButton = button(createdBox, "部屋に入る", UDim2.new(0.35, 0, 0, 52), UDim2.new(0.62, 0, 0, 28), GOLD)
 local myRoomCode = nil
 enterButton.MouseButton1Click:Connect(function()
 	if myRoomCode then

@@ -206,7 +206,7 @@ padText.Size = UDim2.new(1, 0, 1, 0)
 padText.BackgroundTransparency = 1
 padText.TextScaled = true
 padText.Font = Enum.Font.GothamBold
-padText.TextColor3 = Color3.fromRGB(255, 255, 255)
+padText.TextColor3 = Config.BrandColors.White
 padText.TextStrokeTransparency = 0.2
 padText.Parent = billboard
 
@@ -381,14 +381,14 @@ local RULES = {
 	"・一度もタッチされずに逃げ切ったら優勝！コインがいちばん多くもらえる",
 	"",
 	"■ 縮むエリア",
-	"・ピンクの壁の外にいるとスタミナが減る。0 になると中央へ強制送還",
+	"・赤い壁の外にいるとスタミナが減る。0 になると中央へ強制送還",
 	"・強制送還は2回まで。3回目で脱落（観戦席から見守る）",
 	"",
 	"■ アイテム",
 	"・フィールドのボックスに触ると、自分のデッキからアイテムが出る",
 	"・3つまでためておける。せまくなった終盤に使おう",
 	"・デッキはロビーで組む（試合中は変えられない）",
-	"・コインでショップから新しいアイテムを買える（梅・竹・松）",
+	"・コインでショップから新しいアイテムを買える（B・A・S）",
 	"",
 	"■ ランク",
 	"・試合でRPがたまると段位が上がる（ブロンズ→シルバー→…→マスター）",
@@ -410,7 +410,7 @@ if board then
 	text.Size = UDim2.new(1, -60, 1, -60)
 	text.Position = UDim2.new(0, 30, 0, 30)
 	text.BackgroundTransparency = 1
-	text.TextColor3 = Color3.fromRGB(255, 255, 255)
+	text.TextColor3 = Config.BrandColors.White
 	text.Font = Enum.Font.GothamBold
 	text.TextScaled = true
 	text.TextXAlignment = Enum.TextXAlignment.Left

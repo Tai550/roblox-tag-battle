@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local BrandColors = Config.BrandColors
 local UILayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UILayout"))
 local EdgeMargin = UILayout.EdgeMargin
 local TouchSize = UILayout.MinTouchSize
@@ -43,7 +44,7 @@ local function makeFrame(name, size, position)
 	frame.Size = size
 	frame.Position = position
 	frame.AnchorPoint = Vector2.new(0.5, 0)
-	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	frame.BackgroundColor3 = BrandColors.Surface
 	frame.BackgroundTransparency = 0.3
 	frame.Visible = false
 	frame.Parent = gui
@@ -62,7 +63,7 @@ local function makeLabel(parent, name, size, position, textSize, text)
 	label.BackgroundTransparency = 1
 	label.Font = Enum.Font.GothamBold
 	label.TextSize = textSize
-	label.TextColor3 = Color3.fromRGB(240, 240, 240)
+	label.TextColor3 = BrandColors.White
 	label.TextStrokeTransparency = 0.4
 	label.Text = text or ""
 	label.Parent = parent
@@ -75,11 +76,11 @@ local function makeButton(parent, name, size, position, text, textSize)
 	button.Size = size
 	button.Position = position
 	button.AnchorPoint = Vector2.new(0.5, 0)
-	button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	button.BackgroundColor3 = BrandColors.Primary
 	button.BackgroundTransparency = 0.15
 	button.Font = Enum.Font.GothamBold
 	button.TextSize = textSize or 20
-	button.TextColor3 = Color3.new(1, 1, 1)
+	button.TextColor3 = BrandColors.White
 	button.TextWrapped = true
 	button.AutoButtonColor = true
 	button.Text = text
@@ -163,20 +164,23 @@ local function refreshVotePanel(state)
 		local count = tonumber(counts[tostring(duration)]) or 0
 		button.Text = string.format("%d分\n%d票", math.floor(duration / 60), count)
 		if duration == myVote then
-			button.BackgroundColor3 = Color3.fromRGB(40, 130, 220)
+			button.BackgroundColor3 = BrandColors.Accent
 		elseif duration == chosenDuration then
-			button.BackgroundColor3 = Color3.fromRGB(120, 100, 40)
+			button.BackgroundColor3 = BrandColors.Secondary
 		else
-			button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+			button.BackgroundColor3 = BrandColors.Primary
 		end
+		button.TextColor3 = duration == myVote and BrandColors.Surface or BrandColors.White
 	end
+	voteStatusLabel.TextColor3 = BrandColors.Accent
 	voteStatusLabel.Text = string.format("今の決定: %d分（同数なら%d分）", math.floor(chosenDuration / 60), math.floor(Config.DefaultDuration / 60))
 	local mapCounts = state.MapVoteCounts or {}
 	for _, map in ipairs(Config.MatchMaps) do
 		local button = mapButtons[map.Id]
 		button.Text = string.format("%s\n%d票", map.VoteLabel or map.Name, tonumber(mapCounts[map.Id]) or 0)
-		button.BackgroundColor3 = if map.Id == myMapVote then Color3.fromRGB(40, 130, 220)
-			else Color3.fromRGB(60, 60, 70)
+		button.BackgroundColor3 = if map.Id == myMapVote then BrandColors.Accent
+			else BrandColors.Primary
+		button.TextColor3 = map.Id == myMapVote and BrandColors.Surface or BrandColors.White
 	end
 end
 
@@ -231,6 +235,11 @@ for index, itemId in ipairs(Config.ItemOrder) do
 		def.DisplayName,
 		18
 	)
+	local itemMark = Instance.new("UIStroke")
+	itemMark.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	itemMark.Color = def.Color
+	itemMark.Thickness = 2
+	itemMark.Parent = button
 	button.Activated:Connect(function()
 		-- 選んでいるものを押したら外す。新しいものは上限まで追加できる
 		for i, selectedId in ipairs(selectedDeck) do
@@ -269,12 +278,12 @@ refreshDeckPanel = function()
 			end
 		end
 		if selected then
-			button.BackgroundColor3 = def.Color
-			button.TextColor3 = Color3.fromRGB(20, 20, 20)
+			button.BackgroundColor3 = BrandColors.Accent
+			button.TextColor3 = BrandColors.Surface
 			button.Text = def.DisplayName .. "\n（選択中）"
 		else
-			button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-			button.TextColor3 = Color3.new(1, 1, 1)
+			button.BackgroundColor3 = BrandColors.Primary
+			button.TextColor3 = BrandColors.White
 			button.Text = def.DisplayName
 		end
 	end
@@ -282,9 +291,9 @@ refreshDeckPanel = function()
 		"ボックスから出るアイテムを%dつ選ぶ（今 %d/%d）",
 		Config.DeckSize, #selectedDeck, Config.DeckSize
 	)
-	deckConfirmButton.BackgroundColor3 = #selectedDeck == Config.DeckSize
-		and Color3.fromRGB(40, 160, 80)
-		or Color3.fromRGB(60, 60, 70)
+	local canConfirm = #selectedDeck == Config.DeckSize
+	deckConfirmButton.BackgroundColor3 = canConfirm and BrandColors.Accent or BrandColors.Secondary
+	deckConfirmButton.TextColor3 = canConfirm and BrandColors.Surface or BrandColors.White
 end
 
 deckButton.Activated:Connect(function()
@@ -317,20 +326,20 @@ local zoneFrame = makeFrame("ZonePanel", UDim2.new(0, 240, 0, 84), UDim2.new(1, 
 zoneFrame.AnchorPoint = Vector2.new(1, 0)
 local zoneRadiusLabel = makeLabel(zoneFrame, "Radius", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 4), 17, "")
 local zoneWarnLabel = makeLabel(zoneFrame, "Warn", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 26), 17, "")
-zoneWarnLabel.TextColor3 = Color3.fromRGB(255, 90, 90)
+zoneWarnLabel.TextColor3 = BrandColors.Danger
 
 local staminaBack = Instance.new("Frame")
 staminaBack.Name = "StaminaBack"
 staminaBack.Size = UDim2.new(1, -20, 0, 16)
 staminaBack.Position = UDim2.new(0.5, 0, 0, 56)
 staminaBack.AnchorPoint = Vector2.new(0.5, 0)
-staminaBack.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+staminaBack.BackgroundColor3 = BrandColors.Surface
 staminaBack.Parent = zoneFrame
 
 local staminaFill = Instance.new("Frame")
 staminaFill.Name = "StaminaFill"
 staminaFill.Size = UDim2.new(1, 0, 1, 0)
-staminaFill.BackgroundColor3 = Color3.fromRGB(90, 220, 120)
+staminaFill.BackgroundColor3 = BrandColors.Secondary
 staminaFill.BorderSizePixel = 0
 staminaFill.Parent = staminaBack
 
@@ -351,7 +360,7 @@ ZoneUpdate.OnClientEvent:Connect(function(info)
 	end
 	local ratio = maxStamina > 0 and math.clamp(stamina / maxStamina, 0, 1) or 0
 	staminaFill.Size = UDim2.new(ratio, 0, 1, 0)
-	staminaFill.BackgroundColor3 = ratio > 0.35 and Color3.fromRGB(90, 220, 120) or Color3.fromRGB(255, 90, 90)
+	staminaFill.BackgroundColor3 = ratio > 0.35 and BrandColors.Secondary or BrandColors.Danger
 end)
 
 ---------------------------------------------------------------------

@@ -6,6 +6,7 @@ local RT = require("./.build/mockenv")
 
 -- 依存順に本物のモジュールを読み込み、モックの参照表へ登録する
 RT.modules.Config = require("./.build/Config")
+RT.modules.Music = require("./.build/Music")
 RT.modules.UILayout = require("./.build/UILayout")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
@@ -56,6 +57,78 @@ local function near(a, b)
 end
 local function point(x, y, z)
 	return { Position = Vector3.new(x, y, z) }
+end
+
+local function matchesRGB(color, rgb)
+	return color and color.R == rgb[1] and color.G == rgb[2] and color.B == rgb[3]
+end
+
+do
+	local palette = Config.BrandColors
+	for key, rgb in pairs({
+		Primary = { 95, 25, 130 }, Surface = { 48, 13, 74 }, Secondary = { 140, 60, 190 },
+		Accent = { 255, 201, 6 }, Danger = { 225, 30, 55 }, White = { 255, 255, 255 },
+	}) do
+		check("ブランドカラー " .. key .. " の RGB", matchesRGB(palette[key], rgb))
+	end
+	check("エリアの壁はブランドの赤", Config.ZoneWallColor == palette.Danger)
+
+	for tier, rgb in pairs({ S = { 200, 40, 55 }, A = { 230, 170, 30 }, B = { 40, 165, 90 } }) do
+		check("レア度 " .. tier .. " の文字と色", Config.GetTierName(tier) == tier
+			and matchesRGB(Config.Tiers[tier].Color, rgb))
+	end
+	check("未設定や未知のレア度は B", Config.GetTierName(nil) == "B" and Config.GetTierName("X") == "B")
+	local expected = {
+		Star = "S", Warp = "S",
+		Dash = "A", Shield = "A", Phase = "A", SafetyLine = "A",
+		Smoke = "B", Banana = "B", SpikeBoots = "B", Insulate = "B",
+	}
+	for id, tier in pairs(expected) do
+		check(id .. " のレア度は " .. tier, Config.Items[id].Tier == tier)
+	end
+end
+
+do
+	local players = RT.game:GetService("Players")
+	local lobbyPlayer = RT.Instance.new("Player")
+	local playerGui = RT.Instance.new("Folder")
+	playerGui.Name = "PlayerGui"
+	playerGui.Parent = lobbyPlayer
+	local previousPlayer = players.LocalPlayer
+	players.LocalPlayer = lobbyPlayer
+	local lobbyRemotes = RT.Instance.new("Folder")
+	lobbyRemotes.Name = "LobbyRemotes"
+	lobbyRemotes.Parent = RT.game:GetService("ReplicatedStorage")
+	for _, name in ipairs({ "DataUpdate", "QueueUpdate", "Notify", "BuyItem", "SetDeck",
+		"CreateRoom", "JoinRoom", "RoomCreated", "SoloPlay" }) do
+		local event = RT.Instance.new("RemoteEvent")
+		event.Name = name
+		event.Parent = lobbyRemotes
+	end
+
+	require("./.build/LobbyUI")()
+	local gui = playerGui:FindFirstChild("LobbyUI")
+	lobbyRemotes:FindFirstChild("DataUpdate").OnClientEvent:_Fire({ Coins = 20, Owned = { Dash = true }, Deck = { "Dash" } })
+	local deckRow, shopTag, saveButton
+	for _, child in ipairs(gui:GetDescendants()) do
+		if child:IsA("TextButton") and child.Text:find("［A］ ダッシュ", 1, true) then
+			deckRow = child
+		elseif child:IsA("TextButton") and child.Text == "このデッキで保存" then
+			saveButton = child
+		elseif child:IsA("TextLabel") and child.Text == "S" and child.BackgroundColor3 == Config.Tiers.S.Color then
+			shopTag = child
+		end
+	end
+	local palette = Config.BrandColors
+	check("ロビーのデッキはレア度と選択中の配色を表示する",
+		deckRow and deckRow.BackgroundColor3 == palette.Accent and deckRow.TextColor3 == palette.Surface)
+	check("ロビーのショップはレア度に応じた色タグを表示する",
+		shopTag and shopTag.TextColor3 == palette.White and shopTag.Parent.BackgroundColor3 == palette.Primary)
+	check("ロビーの保存は黄色と濃い紫の文字",
+		saveButton and saveButton.BackgroundColor3 == palette.Accent and saveButton.TextColor3 == palette.Surface)
+
+	lobbyRemotes:Destroy()
+	players.LocalPlayer = previousPlayer
 end
 
 ---------------------------------------------------------------------
@@ -135,7 +208,9 @@ do
 	stateEvent:_Fire({ Phase = "Intermission", MapVoteCounts = { Park = 2 } })
 	check("マップのボタンは票数と自分の選択を表示し、Idを送る", votePanel.Visible
 		and sentMap == "Park" and parkButton.Text == "パーク\n2票"
-		and parkButton.BackgroundColor3.B > beforeSelection.B)
+		and beforeSelection == Config.BrandColors.Primary
+		and parkButton.BackgroundColor3 == Config.BrandColors.Accent
+		and parkButton.TextColor3 == Config.BrandColors.Surface)
 	stateEvent:_Fire({ Phase = "Round" })
 	check("試合中は時間とマップの投票パネルが非表示", not votePanel.Visible)
 	Remotes.MapVote.FireServer = realFireServer

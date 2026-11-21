@@ -330,7 +330,8 @@ local instanceMT = {
 			return fakeEvent
 		end
 		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded"
-			or key == "OnServerEvent" or key == "OnClientEvent" or key == "Activated" then
+			or key == "OnServerEvent" or key == "OnClientEvent" or key == "Activated"
+			or key == "MouseButton1Click" then
 			local signals = rawget(self, "_signals")
 			if not signals then
 				signals = {}

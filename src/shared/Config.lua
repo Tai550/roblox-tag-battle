@@ -4,6 +4,19 @@
 
 local Config = {}
 
+Config.BrandColors = {
+	Primary = Color3.fromRGB(95, 25, 130),
+	Surface = Color3.fromRGB(48, 13, 74),
+	Secondary = Color3.fromRGB(140, 60, 190),
+	Accent = Color3.fromRGB(255, 201, 6),
+	Danger = Color3.fromRGB(225, 30, 55),
+	White = Color3.fromRGB(255, 255, 255),
+}
+
+Config.Music = { FinalTime = 10 } -- BGM の ID が未設定なら再生しない
+Config.FriendRoomCodeLength = 4
+Config.RadarHighlightColor = Color3.fromRGB(60, 255, 230)
+
 ---------------------------------------------------------------------
 -- ラウンド進行
 ---------------------------------------------------------------------
@@ -85,7 +98,7 @@ Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
 Config.ZoneWallHeight = 60         -- 壁（円柱）の高さ
-Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
+Config.ZoneWallColor = Config.BrandColors.Danger -- 壁の色
 Config.ZoneWallTransparency = 0.5  -- 壁の透明度
 Config.ZoneWallSegments = 48       -- 壁を円周に並べるパネルの数
 
@@ -209,18 +222,30 @@ function Config.NextTierForRP(rp)
 	return nextTier
 end
 
+Config.Tiers = {
+	S = { Name = "S", Color = Color3.fromRGB(200, 40, 55) },
+	A = { Name = "A", Color = Color3.fromRGB(230, 170, 30) },
+	B = { Name = "B", Color = Color3.fromRGB(40, 165, 90) },
+}
+
+function Config.GetTierName(tier)
+	return (Config.Tiers[tier] or Config.Tiers.B).Name
+end
+
 ---------------------------------------------------------------------
 -- バトルアイテム定義
 --   Id           : 内部で使う名前（Items のキーと同じにする）
 --   DisplayName  : 画面に出す名前
 --   Description  : 拾ったときに出す説明
---   Color        : マップ上のアイテムの色
+--   Color        : マップとUIで使うアイテムの識別色
+--   Tier         : アイテムのレア度
 --   SpawnWeight  : 出現しやすさ（大きいほど出やすい。0 で出なくなる）
 --   CanTaggerUse : 鬼が使えるかどうか
 ---------------------------------------------------------------------
 Config.Items = {
 	Dash = {
 		Id = "Dash",
+		Tier = "A",
 		DisplayName = "ダッシュ",
 		Description = "5秒間、足がとても速くなる",
 		Color = Color3.fromRGB(255, 200, 40),
@@ -231,6 +256,7 @@ Config.Items = {
 	},
 	Smoke = {
 		Id = "Smoke",
+		Tier = "B",
 		DisplayName = "スモーク",
 		Description = "鬼の画面を3秒間まっ白にする",
 		Color = Color3.fromRGB(200, 200, 200),
@@ -241,6 +267,7 @@ Config.Items = {
 	},
 	Shield = {
 		Id = "Shield",
+		Tier = "A",
 		DisplayName = "シールド",
 		Description = "1回だけ鬼のタッチを防ぐ（10秒で消える）",
 		Color = Color3.fromRGB(80, 170, 255),
@@ -251,6 +278,7 @@ Config.Items = {
 	},
 	Warp = {
 		Id = "Warp",
+		Tier = "S",
 		DisplayName = "ワープ",
 		Description = "ランダムな出現ポイントへ瞬間移動",
 		Color = Color3.fromRGB(190, 90, 255),
@@ -260,6 +288,7 @@ Config.Items = {
 	},
 	Star = {
 		Id = "Star",
+		Tier = "S",
 		DisplayName = "スター",
 		Description = "4秒間、鬼にタッチされなくなる",
 		Color = Color3.fromRGB(255, 180, 0),
@@ -269,6 +298,7 @@ Config.Items = {
 	},
 	Banana = {
 		Id = "Banana",
+		Tier = "B",
 		DisplayName = "バナナ",
 		Description = "足元に置く。踏んだ人がすべってしまう",
 		Color = Color3.fromRGB(255, 235, 130),
@@ -280,6 +310,7 @@ Config.Items = {
 	},
 	Phase = {
 		Id = "Phase",
+		Tier = "A",
 		DisplayName = "壁抜け",
 		Description = "洞窟の内壁を2.5秒間すり抜ける",
 		Color = Color3.fromRGB(180, 125, 255),
@@ -290,6 +321,7 @@ Config.Items = {
 	},
 	SpikeBoots = {
 		Id = "SpikeBoots",
+		Tier = "B",
 		DisplayName = "スパイクブーツ",
 		Description = "5秒間、氷の床で滑らなくなる",
 		Color = Color3.fromRGB(120, 220, 255),
@@ -300,6 +332,7 @@ Config.Items = {
 	},
 	Insulate = {
 		Id = "Insulate",
+		Tier = "B",
 		DisplayName = "絶縁",
 		Description = "6秒間、帯電部品で痺れなくなる",
 		Color = Color3.fromRGB(255, 240, 100),
@@ -310,6 +343,7 @@ Config.Items = {
 	},
 	SafetyLine = {
 		Id = "SafetyLine",
+		Tier = "A",
 		DisplayName = "命綱",
 		Description = "落下時に一度だけ、自動で最後の足場に戻る",
 		Color = Color3.fromRGB(120, 230, 160),

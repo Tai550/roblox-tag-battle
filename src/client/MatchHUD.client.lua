@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local BrandColors = Config.BrandColors
 local Music = require(Shared:WaitForChild("Music"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
@@ -29,12 +30,11 @@ local RankUp = Remotes:WaitForChild("RankUp")
 
 local localPlayer = Players.LocalPlayer
 
-local DARK = Color3.fromRGB(20, 22, 30)
-local WHITE = Color3.fromRGB(255, 255, 255)
-local RED = Color3.fromRGB(255, 80, 80)
-local PINK = Color3.fromRGB(255, 90, 200)
-local GREEN = Color3.fromRGB(90, 220, 120)
-local GOLD = Color3.fromRGB(255, 205, 60)
+local DARK = BrandColors.Surface
+local WHITE = BrandColors.White
+local RED = BrandColors.Danger
+local SECONDARY = BrandColors.Secondary
+local GOLD = BrandColors.Accent
 
 ---------------------------------------------------------------------
 -- 部品を作る小さな関数
@@ -87,8 +87,8 @@ local function button(parent, text, size, position, color)
 	b.Text = text
 	b.TextSize = 16
 	b.Font = Enum.Font.GothamBold
-	b.TextColor3 = WHITE
-	b.BackgroundColor3 = color or Color3.fromRGB(70, 110, 230)
+	b.TextColor3 = color == GOLD and DARK or WHITE
+	b.BackgroundColor3 = color or BrandColors.Primary
 	b.BorderSizePixel = 0
 	b.AutoButtonColor = true
 	b.Parent = parent
@@ -116,17 +116,17 @@ topStroke.Parent = topPill
 ---------------------------------------------------------------------
 
 local zonePanel = frame("ZonePanel", UDim2.new(0, 156, 0, 62), UDim2.new(0, 8, 0, 4))
-local zoneLabel = label(zonePanel, "エリアの中", UDim2.new(1, -16, 0, 18), UDim2.new(0, 8, 0, 4), 13, GREEN, true)
+local zoneLabel = label(zonePanel, "エリアの中", UDim2.new(1, -16, 0, 18), UDim2.new(0, 8, 0, 4), 13, SECONDARY, true)
 local staminaBack = Instance.new("Frame")
 staminaBack.Size = UDim2.new(1, -16, 0, 8)
 staminaBack.Position = UDim2.new(0, 8, 0, 25)
-staminaBack.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+staminaBack.BackgroundColor3 = BrandColors.Surface
 staminaBack.BorderSizePixel = 0
 staminaBack.Parent = zonePanel
 corner(staminaBack, 4)
 local staminaFill = Instance.new("Frame")
 staminaFill.Size = UDim2.new(1, 0, 1, 0)
-staminaFill.BackgroundColor3 = GREEN
+staminaFill.BackgroundColor3 = SECONDARY
 staminaFill.BorderSizePixel = 0
 staminaFill.Parent = staminaBack
 corner(staminaFill, 4)
@@ -180,10 +180,11 @@ toast.TextStrokeTransparency = 0.3
 toast.TextTransparency = 1
 local toastToken = 0
 
-local function showToast(text)
+local function showToast(text, color)
 	toastToken = toastToken + 1
 	local myToken = toastToken
 	toast.Text = text
+	toast.TextColor3 = color or WHITE
 	toast.TextTransparency = 0
 	toast.TextStrokeTransparency = 0.3
 	task.delay(2.6, function()
@@ -253,8 +254,8 @@ actionRow.BackgroundTransparency = 1
 actionRow.Size = UDim2.new(1, 0, 0, 40)
 actionRow.LayoutOrder = 5
 actionRow.Parent = center
-local startButton = button(actionRow, "開始！", UDim2.new(0.5, -4, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(40, 170, 90))
-local lobbyButton = button(actionRow, "ロビーへ戻る", UDim2.new(0.5, -4, 1, 0), UDim2.new(0.5, 4, 0, 0), Color3.fromRGB(90, 90, 110))
+local startButton = button(actionRow, "開始！", UDim2.new(0.5, -4, 1, 0), UDim2.new(0, 0, 0, 0), BrandColors.Accent)
+local lobbyButton = button(actionRow, "ロビーへ戻る", UDim2.new(0.5, -4, 1, 0), UDim2.new(0.5, 4, 0, 0), BrandColors.Secondary)
 startButton.MouseButton1Click:Connect(function()
 	HostStart:FireServer()
 end)
@@ -359,7 +360,7 @@ local function renderResults(results)
 		elseif row.Status == "最後の鬼" then
 			color = RED
 		elseif row.Status == "脱落" then
-			color = Color3.fromRGB(170, 170, 180)
+			color = BrandColors.White
 		end
 		local text = string.format("%d位  %s  ［%s・鬼%d回］  +%dコイン",
 			row.Rank, row.Name, row.Status, row.Tags, row.Coins)
@@ -380,6 +381,7 @@ local function renderState()
 
 	if inRound then
 		timeLabel.Text = formatTime(state.TimeLeft)
+		timeLabel.TextColor3 = (state.TimeLeft or math.huge) <= Config.Music.FinalTime and RED or WHITE
 		local amTagger = state.TaggerUserId == localPlayer.UserId
 		taggerLabel.Text = amTagger and "あなたが鬼！" or ("鬼: " .. (state.TaggerName or ""))
 		topStroke.Enabled = amTagger
@@ -417,8 +419,9 @@ local function renderState()
 		for duration, b in pairs(voteButtons) do
 			local votes = state.VoteCounts and state.VoteCounts[tostring(duration)] or 0
 			b.Text = string.format("%d分（%d票）", duration / 60, votes)
-			b.BackgroundColor3 = duration == state.ChosenDuration and Color3.fromRGB(70, 110, 230)
-				or Color3.fromRGB(70, 75, 95)
+			local selected = duration == state.ChosenDuration
+			b.BackgroundColor3 = selected and GOLD or BrandColors.Primary
+			b.TextColor3 = selected and DARK or WHITE
 		end
 	end
 	if phase == "Results" then
@@ -443,7 +446,8 @@ local function renderItems()
 		local def = itemId and Config.Items[itemId]
 		if def then
 			b.Text = def.Passive and (def.DisplayName .. "\n（自動）") or def.DisplayName
-			b.BackgroundColor3 = def.Color:Lerp(DARK, 0.45)
+			b.BackgroundColor3 = BrandColors.Primary
+			b.TextColor3 = def.Color
 			b.BackgroundTransparency = 0.1
 		else
 			b.Text = ""
@@ -477,22 +481,24 @@ end)
 ZoneUpdate.OnClientEvent:Connect(function(info)
 	local ratio = math.clamp((info.Stamina or 0) / math.max(1, info.MaxStamina or 100), 0, 1)
 	staminaFill.Size = UDim2.new(ratio, 0, 1, 0)
-	staminaFill.BackgroundColor3 = ratio > 0.35 and GREEN or RED
+	staminaFill.BackgroundColor3 = ratio > 0.35 and SECONDARY or RED
 	if (info.GuardLeft or 0) > 0 then
 		zoneLabel.Text = string.format("エリアガード %d秒", math.ceil(info.GuardLeft))
-		zoneLabel.TextColor3 = PINK
+		zoneLabel.TextColor3 = RED
 	elseif info.IsOutside then
 		zoneLabel.Text = "エリアの外！ 戻ろう"
 		zoneLabel.TextColor3 = RED
 	else
 		zoneLabel.Text = "エリアの中"
-		zoneLabel.TextColor3 = GREEN
+		zoneLabel.TextColor3 = WHITE
 	end
 	returnsLabel.Text = string.format("強制送還 %d/%d（次で脱落: %s）",
 		info.Returns or 0, info.MaxReturns or 2, (info.Returns or 0) >= (info.MaxReturns or 2) and "はい" or "いいえ")
 end)
 
-Notify.OnClientEvent:Connect(showToast)
+Notify.OnClientEvent:Connect(function(text)
+	showToast(text)
+end)
 
 ---------------------------------------------------------------------
 -- 左上：段位と、この試合の記録（タッチ・捕まった回数・獲得 RP）
@@ -529,7 +535,7 @@ end)
 refreshStats()
 RankUp.OnClientEvent:Connect(function(rankName)
 	if type(rankName) == "string" and rankName ~= "" then
-		showToast("ランクアップ！ " .. rankName .. " に昇格")
+		showToast("ランクアップ！ " .. rankName .. " に昇格", GOLD)
 	end
 end)
 
@@ -540,7 +546,7 @@ RadarEffect.OnClientEvent:Connect(function(characters, duration)
 		if typeof(character) == "Instance" and character:IsA("Model") then
 			local highlight = Instance.new("Highlight")
 			highlight.Name = "RadarHighlight"
-			highlight.FillColor = Color3.fromRGB(60, 255, 230)
+			highlight.FillColor = Config.RadarHighlightColor
 			highlight.OutlineColor = WHITE
 			highlight.FillTransparency = 0.4
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
