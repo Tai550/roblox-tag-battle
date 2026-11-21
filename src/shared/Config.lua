@@ -34,7 +34,8 @@ Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 -- タッチ判定（サーバー側で距離を測って判定する）
 ---------------------------------------------------------------------
 Config.TagCooldown = 3           -- 鬼になった直後、タッチが無効になる秒数
-Config.TagDistance = 5           -- この距離（スタッド）以内に近づいたら「タッチ」
+Config.TagReachForward = 1.6     -- 鬼のルートから判定の起点を前に出す距離（スタッド）
+Config.TagTouchDistance = 1.4    -- 起点から相手のパーツの表面までの許容距離（スタッド）
 Config.TagCheckInterval = 0.1    -- タッチ判定の間隔（秒）
 
 ---------------------------------------------------------------------
@@ -102,13 +103,13 @@ Config.BoxExpireTime = 0   -- ボックスで手に入れたアイテムの使�
 -- アイテム使用の操作
 ---------------------------------------------------------------------
 -- 所持はリスト形式。枠ごとに使うキーが決まっている。
---   1枠目: キーボードの E / ゲームパッドの X
---   2枠目: Q / Y   3枠目: R / B   4枠目: F / DPadUp（ダブルアイテム所有者のみ）
+--   1枠目: E・1 / ゲームパッドの X
+--   2枠目: Q・2 / Y   3枠目: R・3 / B   4枠目: F・4 / DPadUp（ダブルアイテム所有者のみ）
 Config.ItemSlotKeys = {
-	{ Enum.KeyCode.E, Enum.KeyCode.ButtonX },
-	{ Enum.KeyCode.Q, Enum.KeyCode.ButtonY },
-	{ Enum.KeyCode.R, Enum.KeyCode.ButtonB },
-	{ Enum.KeyCode.F, Enum.KeyCode.DPadUp },
+	{ Enum.KeyCode.E, Enum.KeyCode.One, Enum.KeyCode.ButtonX },
+	{ Enum.KeyCode.Q, Enum.KeyCode.Two, Enum.KeyCode.ButtonY },
+	{ Enum.KeyCode.R, Enum.KeyCode.Three, Enum.KeyCode.ButtonB },
+	{ Enum.KeyCode.F, Enum.KeyCode.Four, Enum.KeyCode.DPadUp },
 }
 Config.ItemSlotKeyLabels = { "E", "Q", "R", "F" } -- 画面のボタンやメッセージに出すキー名
 Config.BaseItemSlots = 3         -- 通常の所持枠の数（ためて終盤に使えるよう 3 枠）

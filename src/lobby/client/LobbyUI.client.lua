@@ -39,6 +39,7 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "LobbyUI"
 gui.ResetOnSpawn = false
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
+require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("UILayout")).ApplySafeArea(gui)
 
 local function corner(parent, radius)
 	local c = Instance.new("UICorner")

@@ -317,7 +317,43 @@ end
 -- タッチ判定
 ---------------------------------------------------------------------
 
-local function tryTag()
+-- 試合中の自分の記録（右上の表示用）。Player の属性に書くので、ボットには書かない
+local function addRoundStat(player, attribute, amount)
+	if player and not BotManager.IsBot(player) then
+		player:SetAttribute(attribute, (player:GetAttribute(attribute) or 0) + amount)
+	end
+end
+
+local function awardRoundRP(player, amount)
+	local credited = RankManager.Award(player, amount)
+	if credited then
+		addRoundStat(player, "RoundRP", credited)
+	end
+end
+
+-- 「手が届いたらタッチ」：鬼の胸の少し前から、相手の体のいちばん近い表面までの距離で判定する
+local function isWithinTagReach(origin, character)
+	if not character then
+		return false
+	end
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local localOrigin = part.CFrame:PointToObjectSpace(origin)
+			local halfSize = part.Size * 0.5
+			local closest = Vector3.new(
+				math.clamp(localOrigin.X, -halfSize.X, halfSize.X),
+				math.clamp(localOrigin.Y, -halfSize.Y, halfSize.Y),
+				math.clamp(localOrigin.Z, -halfSize.Z, halfSize.Z)
+			)
+			if (localOrigin - closest).Magnitude <= Config.TagTouchDistance then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function RoundManager.TryTag()
 	local tagger = GameState.Tagger
 	if not tagger then
 		return
@@ -334,11 +370,11 @@ local function tryTag()
 		return
 	end
 
+	local origin = taggerRoot.Position + taggerRoot.CFrame.LookVector * Config.TagReachForward
 	for _, runner in ipairs(GameState.ParticipantList()) do
 		if runner ~= tagger and GameState.IsAlive(runner)
 			and not RoundManager.IsTagBackBlocked(runner, GameState.NoTagBack) then
-			local runnerRoot = GameState.GetRootPart(runner)
-			if runnerRoot and (runnerRoot.Position - taggerRoot.Position).Magnitude <= Config.TagDistance then
+			if isWithinTagReach(origin, runner.Character) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
 					-- シールドで防いだ直後なのでタッチ無効
@@ -351,8 +387,10 @@ local function tryTag()
 					GameState.TagCounts[runner] = (GameState.TagCounts[runner] or 0) + 1
 					Leaderstats.Set(runner, "Tagged", GameState.TagCounts[runner])
 					RankManager.AddCount(runner, "Tagged")
-					RankManager.Award(tagger, Config.RankPoints.Tag)
-					RankManager.Award(runner, Config.RankPoints.Caught)
+					addRoundStat(tagger, "RoundTags", 1)
+					addRoundStat(runner, "RoundCaught", 1)
+					awardRoundRP(tagger, Config.RankPoints.Tag)
+					awardRoundRP(runner, Config.RankPoints.Caught)
 					Remotes.NotifyPlayer(runner, "タッチされた！ 今度はあなたが鬼！（" .. tagger.DisplayName .. " にはタッチ返しできない）")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " にタッチ！ 鬼を交代した")
 					setTagger(runner, tagger)
@@ -561,6 +599,11 @@ local function runRound()
 	GameState.Phase = "Round"
 	GameState.Message = ""
 	GameState.TimeLeft = duration
+	for _, player in ipairs(Players:GetPlayers()) do
+		player:SetAttribute("RoundTags", 0)
+		player:SetAttribute("RoundCaught", 0)
+		player:SetAttribute("RoundRP", 0)
+	end
 	local info = MapBuilder.GetCurrentMapInfo()
 	if info then
 		Remotes.Notify:FireAllClients("このマップ：" .. info.Name)
@@ -608,7 +651,7 @@ local function runRound()
 			end
 		end
 
-		tryTag()
+		RoundManager.TryTag()
 		ItemManager.Tick()
 		ZoneManager.Tick()
 		RoundManager.CheckSkyFalls()
@@ -667,7 +710,7 @@ local function runRound()
 			-- 段位の RP：一度もタッチされずに逃げ切った人（優勝）に加点
 			if entry.Champion then
 				RankManager.AddCount(player, "Survived")
-				RankManager.Award(player, Config.RankPoints.Survived)
+				awardRoundRP(player, Config.RankPoints.Survived)
 			end
 		end
 		Remotes.NotifyPlayer(player, string.format("%d位！ %d コインもらった", entry.Rank, entry.Coins))

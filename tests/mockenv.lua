@@ -39,6 +39,14 @@ RT.Vector3 = {
 	end,
 }
 
+RT.Vector2 = {
+	new = function(x, y) return { X = x, Y = y } end,
+}
+
+RT.UDim = {
+	new = function(scale, offset) return { Scale = scale, Offset = offset } end,
+}
+
 RT.Color3 = {
 	fromRGB = function(r, g, b)
 		return { R = r, G = g, B = b }
@@ -62,6 +70,19 @@ RT.UDim2 = {
 
 local CFrameMT = {}
 CFrameMT.__index = CFrameMT
+
+function CFrameMT:PointToObjectSpace(point)
+	local offset = point - self.Position
+	local x, y, z = offset.X, offset.Y, offset.Z
+	local cx, sx = math.cos(self.RotX), math.sin(self.RotX)
+	local cy, sy = math.cos(self.RotY), math.sin(self.RotY)
+	local cz, sz = math.cos(self.RotZ), math.sin(self.RotZ)
+	y, z = cx * y + sx * z, -sx * y + cx * z
+	x, z = cy * x - sy * z, sy * x + cy * z
+	x, y = cz * x + sz * y, -sz * x + cz * y
+	return RT.Vector3.new(x, y, z)
+end
+
 -- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
 CFrameMT.__mul = function(a, b)
 	return setmetatable({
@@ -71,7 +92,7 @@ CFrameMT.__mul = function(a, b)
 		RotX = (b and b.RotX) or 0,
 		RotY = (b and b.RotY) or 0,
 		RotZ = (b and b.RotZ) or 0,
-		LookVector = RT.Vector3.new(0, 0, -1),
+		LookVector = b.LookVector,
 		Position = RT.Vector3.new(a.X or 0, a.Y or 0, a.Z or 0),
 	}, CFrameMT)
 end
@@ -89,6 +110,7 @@ RT.CFrame = {
 		}, CFrameMT)
 	end,
 	Angles = function(rx, ry, rz)
+		local pitch, yaw = rx or 0, ry or 0
 		return setmetatable({
 			X = 0,
 			Y = 0,
@@ -96,7 +118,7 @@ RT.CFrame = {
 			RotX = rx or 0,
 			RotY = ry or 0,
 			RotZ = rz or 0,
-			LookVector = RT.Vector3.new(0, 0, -1),
+			LookVector = RT.Vector3.new(-math.sin(yaw), math.sin(pitch) * math.cos(yaw), -math.cos(pitch) * math.cos(yaw)),
 			Position = RT.Vector3.new(0, 0, 0),
 		}, CFrameMT)
 	end,
@@ -165,8 +187,24 @@ RT.RaycastParams = { new = function() return {} end }
 
 local instanceMethods = {}
 
+function instanceMethods.GetPropertyChangedSignal()
+	return fakeEvent
+end
+function instanceMethods.GetAttributeChangedSignal(self, name)
+	self._attributeSignals = self._attributeSignals or {}
+	if not self._attributeSignals[name] then
+		self._attributeSignals[name] = makeSignal()
+	end
+	return self._attributeSignals[name]
+end
 function instanceMethods.SetAttribute(self, name, value)
-	self._attributes[name] = value
+	if self._attributes[name] ~= value then
+		self._attributes[name] = value
+		local signal = self._attributeSignals and self._attributeSignals[name]
+		if signal then
+			signal:_Fire()
+		end
+	end
 end
 function instanceMethods.GetAttribute(self, name)
 	return self._attributes[name]
@@ -206,18 +244,6 @@ function instanceMethods.WaitForChild(self, name)
 	end
 	-- 子がなければ「モジュール名の目印」を返す（fakeRequire が解決する）
 	return { __moduleName = name }
-end
-function instanceMethods.SetAttribute(self, name, value)
-	local attrs = rawget(self, "_attributes")
-	if not attrs then
-		attrs = {}
-		rawset(self, "_attributes", attrs)
-	end
-	attrs[name] = value
-end
-function instanceMethods.GetAttribute(self, name)
-	local attrs = rawget(self, "_attributes")
-	return attrs and attrs[name]
 end
 function instanceMethods.FindFirstChildOfClass(self, className)
 	for _, child in ipairs(rawget(self, "_children") or {}) do
@@ -285,6 +311,8 @@ function instanceMethods.Destroy(self)
 	detachFromParent(self)
 	rawset(self, "Parent", nil)
 end
+function instanceMethods.FireServer(_, ...)
+end
 function instanceMethods.FireClient(_, ...)
 end
 function instanceMethods.FireAllClients(_, ...)
@@ -296,7 +324,7 @@ local instanceMT = {
 		if method then
 			return method
 		end
-		if key == "OnServerEvent" or key == "OnClientEvent" then
+		if key == "OnServerEvent" or key == "OnClientEvent" or key == "Activated" or key == "InputBegan" then
 			return fakeEvent
 		end
 		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded" then
@@ -330,6 +358,8 @@ RT.Instance = {
 			obj.CollisionGroup = "Default"
 			obj.Size = RT.Vector3.new(1, 1, 1)
 			obj.AssemblyLinearVelocity = RT.Vector3.new(0, 0, 0)
+		elseif className == "ScreenGui" then
+			obj.AbsoluteSize = RT.Vector2.new(360, 640)
 		elseif className == "Humanoid" then
 			obj.HipHeight = 0
 		end

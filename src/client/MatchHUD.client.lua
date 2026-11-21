@@ -45,6 +45,7 @@ gui.Name = "MatchHUD"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = false -- 上の Roblox のバーより下から使う
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
+require(Shared:WaitForChild("UILayout")).ApplySafeArea(gui) -- スマホの切り欠き・標準バーを避ける
 
 local function corner(parent, radius)
 	local c = Instance.new("UICorner")
@@ -492,6 +493,40 @@ ZoneUpdate.OnClientEvent:Connect(function(info)
 end)
 
 Notify.OnClientEvent:Connect(showToast)
+
+---------------------------------------------------------------------
+-- 右上：段位と、この試合の記録（タッチ・捕まった回数・獲得 RP）
+---------------------------------------------------------------------
+
+local statsPanel = frame("RoundStats", UDim2.new(0, 190, 0, 46), UDim2.new(1, -10, 0, 6), gui, 0.35)
+statsPanel.AnchorPoint = Vector2.new(1, 0)
+local rankText = label(statsPanel, "", UDim2.new(1, -16, 0, 20), UDim2.new(0, 8, 0, 3), 14, GOLD, true)
+rankText.Name = "Rank"
+local roundText = label(statsPanel, "", UDim2.new(1, -16, 0, 18), UDim2.new(0, 8, 0, 24), 12, WHITE, false)
+roundText.Name = "RoundCounts"
+
+local function refreshStats()
+	local folder = localPlayer:FindFirstChild("leaderstats")
+	local rpStat = folder and folder:FindFirstChild(Config.LeaderstatNames.RP)
+	local rp = rpStat and tonumber(rpStat.Value) or 0
+	local tier = Config.TierForRP(rp)
+	rankText.Text = string.format("%s  %d RP", tier and tier.Name or "", rp)
+	rankText.TextColor3 = tier and tier.Color or GOLD
+	roundText.Text = string.format("タッチ %d　捕まった %d　+%d RP",
+		localPlayer:GetAttribute("RoundTags") or 0,
+		localPlayer:GetAttribute("RoundCaught") or 0,
+		localPlayer:GetAttribute("RoundRP") or 0)
+end
+for _, name in ipairs({ "RoundTags", "RoundCaught", "RoundRP" }) do
+	localPlayer:GetAttributeChangedSignal(name):Connect(refreshStats)
+end
+task.spawn(function()
+	local folder = localPlayer:WaitForChild("leaderstats")
+	local rpStat = folder:WaitForChild(Config.LeaderstatNames.RP)
+	rpStat.Changed:Connect(refreshStats)
+	refreshStats()
+end)
+refreshStats()
 RankUp.OnClientEvent:Connect(function(rankName)
 	if type(rankName) == "string" and rankName ~= "" then
 		showToast("ランクアップ！ " .. rankName .. " に昇格")
