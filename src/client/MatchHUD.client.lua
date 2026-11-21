@@ -23,6 +23,8 @@ local ZoneUpdate = Remotes:WaitForChild("ZoneUpdate")
 local Notify = Remotes:WaitForChild("Notify")
 local RadarEffect = Remotes:WaitForChild("RadarEffect")
 local UseItem = Remotes:WaitForChild("UseItem")
+local UseBeast = Remotes:WaitForChild("UseBeast")
+local IsisJump = Remotes:WaitForChild("IsisJump")
 local DurationVote = Remotes:WaitForChild("DurationVote")
 local MapVote = Remotes:WaitForChild("MapVote")
 local HostStart = Remotes:WaitForChild("HostStart")
@@ -146,9 +148,13 @@ itemBar.Name = "ItemBar"
 itemBar.BackgroundTransparency = 1
 itemBar.AnchorPoint = Vector2.new(0.5, 1)
 itemBar.Position = UDim2.new(0.5, 0, 1, -10)
-itemBar.Size = UDim2.new(0, 4 * 78, 0, 62)
+itemBar.Size = UDim2.new(1, -20, 0, 62)
 itemBar.Parent = gui
+local barLimit = Instance.new("UISizeConstraint")
+barLimit.MaxSize = Vector2.new(4 * 78, 62)
+barLimit.Parent = itemBar
 local barLayout = Instance.new("UIListLayout")
+barLayout.SortOrder = Enum.SortOrder.LayoutOrder
 barLayout.FillDirection = Enum.FillDirection.Horizontal
 barLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 barLayout.Padding = UDim.new(0, 6)
@@ -156,7 +162,7 @@ barLayout.Parent = itemBar
 
 local slotButtons = {}
 for slot = 1, 4 do
-	local b = button(itemBar, "", UDim2.new(0, 72, 0, 62), UDim2.new(), DARK)
+	local b = button(itemBar, "", UDim2.new(0.25, -6, 0, 62), UDim2.new(), DARK)
 	b.Name = "Slot" .. slot
 	b.BackgroundTransparency = 0.35
 	b.TextSize = 12
@@ -169,6 +175,16 @@ for slot = 1, 4 do
 	end)
 	slotButtons[slot] = b
 end
+
+local beastButton = button(itemBar, "", UDim2.new(0.2, -6, 0, 62), UDim2.new(), BrandColors.Primary)
+beastButton.Name = "SummonBeast"
+beastButton.LayoutOrder = #slotButtons + 1
+beastButton.TextWrapped = true
+beastButton.TextSize = 12
+beastButton.Visible = false
+beastButton.Activated:Connect(function()
+	UseBeast:FireServer()
+end)
 
 ---------------------------------------------------------------------
 -- お知らせ（上の中央、少しだけ出て消える）
@@ -314,6 +330,17 @@ local spectateIndex = 1
 local state = {}
 local myItems = { HeldItems = {}, MaxSlots = Config.BaseItemSlots, Effects = {} }
 
+UserInputService.JumpRequest:Connect(function()
+	if not myItems.IsisJumpActive then
+		return
+	end
+	local character = localPlayer.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
+		IsisJump:FireServer()
+	end
+end)
+
 local function formatTime(seconds)
 	seconds = math.max(0, math.floor(seconds or 0))
 	return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
@@ -397,6 +424,15 @@ local function renderResults(results)
 	end
 end
 
+local beastHighlights = {}
+
+local function clearBeastHighlights()
+	for highlight in pairs(beastHighlights) do
+		highlight:Destroy()
+	end
+	table.clear(beastHighlights)
+end
+
 local function renderState()
 	local phase = state.Phase
 	local inRound = phase == "Round"
@@ -406,6 +442,9 @@ local function renderState()
 	zonePanel.Visible = inRound and contains(state.Participants, localPlayer.UserId)
 	effectsLabel.Visible = inRound
 	itemBar.Visible = inRound and contains(state.Participants, localPlayer.UserId)
+	if not itemBar.Visible then
+		clearBeastHighlights()
+	end
 
 	if inRound then
 		timeLabel.Text = formatTime(state.TimeLeft)
@@ -480,8 +519,18 @@ end
 
 local function renderItems()
 	local maxSlots = myItems.MaxSlots or Config.BaseItemSlots
+	local beast = Config.Beasts[myItems.EquippedBeast]
+	beastButton.Visible = beast ~= nil and myItems.BeastUsed ~= true
+	if beast then
+		beastButton.Text = "召喚\n" .. beast.DisplayName
+		beastButton.TextColor3 = Config.Tiers[beast.Tier].Color
+	end
+	local columns = beastButton.Visible and maxSlots + 1 or #slotButtons
+	barLimit.MaxSize = Vector2.new(columns * 78, 62)
+	beastButton.Size = UDim2.new(1 / columns, -6, 0, 62)
 	for slot, b in ipairs(slotButtons) do
 		b.Visible = slot <= maxSlots
+		b.Size = UDim2.new(1 / columns, -6, 0, 62)
 		local itemId = myItems.HeldItems and myItems.HeldItems[slot]
 		local def = itemId and Config.Items[itemId]
 		if def then
@@ -580,7 +629,7 @@ RankUp.OnClientEvent:Connect(function(rankName)
 end)
 
 -- レーダー：相手を壁ごしに光らせる（自分の画面だけ）
-RadarEffect.OnClientEvent:Connect(function(characters, duration)
+RadarEffect.OnClientEvent:Connect(function(characters, duration, isBeast)
 	duration = math.clamp(tonumber(duration) or 0, 0, 15)
 	for _, character in ipairs(characters or {}) do
 		if typeof(character) == "Instance" and character:IsA("Model") then
@@ -592,8 +641,14 @@ RadarEffect.OnClientEvent:Connect(function(characters, duration)
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 			highlight.Adornee = character
 			highlight.Parent = gui
+			if isBeast then
+				beastHighlights[highlight] = true
+			end
 			task.delay(duration, function()
-				highlight:Destroy()
+				if not isBeast or beastHighlights[highlight] then
+					beastHighlights[highlight] = nil
+					highlight:Destroy()
+				end
 			end)
 		end
 	end

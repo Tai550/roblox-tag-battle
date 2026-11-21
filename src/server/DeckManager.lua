@@ -57,12 +57,18 @@ end
 -- ボットを消すときに呼ばれる。試合サーバーではデッキを覚えていないので何もしない
 function DeckManager.Release(_player) end
 
-function DeckManager.Init()
-	Players.PlayerAdded:Connect(function(player)
+function DeckManager.Init(onLoaded)
+	local function load(player)
 		PlayerDataStore.Load(player)
-	end)
+		if player.Parent ~= Players then
+			PlayerDataStore.Forget(player)
+		elseif onLoaded then
+			onLoaded(player)
+		end
+	end
+	Players.PlayerAdded:Connect(load)
 	for _, player in ipairs(Players:GetPlayers()) do
-		task.spawn(PlayerDataStore.Load, player)
+		task.spawn(load, player)
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		PlayerDataStore.Forget(player)

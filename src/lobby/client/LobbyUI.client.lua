@@ -1,16 +1,25 @@
--- LobbyUI: ロビーの画面（段位・コイン・デッキ・ショップ・友達部屋・ルーレット・すぐ遊ぶの待ち状況）
+-- LobbyUI: ロビーの画面（段位・コイン・デッキ・ショップ・友達部屋・ルーレット・召喚獣ガチャ・すぐ遊ぶの待ち状況）
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local BrandColors = Config.BrandColors
+local BeastModels = require(Shared:WaitForChild("BeastModels"))
 local UILayout = require(Shared:WaitForChild("UILayout"))
 local Music = require(Shared:WaitForChild("Music"))
+local RouletteFace = require(Shared:WaitForChild("RouletteFace"))
+local RouletteVisual = require(Shared:WaitForChild("RouletteVisual"))
 local Remotes = ReplicatedStorage:WaitForChild("LobbyRemotes")
 
+local OpenBeasts = Remotes:WaitForChild("OpenBeasts")
+local DrawBeast = Remotes:WaitForChild("DrawBeast")
+local BeastResult = Remotes:WaitForChild("BeastResult")
+local EquipBeast = Remotes:WaitForChild("EquipBeast")
 local DataUpdate = Remotes:WaitForChild("DataUpdate")
 local QueueUpdate = Remotes:WaitForChild("QueueUpdate")
 local Notify = Remotes:WaitForChild("Notify")
@@ -22,6 +31,7 @@ local RoomCreated = Remotes:WaitForChild("RoomCreated")
 local SoloPlay = Remotes:WaitForChild("SoloPlay")
 local SpinRoulette = Remotes:WaitForChild("SpinRoulette")
 local RouletteResult = Remotes:WaitForChild("RouletteResult")
+local RouletteSpinVisual = Remotes:WaitForChild("RouletteSpinVisual")
 
 local localPlayer = Players.LocalPlayer
 
@@ -176,7 +186,8 @@ local deckPanel = makePanel("デッキ（試合で出るアイテム）")
 local shopPanel = makePanel("ショップ")
 local roomPanel = makePanel("友達部屋")
 local roulettePanel = makePanel("デイリールーレット")
-local panels = { deckPanel, shopPanel, roomPanel, roulettePanel }
+local beastPanel = makePanel("召喚獣ガチャ")
+local panels = { deckPanel, shopPanel, roomPanel, roulettePanel, beastPanel }
 
 local function open(panel)
 	for _, other in ipairs(panels) do
@@ -218,12 +229,100 @@ end
 -- データ
 ---------------------------------------------------------------------
 
-local myData = { Coins = 0, Owned = {}, Deck = {} }
+local shownCoins = 0
+local myData = { Coins = 0, Owned = {}, Deck = {}, Beasts = {} }
 local draftDeck = {}  -- デッキ画面で選んでいる途中のもの
 
 local function tierTag(def)
 	return "［" .. Config.GetTierName(def.Tier) .. "］"
 end
+
+---------------------------------------------------------------------
+-- 召喚獣ガチャ
+---------------------------------------------------------------------
+
+local beastCoins = label(beastPanel, "", UDim2.new(1, -32, 0, 20), UDim2.fromOffset(16, 42), 14, WHITE)
+local beastList = scrollList(beastPanel, 64, UILayout.MinTouchSize + 70)
+local resultLabel = label(beastPanel, "", UDim2.new(1, -32, 0, 58),
+	UDim2.new(0, 16, 1, -UILayout.MinTouchSize - 68), 14, WHITE, true)
+local drawButton = button(beastPanel, string.format("引く（%dコイン）", Config.BeastDrawCost),
+	UDim2.fromOffset(200, UILayout.MinTouchSize), UDim2.new(0.5, 0, 1, -10), GOLD)
+drawButton.AnchorPoint = Vector2.new(0.5, 1)
+
+local equipButtons = {}
+for index, id in ipairs(Config.BeastOrder) do
+	local def = Config.Beasts[id]
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -6, 0, 76)
+	row.LayoutOrder = index
+	row.BackgroundColor3 = BrandColors.Primary
+	row.BorderSizePixel = 0
+	row.Parent = beastList
+	corner(row, 8)
+
+	local preview = Instance.new("ViewportFrame")
+	preview.Size = UDim2.fromOffset(56, 64)
+	preview.Position = UDim2.fromOffset(4, 6)
+	preview.BackgroundTransparency = 1
+	preview.Parent = row
+	local camera = Instance.new("Camera")
+	camera.CFrame = CFrame.lookAt(Vector3.new(3, 2.5, -5), Vector3.new(0, 1.5, 0))
+	camera.FieldOfView = 36
+	camera.Parent = preview
+	preview.CurrentCamera = camera
+	BeastModels.Build(id, CFrame.new(), 0.33).Parent = preview
+
+	label(row, tierTag(def) .. def.DisplayName, UDim2.new(1, -146, 0, 24),
+		UDim2.fromOffset(60, 4), 15, Config.Tiers[def.Tier].Color, true)
+	label(row, def.Description, UDim2.new(1, -146, 0, 46),
+		UDim2.fromOffset(60, 26), 13, WHITE)
+	local equip = button(row, "", UDim2.fromOffset(76, UILayout.MinTouchSize),
+		UDim2.new(1, -82, 0.5, -UILayout.MinTouchSize / 2), BrandColors.Secondary)
+	equip.Activated:Connect(function()
+		if myData.Beasts[id] and myData.EquippedBeast ~= id then
+			EquipBeast:FireServer(id)
+		end
+	end)
+	equipButtons[id] = equip
+end
+
+local function renderBeasts()
+	for id, equip in pairs(equipButtons) do
+		local owned = myData.Beasts[id] == true
+		local equipped = myData.EquippedBeast == id
+		equip.Text = equipped and "装備中" or (owned and "装備する" or "未所持")
+		equip.Interactable = owned and not equipped
+		equip.BackgroundColor3 = equipped and GOLD or (owned and BrandColors.Secondary or DARK)
+		equip.TextColor3 = equipped and DARK or WHITE
+	end
+end
+
+OpenBeasts.OnClientEvent:Connect(function()
+	if not beastPanel.Visible then
+		open(beastPanel)
+	end
+end)
+
+drawButton.Activated:Connect(function()
+	DrawBeast:FireServer()
+end)
+
+BeastResult.OnClientEvent:Connect(function(result, reason)
+	if not result then
+		resultLabel.Text = reason or "ガチャを引けませんでした"
+		resultLabel.TextColor3 = WHITE
+		return
+	end
+	local def = Config.Beasts[result.Id]
+	local description = def.Description
+	if result.Duplicate then
+		description ..= string.format("（所持済み・%dコイン返却）", Config.BeastDuplicateRefund)
+	end
+	resultLabel.Text = tierTag(def) .. def.DisplayName .. "\n" .. description
+	resultLabel.TextColor3 = Config.Tiers[def.Tier].Color
+end)
+
+renderBeasts()
 
 ---------------------------------------------------------------------
 -- デッキ画面
@@ -311,15 +410,15 @@ local function renderShop()
 			local text, color = string.format("%d コイン", price), BrandColors.Accent
 			if owned then
 				text, color = "持っている", BrandColors.Primary
-			elseif myData.Coins < price then
+			elseif shownCoins < price then
 				color = BrandColors.Secondary
 			end
 			local buy = button(row, text, UDim2.new(0, 110, 0, 36), UDim2.new(1, -118, 0.5, -18), color)
 			buy.TextSize = 14
 			if not owned then
 				buy.MouseButton1Click:Connect(function()
-					if myData.Coins < price then
-						showToast(string.format("コインが足りません（あと %d）", price - myData.Coins))
+					if shownCoins < price then
+						showToast(string.format("コインが足りません（あと %d）", price - shownCoins))
 						return
 					end
 					BuyItem:FireServer(itemId)
@@ -379,10 +478,7 @@ RoomCreated.OnClientEvent:Connect(function(code)
 	myRoomCode = code
 	createdCode.Text = "合言葉 " .. tostring(code)
 	createdBox.Visible = true
-	roomPanel.Visible = true
-	deckPanel.Visible = false
-	shopPanel.Visible = false
-	roulettePanel.Visible = false
+	open(roomPanel)
 end)
 
 ---------------------------------------------------------------------
@@ -390,62 +486,103 @@ end)
 ---------------------------------------------------------------------
 
 local rouletteRules = Config.Roulette
-label(roulettePanel, string.format("%d分ごとに1回まわせる（%d回分までためられる）。コインが当たる！",
-	math.floor(rouletteRules.Interval / 60), rouletteRules.MaxStock),
-	UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 44), 14, WHITE)
+roulettePanel:FindFirstChildOfClass("UISizeConstraint").MaxSize = Vector2.new(440, 620)
 
--- 景品のマス（横一列）
-local cellRow = Instance.new("Frame")
-cellRow.BackgroundTransparency = 1
-cellRow.Size = UDim2.new(1, -32, 0, 96)
-cellRow.Position = UDim2.new(0, 16, 0, 86)
-cellRow.Parent = roulettePanel
-local cellLayout = Instance.new("UIListLayout")
-cellLayout.FillDirection = Enum.FillDirection.Horizontal
-cellLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-cellLayout.Padding = UDim.new(0, 6)
-cellLayout.Parent = cellRow
-local cells = {}
-local prizeCount = #rouletteRules.Prizes
-for index, prize in ipairs(rouletteRules.Prizes) do
-	local cell = Instance.new("TextLabel")
-	cell.Size = UDim2.new(1 / prizeCount, -6, 1, 0)
-	cell.LayoutOrder = index
-	cell.BackgroundColor3 = BrandColors.Primary
-	cell.Font = Enum.Font.GothamBlack
-	cell.TextScaled = true
-	cell.TextColor3 = WHITE
-	cell.Text = string.format("%d\nコイン", prize.Coins)
-	cell.Parent = cellRow
-	corner(cell, 8)
-	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 10)
-	pad.PaddingBottom = UDim.new(0, 10)
-	pad.PaddingLeft = UDim.new(0, 4)
-	pad.PaddingRight = UDim.new(0, 4)
-	pad.Parent = cell
-	cells[index] = cell
-end
-local function highlight(target)
-	for index, cell in ipairs(cells) do
-		local on = index == target
-		cell.BackgroundColor3 = on and GOLD or BrandColors.Primary
-		cell.TextColor3 = on and DARK or WHITE
-	end
-end
+local wheelArea = Instance.new("Frame")
+wheelArea.Name = "WheelArea"
+wheelArea.BackgroundTransparency = 1
+wheelArea.Position = UDim2.fromOffset(12, 43)
+local controlsHeight = UILayout.MinTouchSize + 62
+wheelArea.Size = UDim2.new(1, -24, 1, -43 - controlsHeight)
+wheelArea.Parent = roulettePanel
 
-local stockLabel = label(roulettePanel, "", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 196), 18, GOLD, true)
+local wheelHolder = Instance.new("Frame")
+wheelHolder.BackgroundTransparency = 1
+wheelHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+wheelHolder.Position = UDim2.fromScale(0.5, 0.5)
+wheelHolder.Size = UDim2.fromScale(1, 1)
+wheelHolder.Parent = wheelArea
+local square = Instance.new("UIAspectRatioConstraint")
+square.AspectRatio = 1
+square.Parent = wheelHolder
+local face = RouletteFace.Create(wheelHolder)
+
+local pointer = label(wheelHolder, "▼", UDim2.fromScale(0.14, 0.135), UDim2.fromScale(0.5, 0), 20, GOLD, true)
+pointer.AnchorPoint = Vector2.new(0.5, 0.22)
+pointer.TextXAlignment = Enum.TextXAlignment.Center
+pointer.TextScaled = true
+pointer.TextStrokeColor3 = DARK
+pointer.TextStrokeTransparency = 0
+pointer.ZIndex = 5
+
+local reward = label(gui, "", UDim2.new(0.88, 0, 0, 60), UDim2.fromScale(0.5, 0.24), 30, GOLD, true)
+reward.AnchorPoint = Vector2.new(0.5, 0.5)
+reward.TextXAlignment = Enum.TextXAlignment.Center
+reward.TextScaled = true
+reward.BackgroundColor3 = DARK
+reward.BackgroundTransparency = 0.08
+reward.Visible = false
+reward.ZIndex = 8
+corner(reward, 12)
+local rewardSize = Instance.new("UISizeConstraint")
+rewardSize.MaxSize = Vector2.new(300, 60)
+rewardSize.Parent = reward
+
+local stockLabel = label(roulettePanel, "", UDim2.new(1, -24, 0, 24),
+	UDim2.new(0, 12, 1, -controlsHeight + 1), 18, GOLD, true)
 stockLabel.TextXAlignment = Enum.TextXAlignment.Center
-local nextLabel = label(roulettePanel, "", UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 226), 14, WHITE)
+local nextLabel = label(roulettePanel, "", UDim2.new(1, -24, 0, 22),
+	UDim2.new(0, 12, 1, -controlsHeight + 26), 14, WHITE)
 nextLabel.TextXAlignment = Enum.TextXAlignment.Center
-local spinButton = button(roulettePanel, "まわす！", UDim2.new(0, 220, 0, UILayout.MinTouchSize + 6),
-	UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GOLD)
+local spinButton = button(roulettePanel, "まわす！", UDim2.new(0.8, 0, 0, UILayout.MinTouchSize + 6),
+	UDim2.new(0.5, 0, 1, -8), GOLD)
 spinButton.AnchorPoint = Vector2.new(0.5, 1)
 spinButton.TextSize = 20
 
+local function layoutRoulette()
+	local size = roulettePanel.AbsoluteSize
+	local sideBySide = size.X >= 365 and size.Y < 390
+	if sideBySide then
+		wheelArea.Size = UDim2.new(0.56, -12, 1, -51)
+		stockLabel.Size = UDim2.new(0.44, -12, 0, 26)
+		stockLabel.Position = UDim2.new(0.56, 0, 0.5, -54)
+		nextLabel.Size = UDim2.new(0.44, -12, 0, 40)
+		nextLabel.Position = UDim2.new(0.56, 0, 0.5, -28)
+		spinButton.Size = UDim2.new(0.44, -20, 0, UILayout.MinTouchSize + 6)
+		spinButton.Position = UDim2.new(0.78, -6, 0.5, UILayout.MinTouchSize + 31)
+	else
+		wheelArea.Size = UDim2.new(1, -24, 1, -43 - controlsHeight)
+		stockLabel.Size = UDim2.new(1, -24, 0, 24)
+		stockLabel.Position = UDim2.new(0, 12, 1, -controlsHeight + 1)
+		nextLabel.Size = UDim2.new(1, -24, 0, 22)
+		nextLabel.Position = UDim2.new(0, 12, 1, -controlsHeight + 26)
+		spinButton.Size = UDim2.new(0.8, 0, 0, UILayout.MinTouchSize + 6)
+		spinButton.Position = UDim2.new(0.5, 0, 1, -8)
+	end
+end
+roulettePanel:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutRoulette)
+layoutRoulette()
+
+local function positionReward()
+	if roulettePanel.Visible then
+		reward.Parent = wheelArea
+		reward.Position = UDim2.fromScale(0.5, 0.73)
+		reward.Size = UDim2.new(0.84, 0, 0.25, 0)
+	else
+		reward.Parent = gui
+		reward.Position = UDim2.fromScale(0.5, 0.24)
+		reward.Size = UDim2.new(0.88, 0, 0, 60)
+	end
+end
+roulettePanel:GetPropertyChangedSignal("Visible"):Connect(positionReward)
+
 local rouletteStock = 0
+local latestGrantAt = nil
 local nextGrantAt = nil   -- 次の権利がたまる時刻（os.clock 基準）。満タンなら nil
 local spinning = false
+local pendingSpin = false
+local angle = 0
+local rewardToken = 0
 
 local function renderRoulette()
 	rouletteButton.Text = rouletteStock > 0 and string.format("ルーレット (%d)", rouletteStock) or "ルーレット"
@@ -457,42 +594,97 @@ local function renderRoulette()
 	else
 		nextLabel.Text = "満タン！ まわすと次の時間がたまり始めます"
 	end
-	spinButton.Text = spinning and "…" or "まわす！"
-	spinButton.BackgroundColor3 = (rouletteStock > 0 and not spinning) and GOLD or BrandColors.Secondary
+	local busy = pendingSpin or spinning
+	local available = rouletteStock > 0 and not busy
+	spinButton.Text = busy and "…" or "まわす！"
+	spinButton.BackgroundColor3 = available and GOLD or BrandColors.Secondary
+	spinButton.TextColor3 = available and DARK or WHITE
+	spinButton.AutoButtonColor = available
+	spinButton.Active = available
 end
 
-spinButton.MouseButton1Click:Connect(function()
-	if spinning then
+local function applyRouletteBalances()
+	shownCoins = myData.Coins or 0
+	local coinText = string.format("コイン %d", shownCoins)
+	coinLabel.Text = coinText
+	beastCoins.Text = coinText
+	rouletteStock = myData.RouletteStock or 0
+	nextGrantAt = latestGrantAt
+	renderRoulette()
+end
+
+local function requestSpin()
+	if pendingSpin or spinning then
 		return
 	end
 	if rouletteStock < 1 then
 		showToast("まだまわせません。次の1回までまってね")
 		return
 	end
-	spinning = true
+	pendingSpin = true
 	renderRoulette()
 	SpinRoulette:FireServer()
+end
+
+spinButton.Activated:Connect(requestSpin)
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+	if player == localPlayer and prompt.Name == "RoulettePrompt" then
+		if not roulettePanel.Visible then
+			open(roulettePanel)
+		end
+		requestSpin()
+	end
 end)
 
 RouletteResult.OnClientEvent:Connect(function(prizeIndex)
 	if not prizeIndex then
-		spinning = false
-		renderRoulette()
+		pendingSpin = false
+		if not spinning then
+			applyRouletteBalances()
+			renderShop()
+		end
+	end
+end)
+
+RouletteSpinVisual.OnClientEvent:Connect(function(userId, playerName, prizeIndex, coins, revealAt)
+	if userId ~= localPlayer.UserId then
+		while workspace:GetServerTimeNow() < revealAt do
+			RunService.RenderStepped:Wait()
+		end
+		showToast(string.format("%s がルーレットで %d コイン獲得！", playerName, coins))
 		return
 	end
-	-- 何周か回ってから、だんだん遅くなって当たりのマスで止まる
-	local steps = prizeCount * 3 + prizeIndex
-	local totalTime = (rouletteRules.RevealDelay or 3) - 0.3
-	local position = 0
-	for step = 1, steps do
-		position = position % prizeCount + 1
-		highlight(position)
-		local progress = step / steps
-		task.wait(totalTime * 2 * progress / steps)
-	end
-	highlight(prizeIndex)
-	spinning = false
+	pendingSpin = false
+	spinning = true
+	rewardToken += 1
+	local token = rewardToken
+	reward.Visible = false
+	face.Highlight(nil)
 	renderRoulette()
+
+	local duration = rouletteRules.RevealDelay or 3
+	local startAngle = angle
+	local target = RouletteVisual.TargetRotation(startAngle, prizeIndex, #rouletteRules.Prizes)
+	local remaining = revealAt - workspace:GetServerTimeNow()
+	while remaining > 0 do
+		face.SetAngle(RouletteVisual.SpinAngle(startAngle, target, 1 - remaining / duration))
+		RunService.RenderStepped:Wait()
+		remaining = revealAt - workspace:GetServerTimeNow()
+	end
+	angle = target % 360
+	face.SetAngle(angle)
+	face.Highlight(prizeIndex)
+	reward.Text = string.format("+%d コイン", coins)
+	reward.Visible = true
+	spinning = false
+	applyRouletteBalances()
+	renderShop()
+	task.delay(4, function()
+		if rewardToken == token then
+			reward.Visible = false
+			face.Highlight(nil)
+		end
+	end)
 end)
 
 task.spawn(function()
@@ -510,12 +702,10 @@ end)
 
 DataUpdate.OnClientEvent:Connect(function(data)
 	myData = data
-	coinLabel.Text = string.format("コイン %d", data.Coins or 0)
 	showRank(data.RP or 0)
-	rouletteStock = data.RouletteStock or 0
-	nextGrantAt = data.RouletteNextIn and (os.clock() + data.RouletteNextIn) or nil
-	if not spinning then
-		renderRoulette()
+	latestGrantAt = data.RouletteNextIn and (os.clock() + data.RouletteNextIn) or nil
+	if not pendingSpin and not spinning then
+		applyRouletteBalances()
 	end
 	draftDeck = {}
 	for index, itemId in ipairs(data.Deck or {}) do
@@ -523,6 +713,7 @@ DataUpdate.OnClientEvent:Connect(function(data)
 	end
 	renderDeck()
 	renderShop()
+	renderBeasts()
 end)
 
 QueueUpdate.OnClientEvent:Connect(function(info)

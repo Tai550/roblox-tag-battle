@@ -223,6 +223,13 @@ end
 -- 内外判定とスタミナ
 ---------------------------------------------------------------------
 
+local function guardUntil(data)
+	if data.BeastUsed == "Bastet" then
+		return math.max(data.ZoneGuardUntil, data.BeastEffectUntil)
+	end
+	return data.ZoneGuardUntil
+end
+
 local function sendZoneUpdate(player, data, isOutside)
 	if Remotes.IsRealPlayer(player) then
 		Remotes.ZoneUpdate:FireClient(player, {
@@ -232,7 +239,7 @@ local function sendZoneUpdate(player, data, isOutside)
 			IsOutside = isOutside,
 			Returns = data.ZoneReturns,
 			MaxReturns = Config.ZoneMaxReturns,
-			GuardLeft = math.max(0, data.ZoneGuardUntil - GameState.Now()),
+			GuardLeft = math.max(0, guardUntil(data) - GameState.Now()),
 		})
 	end
 end
@@ -255,7 +262,7 @@ local function checkPlayers(step)
 				isOutside = not ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, root.Position)
 			end
 
-			local guarded = data.ZoneGuardUntil > GameState.Now()
+			local guarded = guardUntil(data) > GameState.Now()
 			if isOutside and not guarded then
 				data.ZoneStamina = math.max(0, data.ZoneStamina - Config.ZoneDrainPerSecond * step)
 				if data.ZoneStamina <= 0 then

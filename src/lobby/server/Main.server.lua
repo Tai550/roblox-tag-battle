@@ -17,6 +17,7 @@ local UserService = game:GetService("UserService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
+local RouletteBoard = require(script.Parent:WaitForChild("RouletteBoard"))
 
 ---------------------------------------------------------------------
 -- 通信（RemoteEvent）
@@ -30,6 +31,10 @@ local function remote(name)
 	event.Parent = remoteFolder
 	return event
 end
+local OpenBeasts = remote("OpenBeasts")
+local DrawBeast = remote("DrawBeast")
+local BeastResult = remote("BeastResult")
+local EquipBeast = remote("EquipBeast")
 local DataUpdate = remote("DataUpdate")     -- サーバー → 本人: コイン・持ち物・デッキ
 local QueueUpdate = remote("QueueUpdate")   -- サーバー → 全員: すぐ遊ぶの待ち人数と残り秒
 local Notify = remote("Notify")             -- サーバー → 本人: 短いお知らせ
@@ -41,6 +46,7 @@ local RoomCreated = remote("RoomCreated")   -- サーバー → 本人: 作っ�
 local SoloPlay = remote("SoloPlay")         -- 本人 → サーバー: ひとりモードで遊びたい
 local SpinRoulette = remote("SpinRoulette") -- 本人 → サーバー: ルーレットを回したい
 local RouletteResult = remote("RouletteResult") -- サーバー → 本人: 当たった景品の番号（失敗時は nil）
+local RouletteSpinVisual = remote("RouletteSpinVisual") -- サーバー → 全員: 回転演出と停止時刻
 remoteFolder.Parent = ReplicatedStorage
 
 local function notify(player, text)
@@ -58,6 +64,7 @@ local function sendData(player)
 	sentStock[player] = stock
 	DataUpdate:FireClient(player, {
 		Coins = data.Coins, Owned = data.Owned, Deck = data.Deck, Wins = data.Wins,
+		Beasts = data.Beasts, EquippedBeast = data.EquippedBeast,
 		RP = rankRP[player] or 0,
 		RouletteStock = stock, RouletteNextIn = nextIn,
 	})
@@ -130,6 +137,9 @@ end
 -- 参加・退出
 ---------------------------------------------------------------------
 
+local loaded = {}
+local beastRequest = {}
+
 local function onPlayerAdded(player)
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
@@ -145,8 +155,15 @@ local function onPlayerAdded(player)
 	stats.Parent = player
 	showRank(player)
 	PlayerDataStore.Load(player)
+	if player.Parent ~= Players then
+		PlayerDataStore.Forget(player)
+		return
+	end
+	loaded[player] = true
 	loadRank(player)
-	sendData(player)
+	if loaded[player] then
+		sendData(player)
+	end
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
@@ -154,6 +171,8 @@ for _, player in ipairs(Players:GetPlayers()) do
 	task.spawn(onPlayerAdded, player)
 end
 Players.PlayerRemoving:Connect(function(player)
+	loaded[player] = nil
+	beastRequest[player] = nil
 	PlayerDataStore.Forget(player)
 	rankRP[player] = nil
 	sentStock[player] = nil
@@ -196,27 +215,145 @@ SetDeck.OnServerEvent:Connect(function(player, list)
 end)
 
 ---------------------------------------------------------------------
+-- 召喚獣ガチャ
+---------------------------------------------------------------------
+
+local spawn = workspace:WaitForChild("LobbyMap"):WaitForChild("SpawnLocation")
+local machineOrigin = spawn.Position + Vector3.new(11, -0.5, 0)
+local machine = Instance.new("Model")
+machine.Name = "BeastGacha"
+
+local function machinePart(name, offset, size, color)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.Position = machineOrigin + offset
+	part.Color = color
+	part.Anchored = true
+	part.Parent = machine
+	return part
+end
+
+local brand = Config.BrandColors
+local stand = machinePart("Stand", Vector3.new(0, 1.5, 0), Vector3.new(4, 3, 3), brand.Primary)
+local capsuleCase = machinePart("CapsuleCase", Vector3.new(0, 4.5, 0), Vector3.new(4, 3, 3), brand.White)
+capsuleCase.Material = Enum.Material.Glass
+capsuleCase.Transparency = 0.65
+for index, tier in ipairs({ "B", "A", "S", "SS" }) do
+	local offset = Vector3.new(index % 2 == 0 and 0.85 or -0.85, 3.75, index <= 2 and 0.65 or -0.65)
+	local capsule = machinePart("Capsule", offset, Vector3.new(1.1, 1.1, 1.1), Config.Tiers[tier].Color)
+	capsule.Shape = Enum.PartType.Ball
+	capsule.CanCollide = false
+end
+local sign = machinePart("Sign", Vector3.new(0, 6.5, 0), Vector3.new(4, 1, 3), brand.Secondary)
+local signGui = Instance.new("SurfaceGui")
+signGui.Face = Enum.NormalId.Left
+signGui.Parent = sign
+local signText = Instance.new("TextLabel")
+signText.Size = UDim2.fromScale(1, 1)
+signText.BackgroundTransparency = 1
+signText.Text = "ガチャ"
+signText.TextColor3 = brand.White
+signText.Font = Enum.Font.GothamBold
+signText.TextScaled = true
+signText.Parent = signGui
+
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "ガチャを開く"
+prompt.ObjectText = "召喚獣"
+prompt.RequiresLineOfSight = false
+prompt.MaxActivationDistance = 10
+prompt.Parent = stand
+machine.Parent = workspace
+
+local function nearMachine(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and (root.Position - stand.Position).Magnitude <= prompt.MaxActivationDistance
+end
+
+prompt.Triggered:Connect(function(player)
+	if loaded[player] and nearMachine(player) then
+		sendData(player)
+		OpenBeasts:FireClient(player)
+	end
+end)
+
+DrawBeast.OnServerEvent:Connect(function(player)
+	if not loaded[player] or beastRequest[player] or tooFast(player, 0.5) then
+		return
+	end
+	if not nearMachine(player) then
+		BeastResult:FireClient(player, nil, "ガチャの台に近づいてください")
+		return
+	end
+	beastRequest[player] = true
+	local result, reason = PlayerDataStore.DrawBeast(player)
+	beastRequest[player] = nil
+	if loaded[player] then
+		sendData(player)
+		BeastResult:FireClient(player, result, reason)
+	else
+		PlayerDataStore.Forget(player)
+	end
+end)
+
+EquipBeast.OnServerEvent:Connect(function(player, id)
+	if not loaded[player] or beastRequest[player] or type(id) ~= "string" or tooFast(player, 0.5) then
+		return
+	end
+	beastRequest[player] = true
+	local ok, _, reason = PlayerDataStore.SetEquippedBeast(player, id)
+	beastRequest[player] = nil
+	if loaded[player] then
+		sendData(player)
+		if not ok then
+			notify(player, reason or "持っている召喚獣を選んでください")
+		end
+	else
+		PlayerDataStore.Forget(player)
+	end
+end)
+
+---------------------------------------------------------------------
 -- デイリールーレット（景品の抽選も保存もサーバー）
 ---------------------------------------------------------------------
 
+local rouletteBoard = RouletteBoard.Create(spawn)
+local rouletteBusy = false
 SpinRoulette.OnServerEvent:Connect(function(player)
-	if tooFast(player, 1) then
+	if rouletteBusy or tooFast(player, 1) then
+		RouletteResult:FireClient(player, nil)
+		if rouletteBusy then
+			notify(player, "ルーレットが回転中です。止まってからまわしてね")
+		end
 		return
 	end
+	-- 保存処理が待機している間も、1台の盤で同時に回転を始めない。
+	rouletteBusy = true
 	local prizeIndex = PlayerDataStore.PickRoulettePrize()
-	local ok = PlayerDataStore.SpinRoulette(player, prizeIndex, os.time())
+	local ok, _, reason = PlayerDataStore.SpinRoulette(player, prizeIndex, os.time())
 	if ok then
+		local duration = Config.Roulette.RevealDelay or 3
+		local revealAt = workspace:GetServerTimeNow() + duration
+		local coins = Config.Roulette.Prizes[prizeIndex].Coins
+		local playerName = player.DisplayName
+		rouletteBoard.Start(playerName, prizeIndex, revealAt, duration)
 		RouletteResult:FireClient(player, prizeIndex)
-		-- 画面の回転が止まってから、コインと回数を新しくする
-		task.delay(Config.Roulette.RevealDelay or 3, function()
+		RouletteSpinVisual:FireAllClients(player.UserId, playerName, prizeIndex, coins, revealAt)
+		-- 盤の停止と同じタイミングで、本人のコインと回数を新しくする。
+		task.delay(math.max(0, revealAt - workspace:GetServerTimeNow()), function()
+			rouletteBoard.Reveal(prizeIndex, coins, playerName)
+			rouletteBusy = false
 			if player.Parent == Players then
 				notify(player, string.format("ルーレットで %d コインもらった！", Config.Roulette.Prizes[prizeIndex].Coins))
 				sendData(player)
 			end
 		end)
 	else
+		rouletteBusy = false
 		RouletteResult:FireClient(player, nil)
-		notify(player, "まだルーレットを回せません。30分ごとに1回たまります")
+		notify(player, reason or "まだルーレットを回せません。30分ごとに1回たまります")
 		sendData(player)
 	end
 end)

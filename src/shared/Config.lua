@@ -503,9 +503,80 @@ Config.ItemOrder = {
 
 -- アイテムのレア度の表示（B = 150 / A = 400 / S = 900 コイン。以前の梅・竹・松）
 Config.Tiers = {
+	SS = { Name = "SS", Color = Color3.fromRGB(160, 85, 230) },
 	S = { Name = "S", Color = Color3.fromRGB(200, 40, 55) },
 	A = { Name = "A", Color = Color3.fromRGB(230, 170, 30) },
 	B = { Name = "B", Color = Color3.fromRGB(40, 165, 90) },
+}
+
+Config.BeastOrder = {
+	"Bastet", "Thoth", "Khepri", "Hathor", "Sobek", "Sekhmet", "Isis",
+	"Horus", "Osiris", "Set", "Anubis", "Ra",
+}
+Config.BeastDrawCost = 100
+Config.BeastDuplicateRefund = 40
+Config.BeastModelDuration = 3
+Config.Beasts = {
+	Bastet = {
+		DisplayName = "バステト", Tier = "B", Weight = 15,
+		Description = "8秒間、ゾーンのスタミナが減らず、少し速くなる",
+		Duration = 8, SpeedMultiplier = 1.15,
+	},
+	Thoth = {
+		DisplayName = "トト", Tier = "B", Weight = 15,
+		Description = "5秒間、全員の姿が壁越しに見える",
+		Duration = 5,
+	},
+	Sobek = {
+		DisplayName = "セベク", Tier = "A", Weight = 8,
+		Description = "周囲12スタッドの相手を1.5秒間転倒させる",
+		Duration = 1.5, Radius = 12,
+	},
+	Sekhmet = {
+		DisplayName = "セクメト", Tier = "A", Weight = 8,
+		Description = "周囲12スタッドの相手を4秒間遅くする",
+		Duration = 4, Radius = 12, SpeedMultiplier = 0.6,
+	},
+	Horus = {
+		DisplayName = "ホルス", Tier = "S", Weight = 4,
+		Description = "6秒間、速く走れて高く跳べる",
+		Duration = 6, SpeedMultiplier = 1.5, JumpMultiplier = 2,
+	},
+	Anubis = {
+		DisplayName = "アヌビス", Tier = "SS", Weight = 2,
+		Description = "前方へワープし、3秒間タッチされない",
+		Duration = 3, WarpDistance = 20,
+	},
+	Khepri = {
+		DisplayName = "ケプリ", Tier = "B", Weight = 15,
+		Description = "前方に飛び出し、8秒間ダッシュする",
+		Duration = 8, LaunchSpeed = 45,
+	},
+	Hathor = {
+		DisplayName = "ハトホル", Tier = "B", Weight = 15,
+		Description = "転倒・スタンから復帰し、ゾーンのスタミナを全回復する",
+		Duration = 0,
+	},
+	Isis = {
+		DisplayName = "イシス", Tier = "A", Weight = 8,
+		Description = "6秒間、二段ジャンプができ、落下ダンジョンでは落ちても近くの足場に戻る",
+		Duration = 6,
+	},
+	Osiris = {
+		DisplayName = "オシリス", Tier = "S", Weight = 4,
+		Description = "10秒間タッチされても鬼にならない",
+		Duration = 10,
+	},
+	Set = {
+		DisplayName = "セト", Tier = "S", Weight = 4,
+		Description = "地上の相手をランダムに1人選び、安全な位置で入れ替わる",
+		Duration = 0,
+	},
+	Ra = {
+		DisplayName = "ラー", Tier = "SS", Weight = 2,
+		Description = "周囲15スタッドの相手全員を2秒間スタンさせる",
+		Duration = 2, Radius = 15,
+	},
 }
 
 function Config.GetItem(itemId)

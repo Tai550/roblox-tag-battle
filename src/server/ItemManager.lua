@@ -8,7 +8,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local BeastModels = require(Shared:WaitForChild("BeastModels"))
+local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
@@ -27,7 +30,7 @@ local boxMotions = {}       -- [Part] = Heartbeat の接続（箱を消したら
 local occupiedPoints = {}   -- [PointKey] = Part
 local placedBananas = {}    -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }
 local placedGlue = {}       -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }  ねばねば罠
-local decoys = {}           -- [Model] = 消える時刻  ダミー人形
+local roundModels = {}      -- [Model] = 消える時刻（ダミー人形・召喚獣）
 local warnedNoSpawns = false
 local itemContainer = nil
 
@@ -117,11 +120,17 @@ local function sendItemUpdate(player)
 		HeldItems = held,
 		HeldExpireLeft = expireLeft, -- 枠ごとの使用期限の残り秒（0 は期限なし）
 		MaxSlots = GameState.GetItemSlots(player),
+		EquippedBeast = PlayerDataStore.Get(player).EquippedBeast,
+		BeastUsed = data.BeastUsed ~= nil,
+		IsisJumpActive = data.BeastUsed == "Isis" and data.BeastEffectUntil > now,
 		DashTimeLeft = math.max(0, data.DashUntil - now),
 		ShieldTimeLeft = math.max(0, data.ShieldUntil - now),
 		StarTimeLeft = math.max(0, data.StarUntil - now),
 		-- 画面の端に小さく出す「効果中」の一覧
 		Effects = {
+			{ Name = data.BeastUsed and Config.Beasts[data.BeastUsed].DisplayName,
+				Left = math.max(0, data.BeastEffectUntil - now) },
+			{ Name = "セクメトの減速", Left = math.max(0, data.BeastSlowUntil - now) },
 			{ Name = "ダッシュ", Left = math.max(0, data.DashUntil - now) },
 			{ Name = "シールド", Left = math.max(0, data.ShieldUntil - now) },
 			{ Name = "スター", Left = math.max(0, data.StarUntil - now) },
@@ -573,7 +582,7 @@ end
 local handlers = {}
 
 handlers.Dash = function(player, def, data)
-	data.DashUntil = GameState.Now() + def.Duration
+	data.DashUntil = math.max(data.DashUntil, GameState.Now() + def.Duration)
 	GameState.RefreshSpeed(player)
 	Remotes.NotifyPlayer(player, string.format("ダッシュ！ %d秒間 速くなる", def.Duration))
 	return true
@@ -739,7 +748,7 @@ handlers.Decoy = function(player, def, data)
 		humanoid.DisplayName = player.DisplayName
 	end
 	copy.Parent = getItemContainer()
-	decoys[copy] = GameState.Now() + def.Duration
+	roundModels[copy] = GameState.Now() + def.Duration
 	Remotes.NotifyPlayer(player, "ダミー人形を置いた！")
 	return true
 end
@@ -1000,13 +1009,29 @@ handlers.Insulate = function(player, def, data)
 	return true
 end
 
+local function returnToFooting(player, root, footing)
+	player.Character:PivotTo(footing)
+	root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+end
+
 function ItemManager.TrySafetyLine(player)
 	if type(player) == "table" and player.IsBot then
 		return false
 	end
 	local data = GameState.GetData(player)
-	local slot = table.find(data.HeldItems, "SafetyLine")
 	local root = GameState.GetRootPart(player)
+	if root and data.BeastUsed == "Isis" and data.BeastEffectUntil > GameState.Now() then
+		local platform = MapBuilder.GetNearestSkyPlatform(root.Position)
+		if platform then
+			local humanoid = GameState.GetHumanoid(player)
+			local height = platform.Size.Y / 2 + root.Size.Y / 2 + math.max(2, humanoid.HipHeight)
+			returnToFooting(player, root, CFrame.new(platform.Position + Vector3.new(0, height, 0)))
+			data.IsisJumpSpent = nil
+			Remotes.NotifyPlayer(player, "イシスの翼で近くの足場に戻った！")
+			return true
+		end
+	end
+	local slot = table.find(data.HeldItems, "SafetyLine")
 	if not slot or not data.LastSkyStand or not root then
 		return false
 	end
@@ -1014,12 +1039,188 @@ function ItemManager.TrySafetyLine(player)
 	if expires > 0 and expires <= GameState.Now() then
 		return false
 	end
-	player.Character:PivotTo(data.LastSkyStand)
-	root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+	returnToFooting(player, root, data.LastSkyStand)
 	table.remove(data.HeldItems, slot)
 	table.remove(data.HeldExpireAt, slot)
 	sendItemUpdate(player)
 	Remotes.NotifyPlayer(player, "命綱が発動！ 最後の足場に戻った")
+	return true
+end
+
+-- 前方の壁の手前に止め、ゾーン内に足場がある地点へ移す。
+local function warpForward(player, root, distance)
+	local forward = root.CFrame.LookVector
+	forward = Vector3.new(forward.X, 0, forward.Z)
+	if forward.Magnitude < 0.01 then
+		return
+	end
+	forward = forward.Unit
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { player.Character }
+	params.RespectCanCollide = true
+	local hit = workspace:Blockcast(root.CFrame, root.Size, forward * distance, params)
+	if hit then
+		distance = math.max(0, hit.Distance - 1)
+	end
+	-- 崖やエリアの境界に向いたときは、手前の足場を探す。
+	while distance > 0 do
+		local offset = forward * distance
+		local destination = root.Position + offset
+		if ZoneManager.IsInside(destination) and workspace:Raycast(destination, Vector3.new(0, -5, 0), params) then
+			player.Character:PivotTo(player.Character:GetPivot() + offset)
+			return
+		end
+		distance -= 2
+	end
+end
+
+-- 地面に接していて、マップ上かつゾーン内にある入れ替え先だけを使う。
+local function safeSwapRoot(player, params)
+	local root = GameState.GetRootPart(player)
+	local humanoid = GameState.GetHumanoid(player)
+	if not root or not humanoid or humanoid.FloorMaterial == Enum.Material.Air
+		or not ZoneManager.IsInside(root.Position) then
+		return nil
+	end
+	local reach = math.max(5, humanoid.HipHeight + root.Size.Y / 2 + 1)
+	if workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), params) then
+		return root
+	end
+	return nil
+end
+
+local function swapWithOpponent(player)
+	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
+	if not map then
+		return
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { map }
+	params.RespectCanCollide = true
+	local root = safeSwapRoot(player, params)
+	if not root then
+		return
+	end
+	local candidates = {}
+	local isTagger = GameState.IsTagger(player)
+	for _, other in ipairs(GameState.ParticipantList()) do
+		if GameState.IsTagger(other) ~= isTagger and GameState.IsAlive(other) then
+			local otherRoot = safeSwapRoot(other, params)
+			if otherRoot then
+				table.insert(candidates, { Player = other, Root = otherRoot })
+			end
+		end
+	end
+	if #candidates == 0 then
+		return
+	end
+	local target = candidates[math.random(1, #candidates)]
+	local offset = target.Root.Position - root.Position
+	local first = player.Character:GetPivot() + offset
+	local second = target.Player.Character:GetPivot() + (root.Position - target.Root.Position)
+	returnToFooting(player, root, first)
+	returnToFooting(target.Player, target.Root, second)
+end
+
+function ItemManager.TryIsisJump(player)
+	if not active or GameState.Phase ~= "Round" or not GameState.IsParticipant(player)
+		or not GameState.IsAlive(player) then
+		return
+	end
+	local data = GameState.GetData(player)
+	local now = GameState.Now()
+	if data.BeastUsed ~= "Isis" or data.BeastEffectUntil <= now or data.IsisJumpSpent
+		or data.FrozenUntil > now or GameState.IsDowned(player) or GameState.IsStunned(player) then
+		return
+	end
+	local humanoid = GameState.GetHumanoid(player)
+	local root = GameState.GetRootPart(player)
+	if root and humanoid.FloorMaterial == Enum.Material.Air then
+		data.IsisJumpSpent = true
+		local velocity = root.AssemblyLinearVelocity
+		local jumpSpeed = math.sqrt(2 * workspace.Gravity * humanoid.JumpHeight)
+		root.AssemblyLinearVelocity = Vector3.new(velocity.X, jumpSpeed, velocity.Z)
+	end
+end
+
+function ItemManager.UseBeast(player)
+	if not active or GameState.Phase ~= "Round" or not Remotes.IsRealPlayer(player)
+		or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
+		return false
+	end
+	local data = GameState.GetData(player)
+	local profile = PlayerDataStore.Get(player)
+	local id = profile.EquippedBeast
+	local def = profile.Beasts[id] and Config.Beasts[id]
+	local root = GameState.GetRootPart(player)
+	local now = GameState.Now()
+	if not def or not root or data.BeastUsed or data.FrozenUntil > now then
+		return false
+	end
+	if id ~= "Hathor" and (GameState.IsDowned(player) or GameState.IsStunned(player)) then
+		return false
+	end
+	data.BeastUsed = id
+	data.BeastEffectUntil = def.Duration > 0 and now + def.Duration or 0
+
+	if id == "Bastet" or id == "Horus" then
+		GameState.RefreshSpeed(player)
+	elseif id == "Thoth" then
+		local targets = {}
+		for _, participant in ipairs(GameState.ParticipantList()) do
+			if GameState.IsAlive(participant) then
+				table.insert(targets, participant.Character)
+			end
+		end
+		Remotes.RadarEffect:FireClient(player, targets, def.Duration, true)
+	elseif def.Radius then
+		local isTagger = GameState.IsTagger(player)
+		for _, other in ipairs(GameState.ParticipantList()) do
+			if GameState.IsTagger(other) ~= isTagger and GameState.IsAlive(other) then
+				local otherRoot = GameState.GetRootPart(other)
+				if otherRoot and (otherRoot.Position - root.Position).Magnitude <= def.Radius then
+					if id == "Sobek" then
+						GameState.TryDown(other, def.Duration)
+					elseif id == "Ra" then
+						GameState.ApplyStun(other, def.Duration)
+					else
+						local target = GameState.GetData(other)
+						target.BeastSlowUntil = now + def.Duration
+						GameState.RefreshSpeed(other)
+						sendItemUpdate(other)
+					end
+				end
+			end
+		end
+	elseif id == "Anubis" or id == "Osiris" then
+		data.InvulnerableUntil = math.max(data.InvulnerableUntil, data.BeastEffectUntil)
+		if def.WarpDistance then
+			warpForward(player, root, def.WarpDistance)
+		end
+	elseif id == "Khepri" then
+		data.DashUntil = math.max(data.DashUntil, data.BeastEffectUntil)
+		local look = root.CFrame.LookVector
+		local forward = Vector3.new(look.X, 0, look.Z)
+		if forward.Magnitude > 0.01 then
+			root.AssemblyLinearVelocity = forward.Unit * def.LaunchSpeed
+				+ Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+		end
+		GameState.RefreshSpeed(player)
+	elseif id == "Hathor" then
+		GameState.ClearStun(player)
+		GameState.ClearDown(player)
+		data.ZoneStamina = Config.ZoneStaminaMax
+		GameState.RefreshSpeed(player)
+	elseif id == "Set" then
+		swapWithOpponent(player)
+	end
+	local model = BeastModels.Build(id, root.CFrame * CFrame.new(3, -2, 0), 0.4)
+	model.Parent = workspace
+	roundModels[model] = now + Config.BeastModelDuration
+	Remotes.NotifyPlayer(player, def.DisplayName .. " を召喚！")
+	sendItemUpdate(player)
 	return true
 end
 
@@ -1104,7 +1305,7 @@ function ItemManager.ConsumeShield(player)
 	end
 	local data = GameState.GetData(player)
 	data.ShieldUntil = 0
-	data.InvulnerableUntil = GameState.Now() + Config.Items.Shield.GraceTime
+	data.InvulnerableUntil = math.max(data.InvulnerableUntil, GameState.Now() + Config.Items.Shield.GraceTime)
 	removeShieldVisual(player)
 	sendItemUpdate(player)
 	return true
@@ -1117,6 +1318,24 @@ function ItemManager.Tick()
 		if data.PhaseEffect and (data.PhaseUntil <= now or data.PhaseEffect.Character ~= player.Character
 			or not GameState.IsAlive(player)) then
 			ItemManager.EndPhase(player)
+		end
+		if data.IsisJumpSpent then
+			local humanoid = GameState.GetHumanoid(player)
+			if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+				data.IsisJumpSpent = nil
+			end
+		end
+		local beastExpired = data.BeastEffectUntil > 0 and data.BeastEffectUntil <= now
+		local beastSlowExpired = data.BeastSlowUntil > 0 and data.BeastSlowUntil <= now
+		if beastExpired or beastSlowExpired then
+			if beastExpired then
+				data.BeastEffectUntil = 0
+			end
+			if beastSlowExpired then
+				data.BeastSlowUntil = 0
+			end
+			GameState.RefreshSpeed(player)
+			sendItemUpdate(player)
 		end
 		local stunned = data.StunUntil > now
 		if stunned then
@@ -1215,14 +1434,14 @@ function ItemManager.Tick()
 	for _, part in ipairs(expiredGlue) do
 		removeGlue(part)
 	end
-	local expiredDecoys = {}
-	for model, expireAt in pairs(decoys) do
+	local expiredModels = {}
+	for model, expireAt in pairs(roundModels) do
 		if expireAt <= now then
-			table.insert(expiredDecoys, model)
+			table.insert(expiredModels, model)
 		end
 	end
-	for _, model in ipairs(expiredDecoys) do
-		decoys[model] = nil
+	for _, model in ipairs(expiredModels) do
+		roundModels[model] = nil
 		model:Destroy()
 	end
 end
@@ -1331,9 +1550,6 @@ end
 -- 予約中のアイテムボックスを渡す（ラウンド開始時）
 local function deliverPending(player)
 	local data = GameState.GetData(player)
-	if #data.PendingItems == 0 then
-		return
-	end
 	local pending = data.PendingItems
 	data.PendingItems = {}
 	for _, entry in ipairs(pending) do
@@ -1412,11 +1628,11 @@ function ItemManager.Stop()
 		removeGlue(part)
 	end
 	local models = {}
-	for model in pairs(decoys) do
+	for model in pairs(roundModels) do
 		table.insert(models, model)
 	end
 	for _, model in ipairs(models) do
-		decoys[model] = nil
+		roundModels[model] = nil
 		model:Destroy()
 	end
 
@@ -1436,6 +1652,8 @@ function ItemManager.Stop()
 end
 
 function ItemManager.Init()
+	Remotes.UseBeast.OnServerEvent:Connect(ItemManager.UseBeast)
+	Remotes.IsisJump.OnServerEvent:Connect(ItemManager.TryIsisJump)
 	Remotes.UseItem.OnServerEvent:Connect(function(player, slotArg)
 		if type(player) == "table" and player.IsBot == true then
 			return

@@ -7,6 +7,7 @@ local RT = require("./.build/mockenv")
 -- 依存順に本物のモジュールを読み込み、モックの参照表へ登録する
 RT.modules.Config = require("./.build/Config")
 RT.modules.UILayout = require("./.build/UILayout")
+RT.modules.BeastModels = require("./.build/BeastModels")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
@@ -2099,6 +2100,22 @@ do
 	local stock, nextIn = PlayerDataStore.RouletteView(fresh, base + rules.Interval * 10)
 	check("ルーレット：満タンなら次の時間は出さない", stock == rules.MaxStock and nextIn == nil)
 
+	local viewer = { UserId = 19005 }
+	local viewed = PlayerDataStore.Load(viewer)
+	local allStocksMatch = viewed.RouletteAt == 0
+	for step = 0, rules.MaxStock - rules.StartStock do
+		local at = base + step * rules.Interval
+		local shown, seconds = PlayerDataStore.RouletteView(viewed, at)
+		local expected = rules.StartStock + step
+		allStocksMatch = allStocksMatch and shown == expected and viewed.RouletteAt == at
+			and (expected == rules.MaxStock and seconds == nil or seconds == rules.Interval)
+	end
+	check("ルーレット：初回の表示から使わずに上限までたまる", allStocksMatch)
+	local spunFromView, afterView = PlayerDataStore.SpinRoulette(viewer, 1, viewed.RouletteAt)
+	check("ルーレット：初回の保存でも表示でたまった回数を使える",
+		spunFromView and afterView.RouletteStock == rules.MaxStock - 1 and afterView.RouletteAt == viewed.RouletteAt)
+	PlayerDataStore.Forget(viewer)
+
 	local kept = PlayerDataStore.Normalize({ Coins = 5, RouletteStock = 2, RouletteAt = 1234 })
 	check("ルーレット：保存データの回数と時刻は Normalize で消えない", kept.RouletteStock == 2 and kept.RouletteAt == 1234)
 	local capped = PlayerDataStore.Normalize({ RouletteStock = 99 })
@@ -2123,6 +2140,450 @@ do
 	local afterCoins = PlayerDataStore.AddCoins(spinner, 10, false)
 	check("ルーレット：試合のコイン加算でも回数と時刻が残る", afterCoins.RouletteAt == base + rules.Interval)
 	check("ルーレット：景品の番号が不正なら何もしない", PlayerDataStore.SpinRoulette(spinner, 99, base) == false)
+end
+
+---------------------------------------------------------------------
+-- 召喚獣：抽選・保存・モデル・実際の ItemManager / ZoneManager の効果
+---------------------------------------------------------------------
+
+do
+	local bands = {
+		{ 0, 15, "Bastet", "B" }, { 15, 30, "Thoth", "B" },
+		{ 30, 45, "Khepri", "B" }, { 45, 60, "Hathor", "B" },
+		{ 60, 68, "Sobek", "A" }, { 68, 76, "Sekhmet", "A" }, { 76, 84, "Isis", "A" },
+		{ 84, 88, "Horus", "S" }, { 88, 92, "Osiris", "S" }, { 92, 96, "Set", "S" },
+		{ 96, 98, "Anubis", "SS" }, { 98, 100, "Ra", "SS" },
+	}
+	local definitionCount = 0
+	for _ in pairs(Config.Beasts) do
+		definitionCount += 1
+	end
+	local totalWeight = 0
+	for _, id in ipairs(Config.BeastOrder) do
+		totalWeight += Config.Beasts[id].Weight
+	end
+	check("召喚獣は12体で抽選確率の合計は100%", definitionCount == 12 and #Config.BeastOrder == 12 and totalWeight == 100)
+	for _, band in ipairs(bands) do
+		local low, high, id, tier = band[1], band[2], band[3], band[4]
+		local def = Config.Beasts[id]
+		check(id .. " のレア度と抽選帯", def and def.Tier == tier and def.Weight == high - low
+			and PlayerDataStore.PickBeast(low / 100) == id and PlayerDataStore.PickBeast((high - 0.001) / 100) == id)
+		local model = RT.modules.BeastModels.Build(id, RT.CFrame.new(), 0.4)
+		local blocks = model:GetChildren()
+		local decorative = #blocks > 0
+		for _, block in ipairs(blocks) do
+			decorative = decorative and block.Anchored and not block.CanCollide and not block.CanTouch and not block.CanQuery
+		end
+		check(id .. " のブロックは固定され、判定に影響しない", decorative)
+		model:Destroy()
+	end
+
+	local old = PlayerDataStore.Normalize({ Coins = 99 })
+	check("旧データは召喚獣なしで読み込める", next(old.Beasts) == nil and old.EquippedBeast == nil)
+	local clean = PlayerDataStore.Normalize({
+		Beasts = { Bastet = true, Thoth = false, Unknown = true },
+		EquippedBeast = "Bastet",
+	})
+	check("Normalize は正しい所持と装備を残す",
+		clean.Beasts.Bastet and not clean.Beasts.Thoth and not clean.Beasts.Unknown and clean.EquippedBeast == "Bastet")
+	check("Normalize は未所持の装備を解除する",
+		PlayerDataStore.Normalize({ Beasts = { Bastet = true }, EquippedBeast = "Thoth" }).EquippedBeast == nil)
+
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
+	local player = { UserId = 19000 }
+	store:SetAsync("u_19000", { Coins = 99 })
+	PlayerDataStore.Load(player)
+	local result, _, data = PlayerDataStore.DrawBeast(player)
+	check("99コインでは抽選できず、残高も所持も変わらない", not result and data.Coins == 99 and next(data.Beasts) == nil)
+	check("未所持の召喚獣は装備できない", not PlayerDataStore.SetEquippedBeast(player, "Bastet"))
+
+	PlayerDataStore.AddCoins(player, 101, false)
+	result, _, data = PlayerDataStore.DrawBeast(player)
+	check("ガチャ1回で100コイン減り、召喚獣を獲得する", result and not result.Duplicate and data.Coins == 100 and data.Beasts[result.Id])
+	check("所持している召喚獣を装備できる", PlayerDataStore.SetEquippedBeast(player, result.Id))
+	local returningPlayer = { UserId = player.UserId }
+	local loaded = PlayerDataStore.Load(returningPlayer)
+	check("獲得と装備の両方が再読み込みで復元される",
+		loaded.Coins == 100 and loaded.Beasts[result.Id] and loaded.EquippedBeast == result.Id)
+	PlayerDataStore.Forget(returningPlayer)
+
+	local spun = PlayerDataStore.SpinRoulette(player, 4, 1000000)
+	local nextBeast, _, afterDraw = PlayerDataStore.DrawBeast(player)
+	local afterBoth = PlayerDataStore.Load(returningPlayer)
+	check("同じ保存データでルーレットを回してガチャを引いても、回数・時刻・所持・装備が残る",
+		spun and nextBeast and afterBoth.RouletteStock == 0 and afterBoth.RouletteAt == 1000000
+		and afterBoth.Beasts[nextBeast.Id] and afterBoth.Beasts[result.Id] and afterBoth.EquippedBeast == result.Id
+		and afterBoth.Coins == afterDraw.Coins)
+	PlayerDataStore.Forget(returningPlayer)
+
+	local owned = {}
+	for _, id in ipairs(Config.BeastOrder) do
+		owned[id] = true
+	end
+	store:SetAsync("u_19000", { Coins = 100, Beasts = owned, EquippedBeast = "Anubis" })
+	PlayerDataStore.Load(player)
+	result, _, data = PlayerDataStore.DrawBeast(player)
+	check("重複時は40コイン返却され、装備は保持される",
+		result and result.Duplicate and data.Coins == 40 and data.EquippedBeast == "Anubis")
+	PlayerDataStore.Forget(player)
+end
+
+do
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
+	local player = { UserId = 19006 }
+	local now = 1000000
+	local coins = Config.BeastDrawCost * 2
+	store:SetAsync("u_19006", {
+		Coins = coins, Beasts = { Bastet = true, Anubis = true }, EquippedBeast = "Anubis",
+		RouletteAt = now, RouletteStock = 2,
+	})
+	local original = PlayerDataStore.Load(player)
+	RT.DataStoreShouldFail = true
+	local result, drawReason = PlayerDataStore.DrawBeast(player)
+	local equipped, _, equipReason = PlayerDataStore.SetEquippedBeast(player, "Bastet")
+	local spun, _, spinReason = PlayerDataStore.SpinRoulette(player, 4, now + Config.Roulette.Interval)
+	RT.DataStoreShouldFail = false
+
+	local cached = PlayerDataStore.Get(player)
+	local function unchanged(data)
+		local ownedCount = 0
+		for _ in pairs(data.Beasts) do
+			ownedCount += 1
+		end
+		return data.Coins == coins and data.RouletteStock == 2 and data.RouletteAt == now
+			and data.EquippedBeast == "Anubis" and ownedCount == 2 and data.Beasts.Bastet and data.Beasts.Anubis
+	end
+	check("保存失敗：ガチャ・装備・ルーレットが失敗理由を返す",
+		result == nil and drawReason and not equipped and equipReason and not spun and spinReason)
+	check("保存失敗：キャッシュと保存済みの残高・権利・所持・装備を保持する",
+		cached == original and unchanged(cached) and unchanged(PlayerDataStore.Load(player)))
+	PlayerDataStore.Forget(player)
+end
+
+do
+	local players = RT.game:GetService("Players")
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
+	local function entrant(id, x)
+		local player = RT.Instance.new("Player")
+		player.UserId = id
+		player.DisplayName = "Summon " .. id
+		player.Parent = players
+		local character = RT.Instance.new("Model")
+		character.Parent = RT.workspace
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(x, 4, 0)
+		root.CFrame = RT.CFrame.new(root.Position)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = character
+		GameState.Participants[player] = true
+		GameState.RefreshSpeed(player)
+		return player, root, humanoid
+	end
+
+	local realNow = GameState.Now
+	local now = 100
+	GameState.Now = function() return now end
+	GameState.Phase = "Round"
+	local player, root, humanoid = entrant(19001, 0)
+	local enemy, enemyRoot, enemyHumanoid = entrant(19002, 4)
+	local ally = entrant(19003, 2)
+	local far, farRoot, farHumanoid = entrant(19004, 30)
+	GameState.Taggers[enemy], GameState.Taggers[far] = { Since = 0 }, { Since = 0 }
+	GameState.RefreshSpeed(enemy)
+	local function equip(id)
+		store:SetAsync("u_19001", { Beasts = id and { [id] = true } or {}, EquippedBeast = id })
+		PlayerDataStore.Load(player)
+		GameState.ResetData(player)
+	end
+
+	ItemManager.Start()
+	equip(nil)
+	check("未装備の参加者は召喚できない", not ItemManager.UseBeast(player))
+	equip("Bastet")
+	GameState.Phase = "Intermission"
+	check("ラウンド外では召喚できない", not ItemManager.UseBeast(player))
+	GameState.Phase = "Round"
+	local data = GameState.GetData(player)
+	data.StunUntil = now + 1
+	check("スタン中は召喚を消費しない", not ItemManager.UseBeast(player) and not data.BeastUsed)
+	GameState.ClearStun(player)
+	GameState.TryDown(player)
+	check("転倒中は召喚を消費しない", not ItemManager.UseBeast(player) and not data.BeastUsed)
+	GameState.ClearDown(player)
+
+	ZoneManager.Start(120)
+	root.Position = ZoneManager.GetCenter() + Vector3.new(ZoneManager.GetRadius() + 10, 4, 0)
+	check("バステトで速度上昇・同じ試合では再召喚不可",
+		ItemManager.UseBeast(player) and humanoid.WalkSpeed > Config.NormalWalkSpeed and not ItemManager.UseBeast(player))
+	local model = RT.workspace:FindFirstChild("Bastet")
+	check("召喚したモデルが Workspace に出る", model ~= nil)
+	now += Config.BeastModelDuration
+	ItemManager.Tick()
+	ZoneManager.Tick()
+	check("数秒でモデルが消え、ゾーン外のスタミナが減らない",
+		model and model.Parent == nil and data.ZoneStamina == Config.ZoneStaminaMax)
+	now = 100 + Config.Beasts.Bastet.Duration
+	ItemManager.Tick()
+	ZoneManager.Tick()
+	check("バステト終了後は速度が戻り、スタミナが減る",
+		near(humanoid.WalkSpeed, Config.NormalWalkSpeed) and data.ZoneStamina < Config.ZoneStaminaMax
+		and not ItemManager.UseBeast(player))
+	ZoneManager.Stop()
+
+	root.Position = Vector3.new(0, 4, 0)
+	equip("Sobek")
+	check("次の試合は召喚でき、セベクは範囲内の相手を転倒させる",
+		ItemManager.UseBeast(player) and GameState.IsDowned(enemy) and enemyHumanoid.WalkSpeed == 0
+			and not GameState.IsDowned(ally) and not GameState.IsDowned(far))
+	now += Config.Beasts.Sobek.Duration
+	ItemManager.Tick()
+	check("セベクの転倒は1.5秒で解除される",
+		GameState.GetData(enemy).DownUntil == 0 and enemyHumanoid.WalkSpeed == Config.TaggerWalkSpeed)
+
+	equip("Sekhmet")
+	check("セクメトで付近の相手だけが減速する", ItemManager.UseBeast(player)
+		and near(enemyHumanoid.WalkSpeed, Config.TaggerWalkSpeed * Config.Beasts.Sekhmet.SpeedMultiplier)
+		and GameState.GetData(far).BeastSlowUntil == 0 and GameState.GetData(ally).BeastSlowUntil == 0)
+	now += Config.Beasts.Sekhmet.Duration
+	ItemManager.Tick()
+	check("セクメトの減速は4秒で切れる", near(enemyHumanoid.WalkSpeed, Config.TaggerWalkSpeed))
+
+	equip("Horus")
+	check("ホルスで速度とジャンプが上がる", ItemManager.UseBeast(player)
+		and humanoid.WalkSpeed > Config.NormalWalkSpeed and humanoid.JumpHeight > Config.NormalJumpHeight)
+	now += Config.Beasts.Horus.Duration
+	ItemManager.Tick()
+	check("ホルスの速度とジャンプは6秒で戻る",
+		near(humanoid.WalkSpeed, Config.NormalWalkSpeed) and near(humanoid.JumpHeight, Config.NormalJumpHeight))
+
+	equip("Thoth")
+	local radarCalls = {}
+	Remotes.RadarEffect.FireClient = function(_, recipient, targets, duration)
+		table.insert(radarCalls, { recipient, targets, duration })
+	end
+	check("トトは参加者全員の姿を召喚者だけに5秒間表示する", ItemManager.UseBeast(player) and #radarCalls == 1
+		and radarCalls[1][1] == player and #radarCalls[1][2] == 4 and radarCalls[1][3] == 5)
+	Remotes.RadarEffect.FireClient = nil
+
+	equip("Anubis")
+	RT.workspace._blockcast = function()
+		return { Distance = 8 }
+	end
+	check("アヌビスは壁の手前にワープし、3秒間タッチを無効にする",
+		ItemManager.UseBeast(player) and near(root.Position.Z, -7) and GameState.GetData(player).InvulnerableUntil == now + 3)
+	RT.workspace._blockcast = nil
+	now += Config.Beasts.Anubis.Duration
+	check("アヌビスのタッチ無効は3秒で切れる", GameState.GetData(player).InvulnerableUntil <= GameState.Now())
+
+	equip("Khepri")
+	check("ケプリは前方に加速し、通常より長くダッシュする", ItemManager.UseBeast(player)
+		and GameState.GetData(player).DashUntil > now + Config.Items.Dash.Duration
+		and root.AssemblyLinearVelocity.Z < 0)
+	local khepriData = GameState.GetData(player)
+	local khepriDeadline = khepriData.DashUntil
+	ItemManager.GrantItem(player, "Dash")
+	ItemManager.TryUse(player, 1)
+	check("ケプリ使用直後にダッシュを使っても加速期限は短くならない",
+		#khepriData.HeldItems == 0 and khepriData.DashUntil == khepriDeadline)
+
+	equip("Hathor")
+	GameState.TryDown(player)
+	GameState.ApplyStun(player, 2)
+	GameState.GetData(player).ZoneStamina = 10
+	check("ハトホルは転倒とスタンを解除しスタミナを全回復する",
+		ItemManager.UseBeast(player) and not GameState.IsDowned(player) and not GameState.IsStunned(player)
+			and humanoid.WalkSpeed == Config.NormalWalkSpeed
+			and GameState.GetData(player).ZoneStamina == Config.ZoneStaminaMax)
+
+	equip("Ra")
+	farRoot.Position = Vector3.new(15, 4, -7)
+	check("ラーは15スタッド以内の相手全員を2秒間スタンさせる", ItemManager.UseBeast(player)
+		and GameState.GetData(enemy).StunUntil == now + 2
+		and GameState.GetData(far).StunUntil == now + 2 and not GameState.IsStunned(ally))
+	now += 2
+	ItemManager.Tick()
+	check("ラーのスタンが切れると動ける", enemyHumanoid.WalkSpeed == Config.TaggerWalkSpeed)
+
+	local map = RT.workspace:FindFirstChild(MapBuilder.MapFolderName)
+	local createdMap = not map
+	if createdMap then
+		map = RT.Instance.new("Folder")
+		map.Name = MapBuilder.MapFolderName
+		map.Parent = RT.workspace
+	end
+	local previousRaycast = RT.workspace._raycast
+	RT.workspace._raycast = function(origin)
+		return { Instance = map, Position = origin - Vector3.new(0, 4, 0) }
+	end
+	root.Position = Vector3.new(0, 4, 0)
+	enemyRoot.Position = Vector3.new(4, 4, 0)
+	farRoot.Position = Vector3.new(30, 12, 0)
+	humanoid.FloorMaterial = RT.Enum.Material.Grass
+	enemyHumanoid.FloorMaterial = RT.Enum.Material.Grass
+	farHumanoid.FloorMaterial = RT.Enum.Material.Air
+	equip("Set")
+	check("セトは接地中の相手とだけ位置を交換する", ItemManager.UseBeast(player)
+		and root.Position.X == 4 and enemyRoot.Position.X == 0
+		and farRoot.Position.X == 30 and farRoot.Position.Y == 12)
+	equip("Set")
+	enemyHumanoid.FloorMaterial = RT.Enum.Material.Air
+	check("セトは接地中の相手がいなければ誰も移動させない", ItemManager.UseBeast(player)
+		and root.Position.X == 4 and enemyRoot.Position.X == 0 and farRoot.Position.X == 30)
+	equip("Set")
+	enemyHumanoid.FloorMaterial = RT.Enum.Material.Grass
+	RT.workspace._raycast = function(origin)
+		return origin.X ~= enemyRoot.Position.X and { Instance = map } or nil
+	end
+	check("セトは足場のない位置を除外する", ItemManager.UseBeast(player)
+		and root.Position.X == 4 and enemyRoot.Position.X == 0)
+	equip("Set")
+	ZoneManager.Start(120)
+	local center = ZoneManager.GetCenter()
+	local inside = Vector3.new(center.X, 4, center.Z)
+	local outside = inside + Vector3.new(ZoneManager.GetRadius() + 10, 0, 0)
+	root.Position = inside
+	enemyRoot.Position = outside
+	RT.workspace._raycast = function()
+		return { Instance = map }
+	end
+	check("セトはゾーン外の相手と位置を交換しない", ItemManager.UseBeast(player)
+		and root.Position == inside and enemyRoot.Position == outside)
+	ZoneManager.Stop()
+	RT.workspace._raycast = previousRaycast
+
+	equip("Isis")
+	local originalGravity = RT.workspace.Gravity
+	RT.workspace.Gravity = 196.2
+	humanoid.FloorMaterial = RT.Enum.Material.Air
+	check("イシスを召喚できる", ItemManager.UseBeast(player))
+	ItemManager.TryIsisJump(player)
+	check("イシスの空中ジャンプが発動する", root.AssemblyLinearVelocity.Y > 0)
+	root.AssemblyLinearVelocity = Vector3.new(0, -1, 0)
+	ItemManager.TryIsisJump(player)
+	check("イシスの空中ジャンプは着地まで1回", root.AssemblyLinearVelocity.Y == -1)
+	humanoid.FloorMaterial = RT.Enum.Material.Grass
+	ItemManager.Tick()
+	humanoid.FloorMaterial = RT.Enum.Material.Air
+	ItemManager.TryIsisJump(player)
+	check("イシスの空中ジャンプは着地後に再使用できる", root.AssemblyLinearVelocity.Y > 0)
+	RT.workspace.Gravity = originalGravity
+
+	local platforms = map:FindFirstChild("SkyPlatforms")
+	local createdPlatforms = not platforms
+	if createdPlatforms then
+		platforms = RT.Instance.new("Folder")
+		platforms.Name = "SkyPlatforms"
+		platforms.Parent = map
+	end
+	local platform = RT.Instance.new("Part")
+	platform.Position = Vector3.new(10, 48, 2)
+	platform.Size = Vector3.new(12, 4, 12)
+	platform.Parent = platforms
+	local priorMap = MapBuilder.CurrentMap
+	MapBuilder.CurrentMap = "Sky"
+	enemyRoot.Position = Vector3.new(0, 54, 0)
+	farRoot.Position = Vector3.new(30, 54, 0)
+	local allyRoot = GameState.GetRootPart(ally)
+	allyRoot.Position = Vector3.new(2, 54, 0)
+	GameState.GetData(player).HeldItems = { "SafetyLine" }
+	root.Position = Vector3.new(11, Config.FallEliminateY - 1, 2)
+	RoundManager.CheckSkyFalls()
+	check("イシスの効果中は脱落せず近くの足場に戻り、命綱を消費しない",
+		GameState.IsParticipant(player) and root.Position.X == 10 and root.Position.Y > platform.Position.Y
+			and #GameState.GetData(player).HeldItems == 1)
+	now += Config.Beasts.Isis.Duration
+	root.AssemblyLinearVelocity = Vector3.new(0, -1, 0)
+	ItemManager.TryIsisJump(player)
+	check("イシスの効果は6秒で切れる", root.AssemblyLinearVelocity.Y == -1 and not ItemManager.TrySafetyLine(player))
+	MapBuilder.CurrentMap = priorMap
+	platform:Destroy()
+	if createdPlatforms then
+		platforms:Destroy()
+	end
+	if createdMap then
+		map:Destroy()
+	end
+
+	equip("Osiris")
+	root.Position = Vector3.new(0, 4, -3)
+	root.CFrame = RT.CFrame.new(root.Position)
+	enemyRoot.Position = Vector3.new(0, 4, 0)
+	enemyRoot.CFrame = RT.CFrame.new(enemyRoot.Position)
+	check("オシリスでタッチ無効が付く", ItemManager.UseBeast(player)
+		and GameState.GetData(player).InvulnerableUntil == now + 10)
+	for _ = 1, 2 do
+		RoundManager.TryTag()
+	end
+	check("オシリスの効果中はタッチされても役割が変わらない",
+		not GameState.IsTagger(player) and GameState.IsTagger(enemy))
+	now += 10
+	RoundManager.TryTag()
+	check("オシリスの効果が切れるとタッチで役割が変わる", GameState.IsTagger(player))
+
+	ItemManager.Stop()
+	for _, entrantPlayer in ipairs({ player, enemy, ally, far }) do
+		entrantPlayer.Character:Destroy()
+		GameState.Participants[entrantPlayer] = nil
+		GameState.Taggers[entrantPlayer] = nil
+		GameState.ClearData(entrantPlayer)
+		PlayerDataStore.Forget(entrantPlayer)
+		entrantPlayer:Destroy()
+	end
+	GameState.Phase = "Waiting"
+	GameState.Now = realNow
+end
+
+-- 盤面の各マスの中心は、どの初期角度からでも真上の針で止まる。
+do
+	local visual = require("./.build/RouletteVisual")
+	local count = #Config.Roulette.Prizes
+	for index = 1, count do
+		local sectorCenter = (index - 1) * 60
+		local expectedStop = (360 - sectorCenter) % 360
+		local matches = visual.StopAngle(index, count) == expectedStop
+		for _, startAngle in ipairs({ 0, 28.5, 359.75, 725, -120 }) do
+			local target = visual.TargetRotation(startAngle, index, count)
+			local final = visual.SpinAngle(startAngle, target, 1)
+			local distance = target - startAngle
+			matches = matches and distance >= 4 * 360 and distance < 5 * 360
+				and (final + sectorCenter) % 360 == 0
+		end
+		check(string.format("ルーレット：マス%dの中心が真上の針で止まる", index), matches)
+	end
+end
+
+-- Studio のメモリ動作に切り替えるので、DataStore を使うテストの最後に実行する。
+do
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
+	local getService = RT.game.GetService
+	local getAsync = store.GetAsync
+	RT.game.GetService = function(self, name)
+		if name == "RunService" then
+			return { IsStudio = function() return true end }
+		end
+		return getService(self, name)
+	end
+	store.GetAsync = function()
+		error("StudioAccessToApisNotAllowed: Studio access to APIs is not allowed")
+	end
+
+	local player = { UserId = 19007 }
+	PlayerDataStore.Load(player)
+	PlayerDataStore.AddCoins(player, Config.BeastDrawCost, false)
+	local result = PlayerDataStore.DrawBeast(player)
+	local equipped = result and PlayerDataStore.SetEquippedBeast(player, result.Id)
+	local spun, data = PlayerDataStore.SpinRoulette(player, 1, 1000000)
+	store.GetAsync = getAsync
+	RT.game.GetService = getService
+
+	check("Studio：API 無効時もメモリ上でガチャ・装備・ルーレットを使える",
+		result and equipped and spun and data.EquippedBeast == result.Id
+			and data.Coins == Config.Roulette.Prizes[1].Coins and store:GetAsync("u_19007") == nil)
+	PlayerDataStore.Forget(player)
 end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))

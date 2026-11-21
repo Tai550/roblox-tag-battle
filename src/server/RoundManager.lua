@@ -494,7 +494,7 @@ local function tryTagFor(tagger, role, now)
 			if isWithinTagReach(origin, runner.Character) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
-					-- シールドで防いだ直後なのでタッチ無効
+					-- シールドの猶予時間または召喚獣の加護でタッチ無効
 				elseif GameState.HasStar(runner) then
 					-- スターの効果中なのでタッチ無効
 				elseif ItemManager.ConsumeShield(runner) then

@@ -27,6 +27,8 @@ local playerData = {}
 
 local function newData()
 	return {
+		BeastEffectUntil = 0,    -- BeastUsed に使用済みの Id を記録する
+		BeastSlowUntil = 0,
 		HeldItems = {},           -- 持っているアイテムの Id のリスト（古い順。枠数は GetItemSlots）
 		HeldExpireAt = {},        -- HeldItems と同じ並びの使用期限（時刻）。0 は期限なし（購入アイテム）
 		PendingItems = {},        -- ラウンド外に買ったアイテム（次のラウンド開始時に渡す）
@@ -206,11 +208,19 @@ function GameState.ApplyDownPose(player, downed)
 	end
 end
 
-function GameState.TryDown(player)
-	if GameState.IsDowned(player) or not GameState.GetHumanoid(player) then
+function GameState.TryDown(player, duration)
+	if not GameState.GetHumanoid(player) then
 		return false
 	end
-	GameState.GetData(player).DownUntil = GameState.Now() + Config.Items.Banana.DownTime
+	local data = GameState.GetData(player)
+	local now = GameState.Now()
+	if data.DownUntil > now then
+		if duration then
+			data.DownUntil = math.max(data.DownUntil, now + duration)
+		end
+		return false
+	end
+	data.DownUntil = now + (duration or Config.Items.Banana.DownTime)
 	GameState.RefreshSpeed(player)
 	GameState.StopStunnedMovement(player)
 	GameState.ApplyDownPose(player, true)
@@ -243,11 +253,16 @@ function GameState.TryVoltStun(player)
 	if data.StunImmuneUntil > now or data.InsulateUntil > now then
 		return false
 	end
-	data.StunUntil = now + Config.VoltStunTime
-	data.StunImmuneUntil = data.StunUntil + Config.VoltRecoveryTime
+	GameState.ApplyStun(player, Config.VoltStunTime)
+	data.StunImmuneUntil = now + Config.VoltStunTime + Config.VoltRecoveryTime
+	return true
+end
+
+function GameState.ApplyStun(player, duration)
+	local data = GameState.GetData(player)
+	data.StunUntil = math.max(data.StunUntil, GameState.Now() + duration)
 	GameState.RefreshSpeed(player)
 	GameState.StopStunnedMovement(player)
-	return true
 end
 
 function GameState.StopStunnedMovement(player)
@@ -287,6 +302,14 @@ function GameState.RefreshSpeed(player)
 			speed = math.min(speed, cap)
 		end
 	end
+	local beast = data.BeastEffectUntil > now and Config.Beasts[data.BeastUsed]
+	if beast and beast.SpeedMultiplier then
+		local roleSpeed = GameState.IsTagger(player) and Config.TaggerWalkSpeed or Config.NormalWalkSpeed
+		speed = math.max(speed, roleSpeed * beast.SpeedMultiplier)
+	end
+	if data.BeastSlowUntil > now then
+		speed *= Config.Beasts.Sekhmet.SpeedMultiplier
+	end
 	if data.SlowUntil > now then
 		speed = math.min(speed, Config.Items.Glue.SlowSpeed)
 	end
@@ -305,6 +328,9 @@ function GameState.RefreshSpeed(player)
 	local jump = Config.NormalJumpHeight
 	if data.JumpUntil > now then
 		jump = Config.Items.HighJump.JumpHeight
+	end
+	if beast and beast.JumpMultiplier then
+		jump = math.max(jump, Config.NormalJumpHeight * beast.JumpMultiplier)
 	end
 	if data.FrozenUntil > now or immobilized then
 		jump = 0

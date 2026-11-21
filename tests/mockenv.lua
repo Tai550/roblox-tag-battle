@@ -84,6 +84,13 @@ function CFrameMT:PointToObjectSpace(point)
 end
 
 -- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
+CFrameMT.__add = function(frame, offset)
+	local position = frame.Position + offset
+	local moved = table.clone(frame)
+	moved.Position = position
+	moved.X, moved.Y, moved.Z = position.X, position.Y, position.Z
+	return setmetatable(moved, CFrameMT)
+end
 CFrameMT.__mul = function(a, b)
 	return setmetatable({
 		X = a.X or 0,
@@ -543,6 +550,11 @@ RT.RaycastParams = {
 		return {}
 	end,
 }
+RT.workspace.Blockcast = function(self, frame, size, direction, params)
+	if self._blockcast then
+		return self._blockcast(frame, size, direction, params)
+	end
+end
 RT.workspace.Raycast = function(self, origin, direction, params)
 	if self._raycast then
 		return self._raycast(origin, direction, params)

@@ -4,9 +4,10 @@
 --
 -- 保存形式（キー "u_<UserId>"）:
 --   { Coins = 数, Owned = { [アイテムId] = true }, Deck = { アイテムId, ... }, Wins = 数,
+--     Beasts = { [召喚獣Id] = true }, EquippedBeast = Id,
 --     RouletteStock = ルーレットを回せる回数, RouletteAt = 権利を数え始めた時刻（os.time。0 は未開始） }
 --
--- Studio で「API サービスへのアクセス」が無効なときや通信に失敗したときは、
+-- DataStore が使えない環境では、
 -- メモリ上のデータで遊べるようにする（保存はされない）。
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,6 +18,7 @@ local PlayerDataStore = {}
 
 local STORE_NAME = "PlayerData_v1"
 local RETRIES = 3
+local SAVE_FAILED = "データを保存できませんでした。もう一度お試しください"
 
 local store = nil        -- DataStore（初めて使うときに取得する）
 local storeFailed = false
@@ -33,6 +35,7 @@ function PlayerDataStore.Normalize(raw)
 		Coins = math.max(0, math.floor(tonumber(data.Coins) or 0)),
 		Owned = {},
 		Deck = {},
+		Beasts = {},
 		Wins = math.max(0, math.floor(tonumber(data.Wins) or 0)),
 		RouletteStock = math.clamp(math.floor(tonumber(data.RouletteStock) or 0), 0, Config.Roulette.MaxStock),
 		RouletteAt = math.max(0, math.floor(tonumber(data.RouletteAt) or 0)),
@@ -54,6 +57,16 @@ function PlayerDataStore.Normalize(raw)
 		for index, itemId in ipairs(Config.DefaultDeck) do
 			result.Deck[index] = itemId
 		end
+	end
+	if type(data.Beasts) == "table" then
+		for id, owned in pairs(data.Beasts) do
+			if owned == true and Config.Beasts[id] then
+				result.Beasts[id] = true
+			end
+		end
+	end
+	if type(data.EquippedBeast) == "string" and result.Beasts[data.EquippedBeast] then
+		result.EquippedBeast = data.EquippedBeast
 	end
 	return result
 end
@@ -108,15 +121,11 @@ end
 
 -- 画面に出す今の状態。戻り値: 回せる回数, 次の権利までの秒数（満タンなら nil）
 function PlayerDataStore.RouletteView(data, now)
-	local view = {
-		RouletteStock = data.RouletteStock,
-		RouletteAt = data.RouletteAt,
-	}
-	PlayerDataStore.AccrueRoulette(view, now)
-	if view.RouletteStock >= Config.Roulette.MaxStock then
-		return view.RouletteStock, nil
+	PlayerDataStore.AccrueRoulette(data, now)
+	if data.RouletteStock >= Config.Roulette.MaxStock then
+		return data.RouletteStock, nil
 	end
-	return view.RouletteStock, math.max(0, view.RouletteAt + Config.Roulette.Interval - now)
+	return data.RouletteStock, math.max(0, data.RouletteAt + Config.Roulette.Interval - now)
 end
 
 -- 景品の番号を重みで選ぶ。roll は 0 以上 1 未満の数（省略時は乱数）
@@ -156,6 +165,20 @@ local function getStore()
 	return store
 end
 
+local function useStudioMemory(err)
+	local message = tostring(err)
+	if (string.find(message, "StudioAccessToApisNotAllowed", 1, true)
+		or string.find(message, "Studio access to APIs is not allowed", 1, true)
+		or string.find(message, "Cannot access DataStore from studio if API services are not enabled", 1, true))
+		and game:GetService("RunService"):IsStudio() then
+		store = nil
+		storeFailed = true
+		warn("[PlayerDataStore] Studio の API アクセスが無効なため、保存せずに遊びます")
+		return true
+	end
+	return false
+end
+
 local function keyFor(player)
 	return "u_" .. tostring(player.UserId)
 end
@@ -168,6 +191,12 @@ local function update(player, transform)
 			local ok, result = pcall(function()
 				return ds:UpdateAsync(keyFor(player), function(old)
 					local data = PlayerDataStore.Normalize(old)
+					local current = cache[player]
+					-- 保存データが未開始なら、ロビーで表示した起算時刻を引き継ぐ。
+					if data.RouletteAt == 0 and current and current.RouletteAt > 0 then
+						data.RouletteAt = current.RouletteAt
+						data.RouletteStock = current.RouletteStock
+					end
 					transform(data)
 					return data
 				end)
@@ -177,11 +206,17 @@ local function update(player, transform)
 				cache[player] = data
 				return data
 			end
+			if useStudioMemory(result) then
+				break
+			end
 			warn(string.format("[PlayerDataStore] 保存に失敗（%d回目）: %s", attempt, tostring(result)))
 			task.wait(attempt)
 		end
+		if not storeFailed then
+			return nil, SAVE_FAILED
+		end
 	end
-	-- 保存できないときはメモリ上だけ更新する
+	-- DataStore が使えない環境ではメモリ上だけ更新する
 	local data = PlayerDataStore.Get(player)
 	transform(data)
 	return data
@@ -198,6 +233,9 @@ function PlayerDataStore.Load(player)
 			end)
 			if ok then
 				data = PlayerDataStore.Normalize(result)
+				break
+			end
+			if useStudioMemory(result) then
 				break
 			end
 			warn(string.format("[PlayerDataStore] 読み込みに失敗（%d回目）: %s", attempt, tostring(result)))
@@ -246,7 +284,7 @@ function PlayerDataStore.BuyItem(player, itemId)
 		return false, "コインが足りません", current
 	end
 	local bought = false
-	local data = update(player, function(fresh)
+	local data, saveError = update(player, function(fresh)
 		bought = false
 		if not fresh.Owned[itemId] and fresh.Coins >= def.Price then
 			fresh.Coins = fresh.Coins - def.Price
@@ -254,6 +292,9 @@ function PlayerDataStore.BuyItem(player, itemId)
 			bought = true
 		end
 	end)
+	if not data then
+		return false, saveError, current
+	end
 	if not bought then
 		return false, "コインが足りません", data
 	end
@@ -261,7 +302,7 @@ function PlayerDataStore.BuyItem(player, itemId)
 end
 
 -- ルーレットを1回まわす。prizeIndex は先に選んだ景品の番号。
--- 戻り値: 回せたか, 新しいデータ
+-- 戻り値: 回せたか, データ, 保存エラーの理由（失敗時）
 function PlayerDataStore.SpinRoulette(player, prizeIndex, now)
 	local prize = Config.Roulette.Prizes[prizeIndex]
 	if not prize then
@@ -269,7 +310,7 @@ function PlayerDataStore.SpinRoulette(player, prizeIndex, now)
 	end
 	now = now or os.time()
 	local spun = false
-	local data = update(player, function(fresh)
+	local data, saveError = update(player, function(fresh)
 		spun = false
 		PlayerDataStore.AccrueRoulette(fresh, now)
 		if fresh.RouletteStock >= 1 then
@@ -278,6 +319,9 @@ function PlayerDataStore.SpinRoulette(player, prizeIndex, now)
 			spun = true
 		end
 	end)
+	if not data then
+		return false, PlayerDataStore.Get(player), saveError
+	end
 	return spun, data
 end
 
@@ -293,7 +337,67 @@ function PlayerDataStore.SetDeck(player, list)
 			fresh.Deck = freshDeck
 		end
 	end)
-	return true, data
+	return data ~= nil, data or PlayerDataStore.Get(player)
+end
+
+-- roll は [0, 1) の値。Config の重みを順に並べて抽選する。
+function PlayerDataStore.PickBeast(roll)
+	local total = 0
+	for _, id in ipairs(Config.BeastOrder) do
+		total += Config.Beasts[id].Weight
+	end
+	local upper = 0
+	for _, id in ipairs(Config.BeastOrder) do
+		upper += Config.Beasts[id].Weight
+		if roll < upper / total then
+			return id
+		end
+	end
+end
+
+function PlayerDataStore.DrawBeast(player)
+	local current = PlayerDataStore.Get(player)
+	if current.Coins < Config.BeastDrawCost then
+		return nil, "コインが足りません", current
+	end
+
+	-- UpdateAsync が同じ処理を再実行しても抽選結果は固定する。
+	local id = PlayerDataStore.PickBeast(math.random())
+	local result
+	local data, saveError = update(player, function(fresh)
+		result = nil
+		if fresh.Coins >= Config.BeastDrawCost then
+			local duplicate = fresh.Beasts[id] == true
+			fresh.Coins -= Config.BeastDrawCost
+			if duplicate then
+				fresh.Coins += Config.BeastDuplicateRefund
+			end
+			fresh.Beasts[id] = true
+			result = { Id = id, Duplicate = duplicate }
+		end
+	end)
+	if not data then
+		return nil, saveError, current
+	end
+	return result, result == nil and "コインが足りません" or nil, data
+end
+
+function PlayerDataStore.SetEquippedBeast(player, id)
+	local current = PlayerDataStore.Get(player)
+	if type(id) ~= "string" or not current.Beasts[id] then
+		return false, current
+	end
+	local equipped = false
+	local data, saveError = update(player, function(fresh)
+		equipped = fresh.Beasts[id] == true
+		if equipped then
+			fresh.EquippedBeast = id
+		end
+	end)
+	if not data then
+		return false, current, saveError
+	end
+	return equipped, data
 end
 
 return PlayerDataStore
