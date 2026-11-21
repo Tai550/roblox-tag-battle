@@ -2,7 +2,7 @@
 --
 -- MapBuilder.Build() は渋谷風の街を作る（サーバー起動時・1ラウンド目）。
 -- MapBuilder.BuildPark() は広いパークを作る（2ラウンド目）。
--- MapBuilder.BuildNextRound() は呼ぶたびに次のマップへ入れ替える（アリーナ → 渋谷 → パーク → 洞窟 → 氷床 → 痺れる → 落下 → …。最初はランダム）。
+-- MapBuilder.BuildNextRound() は呼ぶたびに渋谷 → パーク → 洞窟 → 氷床 → 痺れる → 落下 → 渋谷 … と入れ替える。
 -- 各マップは Workspace に次を作る。
 --   Workspace.Map        … 地面・障害物・外周の透明な壁・SpawnLocation
 --   Workspace.ItemSpawns … アイテムの出現ポイント。ItemManager / ZoneManager がそのまま使う
@@ -25,12 +25,11 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local MapBuilder = {}
 
 MapBuilder.MapFolderName = "Map"
-MapBuilder.CurrentMap = nil -- "Arena" / "Shibuya" / "Park" / "Cave" / "Ice" / "Volt" / "Sky"
+MapBuilder.CurrentMap = nil
 MapBuilder.CaveWallGroup = "CaveInnerWall"
 MapBuilder.PhaseGroup = "CavePhasing"
 
 local rotation = {
-	{ Id = "Arena", Name = "アリーナ", Gimmick = "None" },
 	{ Id = "Shibuya", Name = "渋谷", Gimmick = "None" },
 	{ Id = "Park", Name = "パーク", Gimmick = "None" },
 	{ Id = "Cave", Name = "洞窟", Gimmick = "None", ExclusiveItemId = "Phase" },
@@ -1191,7 +1190,6 @@ function MapBuilder.BuildPark()
 	buildParkPlayerSpawn(map)
 	local spawns = buildItemSpawns(MapBuilder.ParkSpawnPositions())
 
-	map:SetAttribute("ZoneMaxRadius", 175)
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap("Park")
@@ -1224,7 +1222,6 @@ function MapBuilder.Build()
 	local spawns = buildItemSpawns(MapBuilder.ItemSpawnPositions())
 
 	-- 中身を作り終えてから Workspace に置く（1回でまとめて反映される）
-	map:SetAttribute("ZoneMaxRadius", 125)
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap("Shibuya")
@@ -1403,12 +1400,6 @@ local function buildDungeon(id)
 	})
 	spawn.Neutral = true
 	local spawns = buildItemSpawns(points)
-	-- エリアの開始半径の上限（外周の壁より外に円を出さない）と、ボックスを置ける高さの上限
-	local zoneMax = { Cave = 105, Ice = 135, Volt = 125, Sky = 150 }
-	map:SetAttribute("ZoneMaxRadius", zoneMax[id])
-	if sky then
-		map:SetAttribute("BoxGroundMaxHeight", 53) -- 足場の上面（Y=48〜52）にだけ置く
-	end
 	map.Parent = workspace
 	spawns.Parent = workspace
 	setCurrentMap(id)
@@ -1436,124 +1427,21 @@ function MapBuilder.GetNearestSkyPlatform(position)
 	return nearest
 end
 
----------------------------------------------------------------------
--- アリーナ（Rojo で置いた 4 エリアのマップ）と、マップの入れ替え
----------------------------------------------------------------------
+-- 起動時の Build() では進めず、最初のラウンドも渋谷から始める。
+local mapTurn = 0
 
-local ServerStorage = game:GetService("ServerStorage")
-local ARENA_MAP = "ArenaMapTemplate"
-local ARENA_SPAWNS = "ArenaSpawnsTemplate"
-
--- 起動時に1回だけ呼ぶ。Rojo で置いた Workspace.Map をしまっておき、アリーナの番に複製して使う。
--- 観戦用のガラス箱（Spectator〜）はどのマップでも使うので、Workspace.Spectator に移して残す。
-function MapBuilder.StashArena()
-	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
-	if not map or ServerStorage:FindFirstChild(ARENA_MAP) then
-		return false
+function MapBuilder.BuildNextRound(fromCurrentMap)
+	if fromCurrentMap and mapTurn == 0 then
+		mapTurn = 1 -- 起動時に表示されている渋谷から次へ進む
 	end
-	local spectator = workspace:FindFirstChild("Spectator")
-	if not spectator then
-		spectator = Instance.new("Folder")
-		spectator.Name = "Spectator"
-		spectator.Parent = workspace
-	end
-	for _, desc in ipairs(map:GetDescendants()) do
-		if desc:IsA("BasePart") and string.sub(desc.Name, 1, 9) == "Spectator" then
-			desc.Parent = spectator
-		end
-	end
-	map.Name = ARENA_MAP
-	map.Parent = ServerStorage
-	local spawns = workspace:FindFirstChild(Config.ItemSpawnFolderName)
-	if spawns then
-		spawns.Name = ARENA_SPAWNS
-		spawns.Parent = ServerStorage
-	end
-	return true
-end
-
-function MapBuilder.BuildArena()
-	local mapTemplate = ServerStorage:FindFirstChild(ARENA_MAP)
-	if not mapTemplate then
-		return MapBuilder.Build() -- しまったアリーナがない（テストなど）ときは渋谷
-	end
-	clearExistingMap()
-	local map = mapTemplate:Clone()
-	map.Name = MapBuilder.MapFolderName
-	map.Parent = workspace
-	local spawnsTemplate = ServerStorage:FindFirstChild(ARENA_SPAWNS)
-	if spawnsTemplate then
-		local spawns = spawnsTemplate:Clone()
-		spawns.Name = Config.ItemSpawnFolderName
-		spawns.Parent = workspace
-	end
-	setCurrentMap("Arena")
-	return { MapId = "Arena" }
-end
-
-MapBuilder.Rotation = {}
-for _, info in ipairs(rotation) do
-	table.insert(MapBuilder.Rotation, info.Id)
-end
-MapBuilder.AllMaps = table.clone(MapBuilder.Rotation) -- 全マップの並び（テストで順番を戻すとき用）
-
-local BUILDERS = {
-	Arena = function()
-		return MapBuilder.BuildArena()
-	end,
-	Shibuya = function()
+	mapTurn = mapTurn % #rotation + 1
+	local id = rotation[mapTurn].Id
+	if id == "Shibuya" then
 		return MapBuilder.Build()
-	end,
-	Park = function()
+	elseif id == "Park" then
 		return MapBuilder.BuildPark()
-	end,
-}
-for id in pairs(dungeonBuilders) do
-	BUILDERS[id] = function()
-		return buildDungeon(id)
 	end
-end
-
--- 呼ぶたびに次のマップを作る。最初のマップはサーバーごとにランダム
--- （すぐ遊ぶは 1 試合ごとにサーバーが変わるので、毎回同じマップにならないように）。
-local mapTurn = nil
-
-function MapBuilder.BuildNextRound()
-	local rotation = MapBuilder.Rotation
-	if mapTurn == nil then
-		mapTurn = math.random(1, #rotation)
-	else
-		mapTurn = mapTurn % #rotation + 1
-	end
-	return BUILDERS[rotation[mapTurn]]()
-end
-
--- 入れ替えの順番を決め直す（テスト用）。次の BuildNextRound で rotation[startIndex] を作る
-function MapBuilder.ResetRotation(rotation, startIndex)
-	if rotation then
-		MapBuilder.Rotation = rotation
-	end
-	mapTurn = (startIndex or 1) - 1
-end
-
--- 起動時に作ったマップを、最初のラウンドではそのまま使う
-local builtForFirstRound = false
-
-function MapBuilder.Init()
-	MapBuilder.StashArena()
-	MapBuilder.BuildNextRound()
-	builtForFirstRound = true
-end
-
--- ラウンドの直前に呼ぶ。1回目は起動時のマップのまま、2回目からは次のマップに入れ替える。
--- 戻り値: マップを入れ替えたら true
-function MapBuilder.PrepareRound()
-	if builtForFirstRound then
-		builtForFirstRound = false
-		return false
-	end
-	MapBuilder.BuildNextRound()
-	return true
+	return buildDungeon(id)
 end
 
 return MapBuilder

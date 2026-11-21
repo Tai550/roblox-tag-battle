@@ -7,6 +7,7 @@ local Config = {}
 ---------------------------------------------------------------------
 -- ラウンド進行
 ---------------------------------------------------------------------
+Config.AdminUserIds = {}         -- 追加の管理者の UserId
 Config.MinPlayers = 2            -- ラウンド開始に必要な最低人数（人間の数。ボットだけでは始まらない）
 Config.BotFillTarget = 8         -- 人間がこれ未満なら、差分をボットで補う目標人数
 Config.BotsEnabled = true        -- false にするとボット補充をしない
@@ -28,7 +29,6 @@ Config.VoltRecoveryTime = 2
 Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
 
 Config.TaggerWalkSpeed = 20      -- 鬼の WalkSpeed
-Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 
 ---------------------------------------------------------------------
 -- タッチ判定（サーバー側で距離を測って判定する）
@@ -36,8 +36,6 @@ Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 Config.TagCooldown = 3           -- 鬼になった直後、タッチが無効になる秒数
 Config.TagReachForward = 1.6     -- 鬼のルートから判定の起点を前に出す距離（スタッド）
 Config.TagTouchDistance = 1.4    -- 起点から相手のパーツの表面までの許容距離（スタッド）
-Config.TagBodyDistance = 3.5     -- 体が重なっている（ルート同士がこの距離以内）ならタッチ
-Config.TagStackRadius = 2.5      -- 頭の上に乗っている／下にいる：水平でこの距離以内、高さの差 6 以内ならタッチ
 Config.TagCheckInterval = 0.1    -- タッチ判定の間隔（秒）
 
 ---------------------------------------------------------------------
@@ -49,8 +47,6 @@ Config.BoxSpawnInterval = 8      -- 何秒ごとにボックスを1つ出現さ�
 Config.BoxMaxOnMap = 4           -- マップ上に同時に置けるボックスの最大数
 Config.ItemSpawnFolderName = "ItemSpawns" -- Workspace 内の出現ポイント用フォルダ名
 Config.ItemHeightOffset = 3      -- 出現ポイントの何スタッド上にアイテムを浮かせるか
-Config.BoxGroundMaxHeight = 2.5  -- ボックスを出してよい地面の高さ（これより高い所＝建物の上には出さない）
-Config.BoxSpawnTries = 20        -- 空いた地面を探す回数
 
 -- ItemSpawns フォルダがない（または中に Part がない）ときの代わりの出現位置
 Config.FallbackSpawnCenter = Vector3.new(0, 3, 0)
@@ -65,67 +61,56 @@ Config.FallbackSpawnOffsets = {
 ---------------------------------------------------------------------
 -- 縮小エリア（ゾーン）
 -- ラウンド中、エリアは円形に縮み続ける。外に出続けると専用スタミナが減り、
--- 0 になると中央へ強制送還される。送還は ZoneMaxReturns 回まで。その次で脱落（観戦）。
+-- 0 になるとエリアの中へ戻される（脱落はしない）。
 ---------------------------------------------------------------------
-Config.ZoneEndRadius = 25          -- 縮小が止まる最後の半径
+Config.ZoneEndRadius = 18          -- 縮小が止まる最後の半径
 Config.ZoneStartRadiusMin = 50     -- 開始半径の下限
-Config.ZoneStartRadiusMax = 175    -- 開始半径の上限（フィールドの四隅まで入る大きさ）
-Config.ZoneStartRadiusPadding = 80 -- 開始半径 = 出現ポイントの最大距離 + この値（最初はフィールド全体）
+Config.ZoneStartRadiusMax = 120    -- 開始半径の上限
+Config.ZoneStartRadiusPadding = 15 -- 開始半径 = 出現ポイントの最大距離 + この値
 Config.ZoneFallbackRadius = 60     -- 予備ポイントだけのマップでの開始半径
-Config.ZoneShrinkStartRatio = 0.3  -- 試合時間のこの割合までは縮まない（最初は広く遊べる）
-Config.ZoneShrinkEndRatio = 0.85   -- 試合時間のこの割合で最後の半径まで縮みきる
+Config.ZoneShrinkEndRatio = 0.8    -- 試合時間のこの割合が過ぎるまで縮み続ける
 Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
-Config.ZoneDrainPerSecond = 9      -- エリア外で1秒に減るスタミナ（0 まで約11秒）
+Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
-Config.ZoneWallHeight = 60         -- 壁の高さ
+Config.ZoneWallHeight = 60         -- 壁（円柱）の高さ
 Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
 Config.ZoneWallTransparency = 0.5  -- 壁の透明度
-Config.ZoneWallSegments = 64       -- 壁を何枚のパネルで円にするか（多いほどなめらか）
-Config.RespawnRayHeight = 60       -- リスポーン時、どの高さから足場を探すか
-Config.ZoneMaxReturns = 2          -- 強制送還できる回数。これを使い切った次は脱落
-Config.ZoneReturnRadius = 12       -- 強制送還で戻す場所（中央からこの半径の中）
-Config.SpectatorPosition = Vector3.new(0, 153, 0) -- 脱落した人を置く観戦席（マップの上空）
 
 ---------------------------------------------------------------------
 -- デッキ構築
--- ロビーで、持っているアイテムの中から DeckSize 個を選んでデッキにする（試合中は変えられない）。
--- フィールドのボックスを拾うと、自分のデッキの中からランダムで1つ手に入る。
+-- 全アイテムの中から3つ選んでデッキにする。フィールドのボックスを拾うと、
+-- 自分のデッキの中からランダムで1つ手に入る。
 ---------------------------------------------------------------------
-Config.DeckSize = 4                                        -- デッキに入れられる数
-Config.StarterItems = { "Dash", "Banana", "Warp", "Shield" } -- 最初から持っているアイテム
-Config.DefaultDeck = { "Dash", "Banana", "Warp", "Shield" }  -- 選んでいない人のデッキ
+Config.DeckSize = 3                              -- デッキに入れられる数
+Config.DefaultDeck = { "Dash", "Shield", "Warp" } -- 選んでいない人のデッキ
 
 ---------------------------------------------------------------------
 -- フィールドのアイテムボックス
 ---------------------------------------------------------------------
-Config.BoxExpireTime = 0   -- ボックスで手に入れたアイテムの使用期限（秒）。0 は期限なし（ためて後で使える）
+Config.BoxExpireTime = 15  -- ボックスで手に入れたアイテムの使用期限（秒）。過ぎると消える
 
 ---------------------------------------------------------------------
 -- アイテム使用の操作
 ---------------------------------------------------------------------
 -- 所持はリスト形式。枠ごとに使うキーが決まっている。
---   1枠目: E・1 / ゲームパッドの X
---   2枠目: Q・2 / Y   3枠目: R・3 / B   4枠目: F・4 / DPadUp（ダブルアイテム所有者のみ）
+--   1枠目: キーボードの E・1 / ゲームパッドの X
+--   2枠目: キーボードの Q・2 / ゲームパッドの Y（ダブルアイテム所有者のみ）
 Config.ItemSlotKeys = {
 	{ Enum.KeyCode.E, Enum.KeyCode.One, Enum.KeyCode.ButtonX },
 	{ Enum.KeyCode.Q, Enum.KeyCode.Two, Enum.KeyCode.ButtonY },
-	{ Enum.KeyCode.R, Enum.KeyCode.Three, Enum.KeyCode.ButtonB },
-	{ Enum.KeyCode.F, Enum.KeyCode.Four, Enum.KeyCode.DPadUp },
 }
-Config.ItemSlotKeyLabels = { "E", "Q", "R", "F" } -- 画面のボタンやメッセージに出すキー名
-Config.BaseItemSlots = 3         -- 通常の所持枠の数（ためて終盤に使えるよう 3 枠）
+Config.ItemSlotKeyLabels = { "E", "Q" } -- 画面のボタンやメッセージに出すキー名
+Config.BaseItemSlots = 1         -- 通常の所持枠の数
 Config.UseItemCooldown = 0.5     -- 連打防止（サーバー側でもチェック）
 
 ---------------------------------------------------------------------
 -- leaderstats の項目名
 ---------------------------------------------------------------------
 Config.LeaderstatNames = {
-	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数
-	Tagged = "鬼回数",            -- この試合で鬼にタッチされて鬼になった回数
-	Returns = "送還",             -- この試合で強制送還された回数
-	Coins = "コイン",             -- ロビーで表示する所持コイン
-	Rank = "ランク",              -- 段位名（例: ゴールド）。累計で保存
+	Survived = "逃げ切り",        -- 鬼にならずにラウンドを終えた回数（累計。保存する）
+	Tagged = "鬼タッチ",          -- 鬼にタッチされて鬼になった回数（累計。保存する）
+	Rank = "ランク",              -- 段位名（例: ゴールド）
 	RP = "RP",                    -- 累計ランクポイント
 }
 
@@ -221,8 +206,6 @@ end
 Config.Items = {
 	Dash = {
 		Id = "Dash",
-		Tier = "Ume",
-		Price = 0,
 		DisplayName = "ダッシュ",
 		Description = "5秒間、足がとても速くなる",
 		Color = Color3.fromRGB(255, 200, 40),
@@ -233,8 +216,6 @@ Config.Items = {
 	},
 	Smoke = {
 		Id = "Smoke",
-		Tier = "Take",
-		Price = 400,
 		DisplayName = "スモーク",
 		Description = "鬼の画面を3秒間まっ白にする",
 		Color = Color3.fromRGB(200, 200, 200),
@@ -245,8 +226,6 @@ Config.Items = {
 	},
 	Shield = {
 		Id = "Shield",
-		Tier = "Take",
-		Price = 0,
 		DisplayName = "シールド",
 		Description = "1回だけ鬼のタッチを防ぐ（10秒で消える）",
 		Color = Color3.fromRGB(80, 170, 255),
@@ -257,8 +236,6 @@ Config.Items = {
 	},
 	Warp = {
 		Id = "Warp",
-		Tier = "Take",
-		Price = 0,
 		DisplayName = "ワープ",
 		Description = "ランダムな出現ポイントへ瞬間移動",
 		Color = Color3.fromRGB(190, 90, 255),
@@ -268,8 +245,6 @@ Config.Items = {
 	},
 	Star = {
 		Id = "Star",
-		Tier = "Matsu",
-		Price = 900,
 		DisplayName = "スター",
 		Description = "4秒間、鬼にタッチされなくなる",
 		Color = Color3.fromRGB(255, 180, 0),
@@ -279,8 +254,6 @@ Config.Items = {
 	},
 	Banana = {
 		Id = "Banana",
-		Tier = "Ume",
-		Price = 0,
 		DisplayName = "バナナ",
 		Description = "足元に置く。踏んだ人がすべってしまう",
 		Color = Color3.fromRGB(255, 235, 130),
@@ -290,129 +263,6 @@ Config.Items = {
 		SlipTime = 1.2,          -- 踏んだ人がすべる秒数
 		SlipSpeed = 26,          -- すべる速さ
 	},
-	-----------------------------------------------------------------
-	-- ここから追加アイテム（梅 = 150 / 竹 = 400 / 松 = 900 コイン）
-	-----------------------------------------------------------------
-	HighJump = {
-		Id = "HighJump",
-		Tier = "Ume",
-		Price = 150,
-		DisplayName = "ハイジャンプ",
-		Description = "6秒間、ジャンプがとても高くなる（コンテナの上へ逃げられる）",
-		Color = Color3.fromRGB(120, 255, 160),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-		Duration = 6,
-		JumpHeight = 17,         -- 効果中の JumpHeight（通常は約7.2）
-	},
-	Decoy = {
-		Id = "Decoy",
-		Tier = "Ume",
-		Price = 150,
-		DisplayName = "ダミー人形",
-		Description = "自分そっくりの人形をその場に置く（10秒）。鬼の目をごまかせ",
-		Color = Color3.fromRGB(230, 200, 170),
-		SpawnWeight = 1,
-		CanTaggerUse = false,
-		Duration = 10,
-	},
-	Flash = {
-		Id = "Flash",
-		Tier = "Ume",
-		Price = 150,
-		DisplayName = "フラッシュ",
-		Description = "近く（30スタッド以内）の鬼の画面を1.5秒まっ白にする",
-		Color = Color3.fromRGB(255, 255, 210),
-		SpawnWeight = 1,
-		CanTaggerUse = false,
-		Range = 30,
-		Duration = 1.5,
-		FadeOutTime = 0.3,
-	},
-	Sneak = {
-		Id = "Sneak",
-		Tier = "Ume",
-		Price = 150,
-		DisplayName = "しのび足",
-		Description = "8秒間、体がほぼ透明になり名前も消える",
-		Color = Color3.fromRGB(150, 150, 190),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-		Duration = 8,
-		Transparency = 0.85,
-	},
-	Glue = {
-		Id = "Glue",
-		Tier = "Take",
-		Price = 400,
-		DisplayName = "ねばねば罠",
-		Description = "足元に罠を置く。踏んだ鬼は3秒間とても遅くなる（25秒で消える）",
-		Color = Color3.fromRGB(170, 230, 60),
-		SpawnWeight = 1,
-		CanTaggerUse = false,
-		Duration = 25,           -- 罠が残る秒数
-		SlowTime = 3,            -- 踏んだ鬼が遅くなる秒数
-		SlowSpeed = 7,           -- 遅くなったときの WalkSpeed
-	},
-	AirBurst = {
-		Id = "AirBurst",
-		Tier = "Take",
-		Price = 400,
-		DisplayName = "エアバースト",
-		Description = "まわり（14スタッド以内）の全員を吹き飛ばす",
-		Color = Color3.fromRGB(140, 220, 255),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-		Range = 14,
-		PushSpeed = 70,          -- 横向きの勢い
-		LiftSpeed = 35,          -- 上向きの勢い
-	},
-	ZoneGuard = {
-		Id = "ZoneGuard",
-		Tier = "Take",
-		Price = 400,
-		DisplayName = "エリアガード",
-		Description = "12秒間、エリアの外にいてもスタミナが減らない（外のボックスを取りに行ける）",
-		Color = Color3.fromRGB(255, 120, 220),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-		Duration = 12,
-	},
-	Radar = {
-		Id = "Radar",
-		Tier = "Take",
-		Price = 400,
-		DisplayName = "レーダー",
-		Description = "8秒間、壁ごしに相手が光って見える（逃げる人には鬼、鬼には逃げる人）",
-		Color = Color3.fromRGB(60, 255, 230),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-		Duration = 8,
-	},
-	TimeStop = {
-		Id = "TimeStop",
-		Tier = "Matsu",
-		Price = 900,
-		DisplayName = "タイムストップ",
-		Description = "鬼を2.5秒間その場に止める",
-		Color = Color3.fromRGB(255, 215, 80),
-		SpawnWeight = 1,
-		CanTaggerUse = false,
-		Duration = 2.5,
-	},
-	SecondChance = {
-		Id = "SecondChance",
-		Tier = "Matsu",
-		Price = 900,
-		DisplayName = "セカンドチャンス",
-		Description = "強制送還の回数を1回分なかったことにする",
-		Color = Color3.fromRGB(255, 90, 90),
-		SpawnWeight = 1,
-		CanTaggerUse = true,
-	},
-	-----------------------------------------------------------------
-	-- マップ専用アイテム（そのマップのボックスからだけ出る。ショップ・デッキには出ない）
-	-----------------------------------------------------------------
 	Phase = {
 		Id = "Phase",
 		DisplayName = "壁抜け",
@@ -455,7 +305,6 @@ Config.Items = {
 	},
 }
 
-
 -- 氷上の水平速度を合成する。Y 方向の速度は呼び出し側で維持する。
 function Config.IceVelocity(previous, direction, speed, dt)
 	local input = Vector3.new(direction.X, 0, direction.Z)
@@ -467,19 +316,8 @@ function Config.IceVelocity(previous, direction, speed, dt)
 	return velocity.Magnitude >= 0.1 and velocity or Vector3.new(0, 0, 0)
 end
 
--- アイテムの並び順（ショップやデッキ画面の表示順）
-Config.ItemOrder = {
-	"Dash", "Banana", "HighJump", "Decoy", "Flash", "Sneak",
-	"Warp", "Shield", "Smoke", "Glue", "AirBurst", "ZoneGuard", "Radar",
-	"Star", "TimeStop", "SecondChance",
-}
-
--- ランク（松竹梅）の表示
-Config.Tiers = {
-	Ume = { Name = "梅", Color = Color3.fromRGB(120, 200, 120) },
-	Take = { Name = "竹", Color = Color3.fromRGB(80, 160, 230) },
-	Matsu = { Name = "松", Color = Color3.fromRGB(240, 180, 40) },
-}
+-- 通常アイテムの並び順（デッキ表示・購入抽選で使う）
+Config.ItemOrder = { "Dash", "Smoke", "Shield", "Warp", "Star", "Banana" }
 
 function Config.GetItem(itemId)
 	if itemId == nil then
@@ -510,9 +348,9 @@ Config.Monetization = {
 	DoubleItem = {
 		PassId = 0,              -- ★ Game Pass の ID
 		DisplayName = "ダブルアイテム",
-		Description = "アイテムを4つまで持てる（4つ目は F キー / 4枠目のボタンで使う）",
+		Description = "アイテムを2つまで持てる（2つ目は Q キー / 2枠目のボタンで使う）",
 		PriceHint = 99,
-		ItemSlots = 4,           -- 所有者の所持枠の数（通常 3 → 4）
+		ItemSlots = 2,           -- 所有者の所持枠の数
 	},
 	-- キラキラトレイル（Game Pass・買い切り）: 走ると光の軌跡が出る（見た目だけ）
 	SparkleTrail = {
@@ -532,60 +370,5 @@ Config.Monetization = {
 
 -- Game Pass の一覧（所有確認やショップ表示で使う）
 Config.GamePassKeys = { "DoubleItem", "SparkleTrail" }
-
----------------------------------------------------------------------
--- 順位とコイン
---   順位: ①最後まで残り、最後の鬼ではない人を「鬼になった回数」が少ない順
---         ②最後の鬼（負け）  ③脱落した人（あとまで残った人ほど上）
---   一度もタッチされずに逃げ切った人が「優勝」で、いちばん多くもらえる。
----------------------------------------------------------------------
-Config.CoinRewards = {
-	Champion = 120,       -- 一度もタッチされずに逃げ切った
-	Survivor = 70,        -- 逃げ切った（タッチされた回数で減る）
-	PerTagPenalty = 15,   -- タッチされた1回ごとに減る枚数
-	SurvivorMin = 25,     -- 逃げ切った人の最低枚数
-	FinalTagger = 10,     -- 最後に鬼だった
-	Eliminated = 5,       -- エリア外で脱落した
-}
-
----------------------------------------------------------------------
--- ロビーと部屋
----------------------------------------------------------------------
-Config.LobbyPlaceId = 126711017852469 -- ロビー（スタートプレース）
-Config.MatchPlaceId = 133704424283393 -- 試合用プレース
-Config.QuickMaxPlayers = 8            -- 自動で始まる部屋の最大人数
-Config.QuickCountdown = 12            -- 2人そろってから出発までの秒数
-Config.QuickFullCountdown = 4         -- 満員になったら出発までの秒数
-Config.QuickPadRadius = 9             -- 「すぐ遊ぶ」パッドの半径（この中に立つと参加）
-Config.MatchArrivalTimeout = 25       -- 試合サーバーで全員の到着を待つ最大秒数
-Config.FriendRoomCodeLength = 4       -- 友達部屋の合言葉の桁数
-Config.FriendRoomLifetime = 3 * 60 * 60 -- 合言葉が有効な秒数
-Config.FriendMaxPlayers = 12          -- 友達部屋の最大人数
-
----------------------------------------------------------------------
--- ひとりモード（ボットと遊ぶ）
----------------------------------------------------------------------
-Config.SoloBotCount = 5            -- 一緒に走るボットの数
-Config.SoloCoinRate = 0.5          -- ひとりモードでもらえるコインの割合
-Config.StudioSoloAfter = 5         -- Studio で1人のまま何秒たったらボットで始めるか
-Config.BotTaggerWalkSpeed = 17.5   -- 鬼になったボットの速さ（人の鬼 20 より遅め）
-Config.BotRunnerWalkSpeed = 15     -- 逃げるボットの速さ（人 16 より少し遅め）
-
----------------------------------------------------------------------
--- BGM（Creator Store の正規ライセンス曲）
----------------------------------------------------------------------
-Config.Music = {
-	Lobby = "rbxassetid://99572829037282",   -- Cheerful Upbeat Chase 1
-	Match = "rbxassetid://119305326515198",  -- Cheerful Upbeat Chase 2
-	Final = "rbxassetid://9045941477",       -- Mission Danger - Underscore（残り30秒から）
-	FinalTime = 30,                          -- 残り何秒で終盤の曲に切り替えるか
-	Volume = 0.35,
-}
-
--- ランクの表示名を返す（"梅" など）
-function Config.GetTierName(tier)
-	local info = Config.Tiers[tier]
-	return info and info.Name or ""
-end
 
 return Config

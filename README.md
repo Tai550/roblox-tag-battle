@@ -119,6 +119,7 @@ default.project.json          Rojo のプロジェクト定義
 src/
   shared/                     → ReplicatedStorage.Shared
     Config.lua                  設定モジュール（時間・速度・アイテム定義）★数字はここで変える
+    UILayout.lua                スマホ向けの寸法表と安全領域の設定
   server/                     → ServerScriptService.Server
     Main.server.lua             起動スクリプト（各モジュールを初期化してラウンドを回す）
     RoundManager.lua            ラウンド進行、鬼の選出、タッチ判定、試合時間の投票集計
@@ -128,6 +129,7 @@ src/
     Leaderstats.lua             「逃げ切り」「鬼タッチ」「ランク」「RP」の表示
     RankManager.lua             段位の累計と DataStore への保存
     Remotes.lua                 RemoteEvent の作成
+    AdminManager.lua            管理操作の権限判定、BAN、操作履歴
     Monetization.lua            課金：レシート処理（アイテムボックス）、Game Pass の所有確認
     SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
     TaggerLook.lua              鬼の見た目（少し赤い色と Highlight の付け外し）
@@ -141,6 +143,7 @@ src/
     Shop.client.lua             ショップ画面（開くボタンと商品一覧、購入ダイアログの表示）
     Slide.client.lua            氷床でのプレイヤー移動とスパイクブーツの反映
     MatchUI.client.lua          試合時間の投票、デッキ構築、縮小エリアとスタミナの表示
+    AdminUI.client.lua          管理ボタンとパネル
 ```
 
 ファイル名の `.server.lua` は Script、`.client.lua` は LocalScript、それ以外の `.lua` は ModuleScript になります。
@@ -148,7 +151,8 @@ src/
 ### 通信と判定の考え方
 
 - RemoteEvent はサーバー起動時に `ReplicatedStorage.Remotes` フォルダに自動で作られます（Studio で用意する必要はありません）。
-- クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）、「Game Pass の所有状態を送って」（`PassUpdate`）、「試合時間への投票」（`DurationVote`、秒数だけ）、「選んだデッキ」（`DeckSelect`、アイテム Id のリスト）です。集計・検証・所持・効果・課金の付与は、すべてサーバーが決めます。
+- クライアントから送るのは「○枠目のアイテムを使いたい」（`UseItem`、枠番号だけ）、「Game Pass の所有状態を送って」（`PassUpdate`）、「試合時間への投票」（`DurationVote`、秒数だけ）、「選んだデッキ」（`DeckSelect`、アイテム Id のリスト）が含まれます。集計・検証・所持・効果・課金の付与は、すべてサーバーが決めます。
+- 管理パネルの取得・操作には `AdminRequest` を使います。サーバーは各リクエストで送信者の管理権限を確認します。
 - 段位が上がったときだけ、サーバーがその人に `RankUp`（新しい段位名）を送ります。段位と RP の常時表示は leaderstats を読むだけで、専用の取得リクエストはありません。
 - サーバーは0.1秒ごとに、鬼の胸の少し前にある起点から相手の各パーツの箱の最近接点までの距離を測ります。手が届く範囲は `Config.TagReachForward` と `Config.TagTouchDistance` で調整できます。
 
@@ -176,6 +180,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 |---|---|---|
 | ReplicatedStorage | Folder `Shared` | |
 | ReplicatedStorage › Shared | ModuleScript `Config` | `src/shared/Config.lua` |
+| ReplicatedStorage › Shared | ModuleScript `UILayout` | `src/shared/UILayout.lua` |
 | ServerScriptService | Folder `Server` | |
 | ServerScriptService › Server | Script `Main` | `src/server/Main.server.lua` |
 | ServerScriptService › Server | ModuleScript `RoundManager` | `src/server/RoundManager.lua` |
@@ -185,6 +190,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `Leaderstats` | `src/server/Leaderstats.lua` |
 | ServerScriptService › Server | ModuleScript `RankManager` | `src/server/RankManager.lua` |
 | ServerScriptService › Server | ModuleScript `Remotes` | `src/server/Remotes.lua` |
+| ServerScriptService › Server | ModuleScript `AdminManager` | `src/server/AdminManager.lua` |
 | ServerScriptService › Server | ModuleScript `Monetization` | `src/server/Monetization.lua` |
 | ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
 | ServerScriptService › Server | ModuleScript `TaggerLook` | `src/server/TaggerLook.lua` |
@@ -198,6 +204,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `Shop` | `src/client/Shop.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `Slide` | `src/client/Slide.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `MatchUI` | `src/client/MatchUI.client.lua` |
+| StarterPlayer › StarterPlayerScripts › Client | LocalScript `AdminUI` | `src/client/AdminUI.client.lua` |
 
 ### テストのしかた
 
@@ -365,7 +372,7 @@ Config.Monetization = {
 - **アイテムボックス**: テスト購入でも `ProcessReceipt` が呼ばれるので、付与・入れ替えのメッセージまで確認できます。ラウンド中に参加しているときだけ買えるので、「クライアントとサーバー」で2人以上にしてラウンドを始めてから試してください。
 - **Game Pass**: Studio のテスト購入では `UserOwnsGamePassAsync` が `true` にならないことがあります。そのため購入完了（`wasPurchased = true`）を受け取ったときは、それを優先して反映しています（Output に警告が1行出ますが正常です）。テストを止めて再開すると「未所有」に戻ります。本当の所有確認（参加時の確認）は、公開したゲームで実際に購入して確かめてください。
 - 商品は公開済みのゲームに紐づいています。別のゲームの ID を入れると購入画面が出ないか、エラーになります。
-- 1人テスト（「プレイ」）ではラウンドが始まらないため、アイテムボックスは「ラウンド中のみ」と表示されて買えません。Game Pass は1人でも試せます。
+- 1人テスト（「プレイ」）でラウンドを待機したままなら、アイテムボックスは「ラウンド中のみ」と表示されて買えません。Game Pass は1人でも試せます。
 
 ## 注意
 
@@ -378,3 +385,16 @@ Config.Monetization = {
 ボタンの最小サイズ（52 px）、画面端からの余白（16 px）、画面下の操作用の空き（120 px）は
 共有の寸法表 `src/shared/UILayout.lua` で管理しています。アイテムボタンは画面下中央にあり、
 右上の段位パネルでタッチ回数・捕まった回数・ラウンド獲得RPを確認できます。
+
+## 管理者画面
+
+個人所有の体験では、所有者の UserId が `game.CreatorId` と一致すると自動で管理者になります。追加する場合は `src/shared/Config.lua` の `Config.AdminUserIds` に数値の UserId を入れてください。グループ所有の体験でも、この配列で管理者を指定します。管理者として入室し、画面右側の **管理** ボタンを押すと開きます。
+
+| 区分 | できること |
+| --- | --- |
+| プレイヤー | 入室中の人間の名前・段位・RP・参加状況を確認。選択した人をキック、BAN、試合中に鬼に変更、自分のところに呼ぶ、または相手のところへ移動。BAN一覧から解除。 |
+| お知らせ | 現在のサーバーにいる全員に約3秒間表示。入力文には Roblox のテキストフィルターが適用されます。 |
+| 進行 | 待ち時間を省いてラウンドを開始（生存している人間が1人以上必要）、試合を終了、次のマップへ移動、ボット補充を切り替え。マップ移動は試合中なら終了処理後に行い、ボット設定は次の補充時に反映されます。 |
+| 付与と情報 | プレイヤー欄で選んだ人にアイテムを1個または RP（1〜1,000,000の整数）を付与。マップ、フェーズ、参加人数、稼働時間、直近20件の操作履歴を確認。アイテムは試合中の参加者に即時付与し、待機中や観戦中は次に参加する試合で渡します。マップ固有アイテムの使用条件は通常と同じです。 |
+
+BAN の理由は DataStore **`AdminBansV1`** に UserId をキーとして保存されます。解除するには **プレイヤー → BAN一覧を取得** で UserId を選び、**BAN解除** を押してください。必要に応じて **次のBAN一覧** で次のページに進めます。入室時の読み込みに失敗した場合は警告を出して入室を続行します。保存に失敗した場合はパネルに失敗が表示されます。Studio で BAN の保存・解除を確認するには、公開済みのテスト用の体験で Studio からの API サービスへのアクセスを有効にしてください。

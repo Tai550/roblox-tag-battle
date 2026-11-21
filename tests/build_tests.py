@@ -19,8 +19,6 @@ MODULES = [
     ("src/server/GameState.lua", "GameState"),
     ("src/server/Remotes.lua", "Remotes"),
     ("src/server/Leaderstats.lua", "Leaderstats"),
-    ("src/serverlib/PlayerDataStore.lua", "PlayerDataStore"),
-    ("src/server/MatchSession.lua", "MatchSession"),
     ("src/server/RankManager.lua", "RankManager"),
     ("src/server/DeckManager.lua", "DeckManager"),
     ("src/server/ZoneManager.lua", "ZoneManager"),
@@ -29,9 +27,10 @@ MODULES = [
     ("src/server/TaggerLook.lua", "TaggerLook"),
     ("src/server/BotManager.lua", "BotManager"),
     ("src/server/RoundManager.lua", "RoundManager"),
+    ("src/server/AdminManager.lua", "AdminManager"),
 ]
 
-CLIENTS = ()  # 試合の画面は MatchHUD に一本化したので、古い画面のテストはしない
+CLIENTS = ("HUD", "ItemControls", "MatchUI", "Shop", "AdminUI")
 
 PRELUDE = """-- [test] Roblox API mock prelude
 local __RT = require("./mockenv")
@@ -45,7 +44,6 @@ local Color3 = __RT.Color3
 local Vector2 = __RT.Vector2
 local Vector3 = __RT.Vector3
 local CFrame = __RT.CFrame
-local RaycastParams = __RT.RaycastParams
 local UDim = __RT.UDim
 local UDim2 = __RT.UDim2
 local PhysicalProperties = __RT.PhysicalProperties

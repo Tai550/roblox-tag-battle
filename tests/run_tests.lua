@@ -10,8 +10,6 @@ RT.modules.UILayout = require("./.build/UILayout")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
-RT.modules.PlayerDataStore = require("./.build/PlayerDataStore")
-RT.modules.MatchSession = require("./.build/MatchSession")
 RT.modules.RankManager = require("./.build/RankManager")
 RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
@@ -21,6 +19,8 @@ RT.modules.TaggerLook = require("./.build/TaggerLook")
 RT.modules.BotManager = require("./.build/BotManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
 
+local AdminManager = require("./.build/AdminManager")
+
 local Config = RT.modules.Config
 local RankManager = RT.modules.RankManager
 local Remotes = RT.modules.Remotes
@@ -28,7 +28,6 @@ local ZoneManager = RT.modules.ZoneManager
 local DeckManager = RT.modules.DeckManager
 local ItemManager = RT.modules.ItemManager
 local RoundManager = RT.modules.RoundManager
-local PlayerDataStore = RT.modules.PlayerDataStore
 local MapBuilder = RT.modules.MapBuilder
 local TaggerLook = RT.modules.TaggerLook
 local BotManager = RT.modules.BotManager
@@ -67,7 +66,64 @@ do
 	check("UI寸法表はスマホの最小寸法を満たす",
 		layout.EdgeMargin >= 16 and layout.MinTouchSize >= 52 and layout.BottomClearance >= 100)
 
-	-- 試合の画面は MatchHUD に一本化したため、古い画面スクリプトの起動テストは外した
+	local players = RT.game:GetService("Players")
+	local player = RT.Instance.new("Player")
+	local playerGui = RT.Instance.new("Folder")
+	playerGui.Name = "PlayerGui"
+	playerGui.Parent = player
+	players.LocalPlayer = player
+
+	local realWait = RT.task.wait
+	RT.task.wait = coroutine.yield
+	local clients = {
+		{ Name = "TagHUD", Run = require("./.build/HUD") },
+		{ Name = "ItemHUD", Run = require("./.build/ItemControls") },
+		{ Name = "MatchUI", Run = require("./.build/MatchUI") },
+		{ Name = "ShopGui", Run = require("./.build/Shop") },
+	}
+	for _, client in ipairs(clients) do
+		local ok, err = coroutine.resume(coroutine.create(client.Run))
+		assert(ok, err)
+		local gui = playerGui:FindFirstChild(client.Name)
+		check(client.Name .. " は共有寸法表から安全領域を設定する",
+			gui and gui.ScreenInsets == RT.Enum.ScreenInsets.CoreUISafeInsets)
+	end
+	RT.task.wait = realWait
+
+	local itemGui = playerGui:FindFirstChild("ItemHUD")
+	local itemRow = itemGui:FindFirstChild("ItemSlots")
+	local itemButton = itemRow:FindFirstChild("UseItemButton1")
+	check("アイテムボタンは中央で下端の空きと最小サイズを確保する",
+		itemRow.Position.XScale == 0.5 and itemRow.Position.YOffset == -layout.BottomClearance
+		and itemButton.Size.XOffset >= layout.MinTouchSize and itemButton.Size.YOffset >= layout.MinTouchSize)
+
+	local shopGui = playerGui:FindFirstChild("ShopGui")
+	local openShop = shopGui:FindFirstChild("OpenShop")
+	local closeShop = shopGui:FindFirstChild("Panel"):FindFirstChild("Close")
+	check("ショップの開閉ボタンに最小サイズと余白を適用する",
+		openShop.Size.YOffset == layout.MinTouchSize and openShop.Position.XOffset == layout.EdgeMargin
+		and closeShop.Size.XOffset >= layout.MinTouchSize and closeShop.Size.YOffset >= layout.MinTouchSize
+		and closeShop.Position.XOffset <= -12 and closeShop.Position.YOffset >= 12)
+
+	local matchGui = playerGui:FindFirstChild("MatchUI")
+	local deckConfirm = matchGui:FindFirstChild("DeckPanel"):FindFirstChild("Confirm")
+	local votePanel = matchGui:FindFirstChild("VotePanel")
+	local vote = votePanel:FindFirstChild("Vote" .. Config.MatchDurations[1])
+	check("投票とデッキ確定の押せる領域を確保する",
+		vote.Size.YOffset >= layout.MinTouchSize
+		and (matchGui.AbsoluteSize.X - 2 * layout.EdgeMargin) * vote.Size.XScale + vote.Size.XOffset >= layout.MinTouchSize
+		and deckConfirm.Size.XOffset >= layout.MinTouchSize and deckConfirm.Size.YOffset >= layout.MinTouchSize
+		and deckConfirm.Position.XScale == 0.5 and deckConfirm.Position.YOffset == -layout.EdgeMargin)
+
+	local stats = playerGui:FindFirstChild("TagHUD"):FindFirstChild("RoundStats")
+	player:SetAttribute("RoundTags", 2)
+	player:SetAttribute("RoundCaught", 1)
+	player:SetAttribute("RoundRP", 16)
+	check("HUDはラウンド属性の変更を表示する",
+		stats:FindFirstChild("RoundCounts").Text == "タッチ 2回　捕まった 1回"
+		and stats:FindFirstChild("RoundRP").Text == "このラウンド +16 RP")
+	players.LocalPlayer = nil
+	player:Destroy()
 end
 
 math.randomseed(12345)
@@ -80,15 +136,15 @@ do
 	-- 2点 (0,0,0) と (30,0,40): 中心 (15,0,20)、最大距離 25 → 25+15=40 → 下限 50 に丸める
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(30, 0, 40) }, false)
 	check("中心は出現ポイントの平均", near(cx, 15) and near(cy, 0) and near(cz, 20))
-	check("開始半径は最大距離+80（25+80）", near(radius, 105))
+	check("開始半径は下限50に丸める", near(radius, 50))
 
 	-- 2点 (0,0,0) と (200,0,0): 中心 (100,0,0)、最大距離 100 → 115（上限内）
 	local _, _, _, radius2 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(200, 0, 0) }, false)
-	check("開始半径は上限175に丸める（200+80）", near(radius2, 175))
+	check("開始半径は最大距離+15", near(radius2, 115))
 
 	-- 2点 (0,0,0) と (300,0,0): 最大距離 150 → 165 → 上限 120 に丸める
 	local _, _, _, radius3 = ZoneManager.ComputeGeometry({ point(0, 0, 0), point(300, 0, 0) }, false)
-	check("開始半径は上限175に丸める", near(radius3, 175))
+	check("開始半径は上限120に丸める", near(radius3, 120))
 
 	-- 予備ポイントのみの場合は 60
 	local _, _, _, radius4 = ZoneManager.ComputeGeometry({ point(0, 3, 0), point(10, 3, 0) }, true)
@@ -104,14 +160,14 @@ end
 ---------------------------------------------------------------------
 
 do
-	-- 180秒・開始半径175: 54秒(30%)までは縮まず、153秒(85%)で25まで縮む。中間103.5秒で100
-	check("開始直後は開始半径", near(ZoneManager.RadiusAt(0, 180, 175), 175))
-	check("30%までは縮まない", near(ZoneManager.RadiusAt(54, 180, 175), 175))
-	check("縮小区間の中間で線形に縮む", near(ZoneManager.RadiusAt(103.5, 180, 175), 100))
-	check("85%時点で終了半径25", near(ZoneManager.RadiusAt(153, 180, 175), 25))
-	check("85%を過ぎたら終了半径で固定", near(ZoneManager.RadiusAt(180, 180, 175), 25))
-	-- 60秒: 18秒まで縮まず、51秒で25
-	check("60秒試合の途中経過", near(ZoneManager.RadiusAt(34.5, 60, 175), 100))
+	-- 180秒・開始半径120: 縮小は144秒まで。72秒で半分 → 120 + (18-120)*0.5 = 69
+	check("縮小開始直後は開始半径", near(ZoneManager.RadiusAt(0, 180, 120), 120))
+	check("縮小区間の中間で線形に縮む", near(ZoneManager.RadiusAt(72, 180, 120), 69))
+	check("80%時点で終了半径18", near(ZoneManager.RadiusAt(144, 180, 120), 18))
+	check("80%を過ぎたら終了半径で固定", near(ZoneManager.RadiusAt(180, 180, 120), 18))
+	-- 60秒・開始半径60: 縮小は48秒まで
+	check("60秒試合でも80%で終了半径", near(ZoneManager.RadiusAt(48, 60, 60), 18))
+	check("60秒試合の途中経過", near(ZoneManager.RadiusAt(24, 60, 60), 39))
 end
 
 ---------------------------------------------------------------------
@@ -134,19 +190,19 @@ end
 ---------------------------------------------------------------------
 
 do
-	local okValid = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp", "Banana" })
-	check("正しいデッキ（4個）は通る", okValid == true)
-	local okDup = DeckManager.ValidateDeck({ "Dash", "Dash", "Warp", "Banana" })
+	local okValid = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp" })
+	check("正しいデッキは通る", okValid == true)
+	local okDup = DeckManager.ValidateDeck({ "Dash", "Dash", "Warp" })
 	check("重複は通らない", okDup == false)
-	local okCount = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp" })
+	local okCount = DeckManager.ValidateDeck({ "Dash", "Shield" })
 	check("数が違うと通らない", okCount == false)
-	local okUnknown = DeckManager.ValidateDeck({ "Dash", "Shield", "Warp", "NoSuchItem" })
+	local okUnknown = DeckManager.ValidateDeck({ "Dash", "Shield", "NoSuchItem" })
 	check("存在しないアイテムは通らない", okUnknown == false)
 	local okType = DeckManager.ValidateDeck("Dash")
 	check("配列でないと通らない", okType == false)
 
-	-- 保存データのデッキから300回引いて、デッキ外が出ないこと
-	local fakePlayer = { Parent = {}, UserId = 1 }
+	-- 既定デッキから300回引いて、デッキ外が絶対に出ないこと
+	local fakePlayer = { Parent = {} }
 	local deckSet = {}
 	for _, itemId in ipairs(Config.DefaultDeck) do
 		deckSet[itemId] = true
@@ -165,77 +221,32 @@ do
 	for _ in pairs(seen) do
 		seenCount = seenCount + 1
 	end
-	check("300回引けばデッキの4種すべて出る", seenCount == 4)
-end
+	check("300回引けばデッキの3種すべて出る", seenCount == 3)
 
----------------------------------------------------------------------
--- 4b. 保存データ：持っていないアイテムはデッキに入れられない・壊れたデータの修復
----------------------------------------------------------------------
-
-do
-	local fresh = PlayerDataStore.Normalize(nil)
-	check("新しいデータはコイン0", fresh.Coins == 0)
-	check("最初からスターターを持っている", fresh.Owned.Dash and fresh.Owned.Banana and fresh.Owned.Warp and fresh.Owned.Shield)
-	check("最初のデッキは既定デッキ", #fresh.Deck == Config.DeckSize)
-	local notOwned = PlayerDataStore.ValidateDeck({ "Dash", "Banana", "Warp", "TimeStop" }, fresh.Owned)
-	check("持っていないアイテムはデッキに入らない", notOwned == false)
-	local broken = PlayerDataStore.Normalize({ Coins = -50, Owned = { Fake = true, Star = true }, Deck = { "Star" } })
-	check("マイナスのコインは0に直る", broken.Coins == 0)
-	check("存在しないアイテムは持ち物から消える", broken.Owned.Fake == nil and broken.Owned.Star == true)
-	check("壊れたデッキは既定デッキに戻る", #broken.Deck == Config.DeckSize)
-	local bought = PlayerDataStore.Normalize({ Coins = 10, Owned = { TimeStop = true }, Deck = { "TimeStop", "Dash", "Banana", "Warp" } })
-	check("買ったアイテム入りのデッキはそのまま", bought.Deck[1] == "TimeStop")
-	local count = 0
-	for _, itemId in ipairs(Config.ItemOrder) do
-		if Config.Items[itemId] then
-			count = count + 1
+	-- デッキを変更したら、その中からだけ出る
+	local okSet = DeckManager.SetDeck(fakePlayer, { "Smoke", "Star", "Banana" })
+	check("デッキ変更が受理される", okSet == true)
+	local changedSet = { Smoke = true, Star = true, Banana = true }
+	local allInChanged = true
+	for _ = 1, 300 do
+		local picked = DeckManager.PickFromDeck(fakePlayer)
+		if not changedSet[picked] then
+			allInChanged = false
 		end
 	end
-	check("アイテムは全部で16種（既存6＋追加10）", count == 16 and #Config.ItemOrder == 16)
-	local tierOk = true
-	for _, itemId in ipairs(Config.ItemOrder) do
-		local def = Config.Items[itemId]
-		if not Config.Tiers[def.Tier] then
-			tierOk = false
+	check("変更後の抽選もデッキの中からだけ出る", allInChanged)
+
+	-- 不正なデッキ変更は今のデッキを壊さない
+	local okBad = DeckManager.SetDeck(fakePlayer, { "Dash", "Dash", "Dash" })
+	check("不正なデッキ変更は却下される", okBad == false)
+	local stillIn = true
+	for _ = 1, 100 do
+		local picked = DeckManager.PickFromDeck(fakePlayer)
+		if not changedSet[picked] then
+			stillIn = false
 		end
 	end
-	check("すべてのアイテムに松竹梅がある", tierOk)
-end
-
----------------------------------------------------------------------
--- 4c. 順位とコイン
----------------------------------------------------------------------
-
-do
-	local results = RoundManager.ComputeResults({
-		{ Key = "A", Tags = 2, FinalTagger = false },
-		{ Key = "B", Tags = 0, FinalTagger = false },
-		{ Key = "C", Tags = 1, FinalTagger = true },
-		{ Key = "D", Tags = 0, FinalTagger = false, EliminatedOrder = 1 },
-		{ Key = "E", Tags = 1, FinalTagger = false },
-		{ Key = "F", Tags = 3, FinalTagger = false, EliminatedOrder = 2 },
-	})
-	local order = {}
-	for _, entry in ipairs(results) do
-		table.insert(order, entry.Key)
-	end
-	check("順位: 逃げ切り(少ない順)→最後の鬼→脱落(あとの人が上)", table.concat(order) == "BEACFD")
-	check("一度もタッチされずに逃げ切ったら優勝", results[1].Status == "優勝" and results[1].Champion == true)
-	check("優勝がいちばんコインが多い", results[1].Coins > results[2].Coins and results[1].Coins == Config.CoinRewards.Champion)
-	check("最後の鬼は負け", results[4].Status == "最後の鬼" and results[4].Coins == Config.CoinRewards.FinalTagger)
-	check("脱落は最下位グループ", results[6].Status == "脱落" and results[6].Key == "D")
-	check("タッチされても脱落していないDは優勝にならない（脱落）", results[6].Champion == false)
-
-	local tie = RoundManager.ComputeResults({
-		{ Key = "X", Tags = 0, FinalTagger = false },
-		{ Key = "Y", Tags = 0, FinalTagger = false },
-	})
-	check("同じ回数なら同じ順位（同時優勝）", tie[1].Rank == 1 and tie[2].Rank == 1 and tie[2].Champion)
-	local many = RoundManager.ComputeResults({ { Key = "Z", Tags = 9, FinalTagger = false } })
-	check("タッチが多くても最低枚数はもらえる", many[1].Coins == Config.CoinRewards.SurvivorMin)
-
-	check("送還0回では脱落しない", ZoneManager.ShouldEliminate(0) == false)
-	check("送還2回のあとは脱落", ZoneManager.ShouldEliminate(Config.ZoneMaxReturns) == true)
+	check("却下されても前のデッキのまま", stillIn)
 end
 
 ---------------------------------------------------------------------
@@ -556,9 +567,8 @@ do
 	local restored = RankManager.Get(loaded)
 	check("読み直すと RP が戻る", restored.RP == 250 and restored.LoadOk == true)
 	check("読み直すと逃げ切りと鬼タッチが戻る", restored.Survived == 2 and restored.Tagged == 1)
-	-- プレイヤーリストの「鬼回数」は試合ごとの回数なので、累計は書かない（RP とランクだけ）
-	check("読み直した leaderstats も同じ", stat(loaded, "RP") == 250 and stat(loaded, "Survived") == 0
-		and stat(loaded, "Tagged") == 0 and stat(loaded, "Rank") == "ゴールド")
+	check("読み直した leaderstats も同じ", stat(loaded, "RP") == 250 and stat(loaded, "Survived") == 2
+		and stat(loaded, "Tagged") == 1 and stat(loaded, "Rank") == "ゴールド")
 	check("保存済みの段位を読み込んでも RankUp は飛ばない", fired.n == 0)
 	RankManager.Load(loaded)
 	check("同じ参加の再読み込みでは RP は増えない", RankManager.Get(loaded).RP == 250)
@@ -720,8 +730,6 @@ do
 	check("Build() は渋谷のまま（ローテーションの回数は進めない）", baseline.MapId == "Shibuya"
 		and MapBuilder.CurrentMap == "Shibuya" and baseline.ItemSpawns == 12)
 
-	-- アリーナ（Rojo のマップ）はテストに無いので、渋谷とパークの2つで入れ替えを確かめる
-	MapBuilder.ResetRotation({ "Shibuya", "Park", "Cave", "Ice", "Volt", "Sky" }, 1)
 	local first = MapBuilder.BuildNextRound()
 	local firstSpawns = baseParts(spawnFolder())
 	local firstInside = true
@@ -929,10 +937,9 @@ do
 		local lid = box:FindFirstChild("Lid")
 		lid.Touched:_Fire(hand)
 		local data = GameState.GetData(player)
-		local fromDeck = table.find(DeckManager.GetDeck(player), data.HeldItems[1]) ~= nil
-		-- 使用期限なし（BoxExpireTime = 0）なので、期限は 0 のまま
+		local fromDeck = data.HeldItems[1] == "Dash" or data.HeldItems[1] == "Shield" or data.HeldItems[1] == "Warp"
 		check("蓋に触れてもデッキのアイテムが1つ手に入る", #data.HeldItems == 1 and fromDeck
-			and data.HeldExpireAt[1] == 0)
+			and data.HeldExpireAt[1] > 0)
 		check("拾うと箱は消え、浮遊の接続も残らない", box.Parent == nil and ItemManager.ActiveBoxMotions() == 0)
 
 		box.CFrame = RT.CFrame.new(1, 2, 3)
@@ -1080,6 +1087,7 @@ do
 	Remotes.ItemUpdate.FireClient = spy("ItemUpdate")
 	Remotes.RankUp.FireClient = spy("RankUp")
 	Remotes.ZoneUpdate.FireClient = spy("ZoneUpdate")
+	Remotes.DeckUpdate.FireClient = spy("DeckUpdate")
 	Remotes.SmokeEffect.FireClient = spy("Smoke")
 	Remotes.PassUpdate.FireClient = spy("Pass")
 
@@ -1100,7 +1108,7 @@ do
 		Leaderstats.Increment(bot, "Survived")
 		Remotes.NotifyPlayer(bot, "ボットには届かない")
 		ItemManager.SendItemUpdate(bot)
-		DeckManager.GetDeck(bot)
+		DeckManager.SetDeck(bot, { "Dash", "Shield", "Warp" })
 		DeckManager.Release(bot)
 	end)
 	local store = RT.game:GetService("DataStoreService"):GetDataStore(Config.RankDataStoreName)
@@ -1222,7 +1230,7 @@ do
 		lid.Touched:_Fire(arm)
 	end
 	local held = GameState.GetData(spawned[1]).HeldItems
-	local fromDeck = table.find(Config.DefaultDeck, held[1]) ~= nil
+	local fromDeck = held[1] == "Dash" or held[1] == "Shield" or held[1] == "Warp"
 	check("ボットも宝箱に触れるとデッキのアイテムを拾う", box ~= nil and #held == 1 and fromDeck)
 	local pickupBotHits = 0
 	for _, call in ipairs(calls) do
@@ -1280,32 +1288,6 @@ do
 	GameState.Tagger = nil
 	GameState.Participants = {}
 	ZoneManager.Stop()
-end
-
----------------------------------------------------------------------
--- 頭の上に乗っているときもタッチ
-do
-	local runner = { Name = "R" }
-	local model = RT.Instance.new("Model")
-	local root = RT.Instance.new("Part")
-	root.Name = "HumanoidRootPart"
-	root.Position = Vector3.new(3.46, 4.02, 8.88)
-	root.Parent = model
-	runner.Character = model
-	GameState.RegisterCharacter(runner, model)
-	check("頭の上に乗った鬼でもタッチになる", RoundManager.IsBodyContact(Vector3.new(3.49, 8.48, 8.29), runner))
-	check("離れていればタッチにならない", not RoundManager.IsBodyContact(Vector3.new(12, 4, 8), runner))
-	GameState.UnregisterCharacter(model)
-end
-
--- タッチ返しなし
----------------------------------------------------------------------
-
-do
-	local a, b, c = { Name = "A" }, { Name = "B" }, { Name = "C" }
-	check("タッチしてきた人にはタッチ返しできない", RoundManager.IsTagBackBlocked(a, a) == true)
-	check("ほかの人にはタッチできる", RoundManager.IsTagBackBlocked(c, a) == false)
-	check("最初の鬼（禁止なし）は誰にでもタッチできる", RoundManager.IsTagBackBlocked(b, nil) == false)
 end
 
 ---------------------------------------------------------------------
@@ -1380,7 +1362,6 @@ do
 		data.HeldItems = { id }
 		data.HeldExpireAt = { 0 }
 	end
-	MapBuilder.ResetRotation(MapBuilder.AllMaps, 1)
 	local function advanceTo(id)
 		repeat
 			MapBuilder.BuildNextRound()
@@ -1422,12 +1403,12 @@ do
 	hazard.Touched:_Fire(botRoot)
 	check("帯電部品との接触で人間と鬼ボットが痺れる",
 		near(data.StunUntil, now + 1.2) and GameState.IsStunned(bot)
-		and humanoid.WalkSpeed == 0 and humanoid.JumpHeight == 0
+		and humanoid.WalkSpeed == 0 and humanoid.JumpPower == 0 and humanoid.JumpHeight == 0
 		and botHumanoid.WalkSpeed == 0)
 	now += 1.2
 	ItemManager.Tick()
 	check("痺れの終了で速度とジャンプが戻る", data.StunUntil == 0 and humanoid.WalkSpeed == Config.NormalWalkSpeed
-		and near(humanoid.JumpHeight, Config.NormalJumpHeight))
+		and humanoid.JumpPower == 50 and humanoid.JumpHeight == 7)
 	now += 1.9
 	hazard.Touched:_Fire(root)
 	check("痺れの終了後2秒間は再発しない", data.StunUntil == 0)
@@ -1470,13 +1451,13 @@ do
 	botRoot.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
 	RoundManager.CheckSkyFalls()
 	check("鬼ボットは命綱を使わず、落下脱落すると残った人へ鬼が交代する",
-		not GameState.IsParticipant(bot) and table.find(GameState.Eliminated, bot) ~= nil
+		not GameState.IsParticipant(bot) and GameState.Eliminated[bot] == "落下で脱落"
 		and #botData.HeldItems == 1 and GameState.Tagger == player)
 	root.Position = Vector3.new(0, Config.FallEliminateY - 1, 0)
 	RoundManager.CheckSkyFalls()
 	check("命綱は一度限りで、次の落下では脱落して観戦位置へ移る",
-		not GameState.IsParticipant(player) and table.find(GameState.Eliminated, player) ~= nil
-		and root.Position.Y > sky:FindFirstChild("PlayerSpawn").Position.Y
+		not GameState.IsParticipant(player) and GameState.Eliminated[player] == "落下で脱落"
+		and root.Anchored and root.Position.Y > sky:FindFirstChild("PlayerSpawn").Position.Y
 		and GameState.Tagger == nil)
 
 	TaggerLook.Follow(nil)
@@ -1623,7 +1604,261 @@ do
 	GameState.Phase = "Waiting"
 end
 
--- （別作業の「逃げ切り・全員捕獲の RP」を通しで回すテストは、順位とコインの方式が違うため外した）
+---------------------------------------------------------------------
+-- ラウンド進行：開始時リセット、逃げ切りと全員捕獲のRP
+---------------------------------------------------------------------
+
+do
+	local players = RT.game:GetService("Players")
+	local humans = {}
+	for id = 1, 2 do
+		local player = RT.Instance.new("Player")
+		player.UserId = 17000 + id
+		player.DisplayName = "Round " .. id
+		player.Parent = players
+		local character = RT.Instance.new("Model")
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(id * 30, 8, 0)
+		root.CFrame = RT.CFrame.new(id * 30, 8, 0)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = character
+		player:SetAttribute("RoundTags", 3)
+		player:SetAttribute("RoundCaught", 4)
+		player:SetAttribute("RoundRP", 42)
+		humans[id] = player
+	end
+
+	local realGetPlayers, realFill = players.GetPlayers, BotManager.Fill
+	local realWait, realNow = RT.task.wait, GameState.Now
+	local now = 100
+	players.GetPlayers = function() return humans end
+	BotManager.Fill = function() end -- 逃走者と最後の捕獲対象を人間1人に固定する。
+	RT.task.wait = coroutine.yield
+	GameState.Now = function() return now end
+
+	local round = coroutine.create(RoundManager.Run)
+	local function advance(seconds)
+		now += seconds
+		local ok, err = coroutine.resume(round)
+		assert(ok, err)
+	end
+	advance(0)
+	check("合間は前ラウンドの値を表示する", GameState.Phase == "Intermission"
+		and humans[1]:GetAttribute("RoundRP") == 42)
+	advance(Config.IntermissionTime)
+	check("ラウンド開始で両プレイヤーのラウンド属性が0に戻る", GameState.Phase == "Round"
+		and humans[1]:GetAttribute("RoundTags") == 0 and humans[1]:GetAttribute("RoundCaught") == 0
+		and humans[1]:GetAttribute("RoundRP") == 0 and humans[2]:GetAttribute("RoundTags") == 0
+		and humans[2]:GetAttribute("RoundCaught") == 0 and humans[2]:GetAttribute("RoundRP") == 0)
+
+	local firstTagger = GameState.Tagger
+	local survivor = firstTagger == humans[1] and humans[2] or humans[1]
+	local before = RankManager.Get(survivor).RP
+	advance(GameState.ChosenDuration)
+	check("逃げ切りの20RPがラウンドRPと累計RPに1回だけ入る", GameState.Phase == "Results"
+		and survivor:GetAttribute("RoundRP") == 20 and RankManager.Get(survivor).RP - before == 20)
+
+	advance(Config.ResultsTime)
+	advance(Config.IntermissionTime)
+	local tagger = GameState.Tagger
+	local runner = tagger == humans[1] and humans[2] or humans[1]
+	local taggerRoot, runnerRoot = GameState.GetRootPart(tagger), GameState.GetRootPart(runner)
+	runnerRoot.Position = taggerRoot.Position
+	runnerRoot.CFrame = taggerRoot.CFrame
+	before = RankManager.Get(tagger).RP
+	advance(Config.TagCooldown)
+	advance(GameState.ChosenDuration)
+	local expected = Config.RankPoints.Tag + Config.RankPoints.TaggedAll
+	check("全員捕獲の追加RPが最後にタッチした鬼に1回だけ入る",
+		GameState.Phase == "Results" and tagger:GetAttribute("RoundTags") == 1
+		and tagger:GetAttribute("RoundRP") == expected and RankManager.Get(tagger).RP - before == expected)
+
+	table.clear(humans)
+	advance(Config.ResultsTime)
+	coroutine.close(round)
+	players.GetPlayers, BotManager.Fill = realGetPlayers, realFill
+	RT.task.wait, GameState.Now = realWait, realNow
+end
+
+---------------------------------------------------------------------
+-- 管理パネル：実際の Remote ハンドラ・入室イベント・ラウンドループ
+---------------------------------------------------------------------
+
+do
+	local players = RT.game:GetService("Players")
+	local remote = Remotes.AdminRequest
+	local roster = {}
+	local lastReply, notices = nil, 0
+	local kicked = {}
+	local function makePlayer(id)
+		local player = RT.Instance.new("Player")
+		player.UserId = id
+		player.Name = "AdminTest" .. id
+		player.DisplayName = player.Name
+		player.Parent = players
+		player.Kick = function(self, reason) kicked[self] = reason end
+
+		local character = RT.Instance.new("Model")
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(0, 8, 0)
+		root.CFrame = RT.CFrame.new(0, 8, 0)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = character
+
+		table.insert(roster, player)
+		players.PlayerAdded:_Fire(player)
+		return player
+	end
+
+	players.GetPlayers = function() return roster end
+	players.PlayerAdded = RT.makeSignal()
+	players.PlayerRemoving = RT.makeSignal()
+	remote.OnServerEvent = RT.makeSignal()
+	remote.FireClient = function(_, _, reply) lastReply = reply end
+	Remotes.Notify.FireAllClients = function() notices += 1 end
+	RT.game:GetService("TextService").FilterStringAsync = function(_, text)
+		return { GetNonChatStringForBroadcastAsync = function() return "Filtered " .. text end }
+	end
+	RT.game.CreatorType = RT.Enum.CreatorType.User
+	RT.game.CreatorId = 22001
+	Config.AdminUserIds = { 22002 }
+	local botsOriginallyEnabled = Config.BotsEnabled
+	local watchedRemote = remote.OnServerEvent
+	local function send(sender, action, first, second)
+		lastReply = nil
+		watchedRemote:_Fire(sender, action, first, second)
+		return lastReply
+	end
+
+	-- モジュール読込後は warn の参照が固定されるため、副作用と応答を検証する。
+	AdminManager.Init()
+	local owner = makePlayer(22001)
+	local extra = makePlayer(22002)
+	local guest = makePlayer(22003)
+	check("所有者と設定済み管理者だけに IsAdmin が付く",
+		owner:GetAttribute("IsAdmin") == true and extra:GetAttribute("IsAdmin") == true
+		and guest:GetAttribute("IsAdmin") == false)
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("AdminBansV1")
+	local gamePhase = GameState.Phase
+	guest:SetAttribute("IsAdmin", true)
+	for _, call in ipairs({
+		{ "Kick", owner.UserId }, { "Ban", owner.UserId }, { "Unban", owner.UserId },
+		{ "Tagger", owner.UserId }, { "Bring", owner.UserId }, { "GoTo", owner.UserId },
+		{ "Announce", "hello" }, { "StartRound" }, { "EndRound" }, { "NextMap" },
+		{ "SetBots", not botsOriginallyEnabled }, { "GrantItem", owner.UserId, "Dash" },
+		{ "AwardRP", owner.UserId, 500 }, { "ListBans" }, { "NextBans" }, { "Status" },
+	}) do
+		check("非管理者のRemoteを拒否: " .. call[1], send(guest, table.unpack(call)) == nil)
+	end
+	check("拒否された操作は入室・付与・進行・通知に影響しない",
+		not kicked[owner] and store:GetAsync(tostring(owner.UserId)) == nil
+		and RankManager.Get(owner).RP == 0 and #GameState.GetData(owner).PendingItems == 0
+		and GameState.Phase == gamePhase and Config.BotsEnabled == botsOriginallyEnabled and notices == 0)
+	check("所有者のRP付与はRankManagerに反映される",
+		send(owner, "AwardRP", guest.UserId, 125).Status.Players[3].RP == 125
+		and RankManager.Get(guest).RP == 125)
+	check("追加管理者はボット補充を切り替えられる",
+		send(extra, "SetBots", false).Status.BotsEnabled == false and not Config.BotsEnabled)
+	check("追加管理者は既存の全体通知へお知らせを送れる",
+		send(extra, "Announce", "test").Message == "操作を受け付けました" and notices == 1)
+
+	local playerGui = RT.Instance.new("Folder")
+	playerGui.Name = "PlayerGui"
+	playerGui.Parent = guest
+	players.LocalPlayer = guest
+	guest:SetAttribute("IsAdmin", false)
+	require("./.build/AdminUI")()
+	local gui = playerGui:FindFirstChild("AdminGui")
+	check("管理UIは非管理者に非表示", gui.Enabled == false)
+	guest:SetAttribute("IsAdmin", true)
+	check("IsAdminの反映後に管理UIを表示", gui.Enabled == true)
+	guest:SetAttribute("IsAdmin", false)
+
+	check("管理者のBANは理由を保存してキックする",
+		send(owner, "Ban", guest.UserId, "test") ~= nil and kicked[guest] == "BANされています。理由：Filtered test"
+		and store:GetAsync(tostring(guest.UserId)).Reason == "Filtered test")
+	table.remove(roster)
+	guest.Parent = nil
+	local rejoin = makePlayer(22003)
+	check("BAN済みプレイヤーは理由つきで再入室を断られる",
+		kicked[rejoin] == "BANされています。理由：Filtered test"
+		and rejoin:GetAttribute("AdminAdmissionPending") == true)
+	local listed = send(extra, "ListBans").Bans
+	check("保存されたBANを一覧から取得できる", listed.UserIds[1] == 22003 and not listed.HasNext)
+	check("追加管理者の解除でBAN記録を削除できる",
+		send(extra, "Unban", rejoin.UserId).Unbanned == 22003 and store:GetAsync("22003") == nil)
+	table.remove(roster)
+	rejoin.Parent = nil
+	rejoin = makePlayer(22003)
+	check("解除後は再入室できる", not kicked[rejoin] and rejoin:GetAttribute("AdminAdmissionPending") == nil)
+
+	RT.DataStoreShouldFail = true
+	local admitted = makePlayer(22004)
+	local failure = send(owner, "Ban", admitted.UserId)
+	check("DataStore障害でも入室・進行を止めず保存失敗を表示する",
+		not kicked[admitted] and admitted:GetAttribute("AdminAdmissionPending") == nil
+		and failure.Message == "BANの保存先を更新できませんでした"
+		and send(owner, "SetBots", false).Status.BotsEnabled == false)
+	RT.DataStoreShouldFail = false
+	check("管理者のキックに既定の理由が付く",
+		send(owner, "Kick", admitted.UserId) ~= nil and kicked[admitted] == "管理者によるキック")
+
+	-- 1人でも管理者による即時開始は成立し、既存の処理で終了・マップ移動できる。
+	roster = { owner }
+	GameState.Phase = "Waiting"
+	local realWait = RT.task.wait
+	RT.task.wait = coroutine.yield
+	local loop = coroutine.create(RoundManager.Run)
+	local function step()
+		local ok, err = coroutine.resume(loop)
+		assert(ok, err)
+	end
+	step()
+	local beforeMap = MapBuilder.CurrentMap
+	send(owner, "NextMap")
+	step()
+	local preparedMap = MapBuilder.CurrentMap
+	check("待機中の次マップ操作でマップが切り替わる", preparedMap ~= beforeMap)
+	send(owner, "GrantItem", owner.UserId, "SpikeBoots")
+	send(owner, "StartRound")
+	step()
+	check("管理開始は1人でも待機時間なし・準備済みマップで始まる",
+		GameState.Phase == "Round" and MapBuilder.CurrentMap == preparedMap)
+	check("ラウンド外の管理付与は次の試合でHeldItemsに入る",
+		GameState.GetData(owner).HeldItems[1] == "SpikeBoots")
+	check("ラウンド中は管理付与がHeldItemsに直接入る",
+		send(owner, "GrantItem", owner.UserId, "Dash").Message == "操作を受け付けました"
+		and GameState.GetData(owner).HeldItems[1] == "Dash")
+	check("鬼の指定は既存の鬼交代処理を通る",
+		send(owner, "Tagger", owner.UserId).Message == "操作を受け付けました" and GameState.Tagger == owner)
+	send(owner, "EndRound")
+	step()
+	check("管理終了は既存の結果処理へ進む", GameState.Phase == "Results" and GameState.Tagger == nil)
+	send(owner, "StartRound")
+	step()
+	local activeMap = MapBuilder.CurrentMap
+	send(owner, "NextMap")
+	step()
+	check("試合中の次マップ操作は終了処理を経て切り替わる",
+		GameState.Phase == "Waiting" and GameState.Tagger == nil and MapBuilder.CurrentMap ~= activeMap)
+	for _ = 1, 21 do
+		send(owner, "SetBots", false)
+	end
+	local history = send(owner, "Status").Status.History
+	check("管理履歴は最大20件で操作主体と操作名が残る",
+		#history == 20 and history[1]:find(owner.Name, 1, true) and history[1]:find("SetBots", 1, true))
+	coroutine.close(loop)
+	RT.task.wait = realWait
+	Config.BotsEnabled = botsOriginallyEnabled
+end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))
 if failed > 0 then

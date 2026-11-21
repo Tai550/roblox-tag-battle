@@ -181,6 +181,8 @@ local function makeSignal()
 	return signal
 end
 
+RT.makeSignal = makeSignal
+
 RT.PhysicalProperties = { new = function(...) return { ... } end }
 RT.OverlapParams = { new = function() return {} end }
 RT.RaycastParams = { new = function() return {} end }
@@ -422,6 +424,36 @@ local function makeDataStore()
 		end
 		records[tostring(key)] = cloneData(value)
 	end
+	function store:RemoveAsync(key)
+		if RT.DataStoreShouldFail then
+			error("DataStore の削除に失敗しました")
+		end
+		records[tostring(key)] = nil
+	end
+	function store:ListKeysAsync(_, pageSize)
+		if RT.DataStoreShouldFail then
+			error("DataStore 一覧の取得に失敗しました")
+		end
+		local keys = {}
+		for key in pairs(records) do
+			table.insert(keys, key)
+		end
+		table.sort(keys)
+		local index = 1
+		local pages = { IsFinished = #keys <= pageSize }
+		function pages:GetCurrentPage()
+			local page = {}
+			for i = index, math.min(index + pageSize - 1, #keys) do
+				table.insert(page, { KeyName = keys[i] })
+			end
+			return page
+		end
+		function pages:AdvanceToNextPageAsync()
+			index += pageSize
+			self.IsFinished = index + pageSize > #keys
+		end
+		return pages
+	end
 	function store:UpdateAsync(key, transform)
 		if RT.DataStoreShouldFail then
 			error("DataStore の更新に失敗しました")
@@ -468,24 +500,6 @@ local services = {
 }
 
 RT.workspace = RT.Instance.new("Workspace")
-
--- 光線：テストが _raycast を差し込んでいればそれを使う。
--- なければ、除外リスト型（ボックスの空き地探し・送還位置）は高さ 0 の平らな地面に当たり、
--- 対象リスト型（足場の判定など）は何にも当たらない
-RT.RaycastParams = {
-	new = function()
-		return {}
-	end,
-}
-RT.workspace.Raycast = function(self, origin, direction, params)
-	if self._raycast then
-		return self._raycast(origin, direction, params)
-	end
-	if params and params.FilterType == RT.Enum.RaycastFilterType.Include then
-		return nil
-	end
-	return { Position = RT.Vector3.new(origin.X, 0, origin.Z) }
-end
 
 RT.game = {
 	GetService = function(_, name)
