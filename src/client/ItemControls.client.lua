@@ -1,13 +1,15 @@
 -- ItemControls: アイテム使用ボタン（枠ごとの画面ボタンとキー入力）と、持ち物・効果時間の表示
 -- クライアントは「何枠目を使いたい」とサーバーに伝えるだけ。使えるかどうかはサーバーが決める。
---   1枠目: ボタン（右）/ E キー / ゲームパッド X
---   2枠目: ボタン（左）/ Q キー / ゲームパッド Y（ダブルアイテム所有者だけ表示）
+--   1枠目: E / 1 キー / ゲームパッド X
+--   2枠目: Q / 2 キー / ゲームパッド Y（ダブルアイテム所有者だけ表示）
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local UILayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UILayout"))
+local EdgeMargin = UILayout.EdgeMargin
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local ItemUpdate = Remotes:WaitForChild("ItemUpdate")
 local UseItem = Remotes:WaitForChild("UseItem")
@@ -30,19 +32,32 @@ local lastRequest = 0
 local gui = Instance.new("ScreenGui")
 gui.Name = "ItemHUD"
 gui.ResetOnSpawn = false
+UILayout.ApplySafeArea(gui)
 gui.DisplayOrder = 11
 
-local BUTTON_WIDTH = 190
+local BUTTON_HEIGHT = math.max(70, UILayout.MinTouchSize)
 local BUTTON_GAP = 10
 local slotButtons = {}
 
--- 1枠目を右下、2枠目をその左に並べる
+local row = Instance.new("Frame")
+row.Name = "ItemSlots"
+row.AnchorPoint = Vector2.new(0.5, 1)
+row.Position = UDim2.new(0.5, 0, 1, -UILayout.BottomClearance)
+row.BackgroundTransparency = 1
+row.Parent = gui
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Horizontal
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, BUTTON_GAP)
+layout.Parent = row
+
+-- 1枠目を右、2枠目をその左に並べる。非表示の枠は列の幅を取らない。
 for slot = 1, #Config.ItemSlotKeys do
 	local button = Instance.new("TextButton")
 	button.Name = "UseItemButton" .. slot
-	button.Size = UDim2.new(0, BUTTON_WIDTH, 0, 70)
-	button.Position = UDim2.new(1, -20 - (slot - 1) * (BUTTON_WIDTH + BUTTON_GAP), 1, -110)
-	button.AnchorPoint = Vector2.new(1, 1)
+	button.LayoutOrder = -slot
 	button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 	button.BackgroundTransparency = 0.2
 	button.Font = Enum.Font.GothamBold
@@ -51,7 +66,7 @@ for slot = 1, #Config.ItemSlotKeys do
 	button.TextWrapped = true
 	button.AutoButtonColor = true
 	button.Visible = slot <= maxSlots
-	button.Parent = gui
+	button.Parent = row
 
 	local buttonCorner = Instance.new("UICorner")
 	buttonCorner.CornerRadius = UDim.new(0, 12)
@@ -62,20 +77,39 @@ end
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "EffectStatus"
-statusLabel.Size = UDim2.new(0, 260, 0, 50)
-statusLabel.Position = UDim2.new(1, -20, 1, -185)
-statusLabel.AnchorPoint = Vector2.new(1, 1)
+statusLabel.Size = UDim2.new(1, -2 * EdgeMargin, 0, 66)
+statusLabel.Position = UDim2.new(0.5, 0, 1, -UILayout.BottomClearance - BUTTON_HEIGHT - 5)
+statusLabel.AnchorPoint = Vector2.new(0.5, 1)
 statusLabel.BackgroundTransparency = 1
 statusLabel.Font = Enum.Font.GothamBold
 statusLabel.TextSize = 18
 statusLabel.TextColor3 = Color3.new(1, 1, 1)
 statusLabel.TextStrokeTransparency = 0.4
-statusLabel.TextXAlignment = Enum.TextXAlignment.Right
+statusLabel.TextXAlignment = Enum.TextXAlignment.Center
 statusLabel.TextYAlignment = Enum.TextYAlignment.Bottom
 statusLabel.Text = ""
 statusLabel.Parent = gui
 
+local function resizeRow()
+	local width = gui.AbsoluteSize.X
+	local available = width - 2 * EdgeMargin
+	if UserInputService.TouchEnabled then
+		-- 中央に収め、画面の左右を標準操作に空ける。
+		available = math.min(available, width * 0.56)
+	end
+	local slotCount = #slotButtons
+	local gaps = (slotCount - 1) * BUTTON_GAP
+	local buttonWidth = math.clamp(math.floor((available - gaps) / slotCount), UILayout.MinTouchSize, 190)
+	row.Size = UDim2.fromOffset(buttonWidth * slotCount + gaps, BUTTON_HEIGHT)
+	for _, button in ipairs(slotButtons) do
+		button.Size = UDim2.fromOffset(buttonWidth, BUTTON_HEIGHT)
+		button.TextSize = buttonWidth < 150 and 14 or 20
+	end
+end
+
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(resizeRow)
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
+resizeRow()
 
 ---------------------------------------------------------------------
 -- 表示の更新
@@ -85,7 +119,7 @@ local function useHint(slot)
 	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
 		return "タップで使う"
 	end
-	return "[" .. Config.GetSlotKeyLabel(slot) .. "] で使う"
+	return string.format("[%s / %d] で使う", Config.GetSlotKeyLabel(slot), slot)
 end
 
 -- 枠の使用期限の残り秒（受け取った値から経過分を引いて表示用に進める）

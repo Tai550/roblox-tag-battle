@@ -11,6 +11,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local UILayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UILayout"))
+local EdgeMargin = UILayout.EdgeMargin
+local TouchSize = UILayout.MinTouchSize
+local CloseInset = 12
+local ListTop = CloseInset + TouchSize + 8
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local StateUpdate = Remotes:WaitForChild("StateUpdate")
 local PassUpdate = Remotes:WaitForChild("PassUpdate")
@@ -52,6 +57,7 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name = "ShopGui"
 gui.ResetOnSpawn = false
+UILayout.ApplySafeArea(gui)
 gui.DisplayOrder = 20
 
 local function addCorner(parent, radius)
@@ -74,8 +80,8 @@ end
 -- 開くボタン（画面左の中ほど）
 local openButton = makeText("TextButton", gui, "ショップ", 20)
 openButton.Name = "OpenShop"
-openButton.Size = UDim2.new(0, 110, 0, 44)
-openButton.Position = UDim2.new(0, 12, 0.5, -22)
+openButton.Size = UDim2.new(0, 110, 0, TouchSize)
+openButton.Position = UDim2.new(0, EdgeMargin, 0.5, -TouchSize / 2)
 openButton.BackgroundTransparency = 0.15
 openButton.BackgroundColor3 = Color3.fromRGB(240, 170, 40)
 openButton.TextColor3 = Color3.fromRGB(30, 20, 0)
@@ -84,7 +90,7 @@ addCorner(openButton, 10)
 -- 一覧のパネル
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
-panel.Size = UDim2.new(0.92, 0, 0, 360)
+panel.Size = UDim2.new(1, -2 * EdgeMargin, 1, -2 * EdgeMargin)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.BackgroundColor3 = COLOR_PANEL
@@ -98,24 +104,29 @@ sizeLimit.MaxSize = Vector2.new(480, 360)
 sizeLimit.Parent = panel
 
 local title = makeText("TextLabel", panel, "ショップ", 24)
-title.Size = UDim2.new(1, -60, 0, 40)
-title.Position = UDim2.new(0, 16, 0, 6)
+title.Size = UDim2.new(1, -TouchSize - CloseInset - 24, 0, TouchSize)
+title.Position = UDim2.new(0, 16, 0, CloseInset)
 title.TextXAlignment = Enum.TextXAlignment.Left
 
 local closeButton = makeText("TextButton", panel, "×", 26)
 closeButton.Name = "Close"
-closeButton.Size = UDim2.new(0, 40, 0, 40)
-closeButton.Position = UDim2.new(1, -8, 0, 6)
+closeButton.Size = UDim2.fromOffset(TouchSize, TouchSize)
+closeButton.Position = UDim2.new(1, -CloseInset, 0, CloseInset)
 closeButton.AnchorPoint = Vector2.new(1, 0)
 closeButton.BackgroundTransparency = 0.6
 closeButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
 addCorner(closeButton, 8)
 
-local list = Instance.new("Frame")
+local list = Instance.new("ScrollingFrame")
 list.Name = "List"
-list.Size = UDim2.new(1, -24, 1, -60)
-list.Position = UDim2.new(0, 12, 0, 50)
+list.Size = UDim2.new(1, -24, 1, -ListTop - 12)
+list.Position = UDim2.fromOffset(12, ListTop)
 list.BackgroundTransparency = 1
+list.BorderSizePixel = 0
+list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+list.CanvasSize = UDim2.fromOffset(0, 0)
+list.ScrollingDirection = Enum.ScrollingDirection.Y
+list.ScrollBarThickness = 4
 list.Parent = panel
 
 local layout = Instance.new("UIListLayout")
@@ -129,7 +140,7 @@ local function makeRow(product, order)
 	local row = Instance.new("Frame")
 	row.Name = product.Key
 	row.LayoutOrder = order
-	row.Size = UDim2.new(1, 0, 0, 92)
+	row.Size = UDim2.new(1, -4, 0, TouchSize + 44)
 	row.BackgroundColor3 = COLOR_ROW
 	row.Parent = list
 	addCorner(row, 10)
@@ -152,7 +163,7 @@ local function makeRow(product, order)
 
 	local button = makeText("TextButton", row, "", 18)
 	button.Name = "Buy"
-	button.Size = UDim2.new(0, 124, 0, 44)
+	button.Size = UDim2.new(0, 124, 0, TouchSize)
 	button.Position = UDim2.new(1, -10, 0, 10)
 	button.AnchorPoint = Vector2.new(1, 0)
 	addCorner(button, 8)
@@ -160,7 +171,7 @@ local function makeRow(product, order)
 	local status = makeText("TextLabel", row, "", 12, COLOR_SUBTEXT)
 	status.Font = Enum.Font.Gotham
 	status.Size = UDim2.new(0, 124, 0, 30)
-	status.Position = UDim2.new(1, -10, 0, 56)
+	status.Position = UDim2.new(1, -10, 0, 12 + TouchSize)
 	status.AnchorPoint = Vector2.new(1, 0)
 	status.TextWrapped = true
 

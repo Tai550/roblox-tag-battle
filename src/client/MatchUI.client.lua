@@ -6,6 +6,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local UILayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UILayout"))
+local EdgeMargin = UILayout.EdgeMargin
+local TouchSize = UILayout.MinTouchSize
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local StateUpdate = Remotes:WaitForChild("StateUpdate")
 local DurationVote = Remotes:WaitForChild("DurationVote")
@@ -28,6 +31,7 @@ local deckPanelOpen = false
 local gui = Instance.new("ScreenGui")
 gui.Name = "MatchUI"
 gui.ResetOnSpawn = false
+UILayout.ApplySafeArea(gui)
 gui.DisplayOrder = 12
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
 
@@ -88,16 +92,28 @@ end
 -- 投票パネル（インターミッション中だけ表示）
 ---------------------------------------------------------------------
 
--- 上部 HUD が段位の1行ぶん高くなったので、その下にずらす
-local voteFrame = makeFrame("VotePanel", UDim2.new(0, 460, 0, 120), UDim2.new(0.5, 0, 0, 164))
+local voteHeight = 68 + TouchSize
+local voteFrame = makeFrame("VotePanel", UDim2.new(1, -2 * EdgeMargin, 0, voteHeight),
+	UDim2.new(0.5, 0, 0, 128 + 2 * EdgeMargin))
+local voteLimit = Instance.new("UISizeConstraint")
+voteLimit.MaxSize = Vector2.new(460, voteHeight)
+voteLimit.Parent = voteFrame
+
+local function positionVotePanel()
+	local top = math.max(EdgeMargin, math.min(128 + 2 * EdgeMargin, gui.AbsoluteSize.Y - voteHeight - EdgeMargin))
+	voteFrame.Position = UDim2.new(0.5, 0, 0, top)
+end
+
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(positionVotePanel)
+positionVotePanel()
 makeLabel(voteFrame, "Title", UDim2.new(1, -16, 0, 24), UDim2.new(0.5, 0, 0, 6), 18, "試合時間に投票しよう！")
 local voteButtons = {}
 for index, duration in ipairs(Config.MatchDurations) do
 	local button = makeButton(
 		voteFrame,
 		"Vote" .. duration,
-		UDim2.new(0, 130, 0, 56),
-		UDim2.new(0.5, (index - 2) * 145, 0, 44),
+		UDim2.new(1 / #Config.MatchDurations, -12, 0, TouchSize),
+		UDim2.new((index - 0.5) / #Config.MatchDurations, 0, 0, 34),
 		"",
 		20
 	)
@@ -107,7 +123,7 @@ for index, duration in ipairs(Config.MatchDurations) do
 	end)
 	voteButtons[duration] = button
 end
-local voteStatusLabel = makeLabel(voteFrame, "Status", UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 104), 15, "")
+local voteStatusLabel = makeLabel(voteFrame, "Status", UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 40 + TouchSize), 15, "")
 
 local function refreshVotePanel(state)
 	voteFrame.Visible = currentPhase == "Intermission"
@@ -136,16 +152,37 @@ end
 
 local refreshDeckPanel -- デッキパネルの再描画（下で定義。ボタンの処理から使うため先に宣言）
 
-local deckButton = makeButton(gui, "DeckButton", UDim2.new(0, 130, 0, 52), UDim2.new(0, 85, 1, -70), "デッキ", 20)
-deckButton.AnchorPoint = Vector2.new(0.5, 1)
+local deckButton = makeButton(gui, "DeckButton", UDim2.fromOffset(130, TouchSize), UDim2.new(0, EdgeMargin, 1, -EdgeMargin), "デッキ", 20)
+deckButton.AnchorPoint = Vector2.new(0, 1)
 deckButton.Visible = true
 
-local deckFrame = makeFrame("DeckPanel", UDim2.new(0, 420, 0, 300), UDim2.new(0.5, 0, 0.5, -150))
+local deckButtonClearance = TouchSize + 8
+local deckFrame = makeFrame("DeckPanel",
+	UDim2.new(1, -2 * EdgeMargin, 1, -2 * EdgeMargin - deckButtonClearance),
+	UDim2.new(0.5, 0, 0.5, -deckButtonClearance / 2))
+deckFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+local deckLimit = Instance.new("UISizeConstraint")
+deckLimit.MaxSize = Vector2.new(420, 304)
+deckLimit.Parent = deckFrame
 makeLabel(deckFrame, "Title", UDim2.new(1, -16, 0, 26), UDim2.new(0.5, 0, 0, 8), 20, "デッキをえらぼう")
 local deckInfoLabel = makeLabel(
 	deckFrame, "Info", UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 36), 15,
 	string.format("ボックスから出るアイテムを%dつ選ぶ", Config.DeckSize)
 )
+
+local deckList = Instance.new("ScrollingFrame")
+deckList.Name = "DeckItems"
+deckList.Size = UDim2.new(1, 0, 1, -70 - TouchSize - 2 * EdgeMargin)
+deckList.Position = UDim2.fromOffset(0, 70)
+deckList.BackgroundTransparency = 1
+deckList.BorderSizePixel = 0
+deckList.CanvasSize = UDim2.fromOffset(0, math.ceil(#Config.ItemOrder / 3) * 84)
+deckList.ScrollingDirection = Enum.ScrollingDirection.Y
+deckList.ScrollBarThickness = 4
+deckList.Parent = deckFrame
+
+deckInfoLabel.TextWrapped = true
+deckInfoLabel.Size = UDim2.new(1, -16, 0, 32)
 
 local deckButtons = {}
 for index, itemId in ipairs(Config.ItemOrder) do
@@ -153,10 +190,10 @@ for index, itemId in ipairs(Config.ItemOrder) do
 	local column = (index - 1) % 3
 	local row = math.floor((index - 1) / 3)
 	local button = makeButton(
-		deckFrame,
+		deckList,
 		"DeckItem" .. itemId,
-		UDim2.new(0, 124, 0, 74),
-		UDim2.new(0.5, (column - 1) * 136, 0, 66 + row * 84),
+		UDim2.new(1 / 3, -12, 0, math.max(74, TouchSize)),
+		UDim2.new((column + 0.5) / 3, 0, 0, row * 84),
 		def.DisplayName,
 		18
 	)
@@ -177,7 +214,8 @@ for index, itemId in ipairs(Config.ItemOrder) do
 	deckButtons[itemId] = button
 end
 
-local deckConfirmButton = makeButton(deckFrame, "Confirm", UDim2.new(0, 180, 0, 48), UDim2.new(0.5, 0, 0, 244), "これにする", 20)
+local deckConfirmButton = makeButton(deckFrame, "Confirm", UDim2.fromOffset(180, TouchSize), UDim2.new(0.5, 0, 1, -EdgeMargin), "これにする", 20)
+deckConfirmButton.AnchorPoint = Vector2.new(0.5, 1)
 deckConfirmButton.Activated:Connect(function()
 	if #selectedDeck == Config.DeckSize then
 		DeckSelect:FireServer(selectedDeck)
@@ -241,8 +279,8 @@ end)
 -- 縮小エリアの表示（ラウンド中）
 ---------------------------------------------------------------------
 
-local zoneFrame = makeFrame("ZonePanel", UDim2.new(0, 240, 0, 84), UDim2.new(1, -130, 0, 8))
-zoneFrame.AnchorPoint = Vector2.new(0.5, 0)
+local zoneFrame = makeFrame("ZonePanel", UDim2.new(0, 240, 0, 84), UDim2.new(1, -EdgeMargin, 0, 114 + 2 * EdgeMargin))
+zoneFrame.AnchorPoint = Vector2.new(1, 0)
 local zoneRadiusLabel = makeLabel(zoneFrame, "Radius", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 4), 17, "")
 local zoneWarnLabel = makeLabel(zoneFrame, "Warn", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 26), 17, "")
 zoneWarnLabel.TextColor3 = Color3.fromRGB(255, 90, 90)

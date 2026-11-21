@@ -39,6 +39,14 @@ RT.Vector3 = {
 	end,
 }
 
+RT.Vector2 = {
+	new = function(x, y) return { X = x, Y = y } end,
+}
+
+RT.UDim = {
+	new = function(scale, offset) return { Scale = scale, Offset = offset } end,
+}
+
 RT.Color3 = {
 	fromRGB = function(r, g, b)
 		return { R = r, G = g, B = b }
@@ -179,8 +187,24 @@ RT.RaycastParams = { new = function() return {} end }
 
 local instanceMethods = {}
 
+function instanceMethods.GetPropertyChangedSignal()
+	return fakeEvent
+end
+function instanceMethods.GetAttributeChangedSignal(self, name)
+	self._attributeSignals = self._attributeSignals or {}
+	if not self._attributeSignals[name] then
+		self._attributeSignals[name] = makeSignal()
+	end
+	return self._attributeSignals[name]
+end
 function instanceMethods.SetAttribute(self, name, value)
-	self._attributes[name] = value
+	if self._attributes[name] ~= value then
+		self._attributes[name] = value
+		local signal = self._attributeSignals and self._attributeSignals[name]
+		if signal then
+			signal:_Fire()
+		end
+	end
 end
 function instanceMethods.GetAttribute(self, name)
 	return self._attributes[name]
@@ -287,6 +311,8 @@ function instanceMethods.Destroy(self)
 	detachFromParent(self)
 	rawset(self, "Parent", nil)
 end
+function instanceMethods.FireServer(_, ...)
+end
 function instanceMethods.FireClient(_, ...)
 end
 function instanceMethods.FireAllClients(_, ...)
@@ -298,7 +324,7 @@ local instanceMT = {
 		if method then
 			return method
 		end
-		if key == "OnServerEvent" or key == "OnClientEvent" then
+		if key == "OnServerEvent" or key == "OnClientEvent" or key == "Activated" or key == "InputBegan" then
 			return fakeEvent
 		end
 		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded" then
@@ -332,6 +358,8 @@ RT.Instance = {
 			obj.CollisionGroup = "Default"
 			obj.Size = RT.Vector3.new(1, 1, 1)
 			obj.AssemblyLinearVelocity = RT.Vector3.new(0, 0, 0)
+		elseif className == "ScreenGui" then
+			obj.AbsoluteSize = RT.Vector2.new(360, 640)
 		elseif className == "Humanoid" then
 			obj.HipHeight = 0
 		end

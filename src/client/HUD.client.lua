@@ -5,6 +5,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local UILayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UILayout"))
+local EdgeMargin = UILayout.EdgeMargin
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local StateUpdate = Remotes:WaitForChild("StateUpdate")
 local Notify = Remotes:WaitForChild("Notify")
@@ -24,6 +26,7 @@ local COLOR_WIN = Color3.fromRGB(255, 215, 80)
 local gui = Instance.new("ScreenGui")
 gui.Name = "TagHUD"
 gui.ResetOnSpawn = false
+UILayout.ApplySafeArea(gui)
 gui.DisplayOrder = 10
 
 local function makeLabel(name, parent, size, position, textSize)
@@ -44,8 +47,8 @@ end
 
 local topFrame = Instance.new("Frame")
 topFrame.Name = "Top"
-topFrame.Size = UDim2.new(0, 460, 0, 148)
-topFrame.Position = UDim2.new(0.5, 0, 0, 8)
+topFrame.Size = UDim2.fromOffset(460, 128)
+topFrame.Position = UDim2.new(0.5, 0, 0, EdgeMargin)
 topFrame.AnchorPoint = Vector2.new(0.5, 0)
 topFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 topFrame.BackgroundTransparency = 0.35
@@ -60,15 +63,65 @@ local timerLabel = makeLabel("Timer", topFrame, UDim2.new(1, -16, 0, 32), UDim2.
 local roleLabel = makeLabel("Role", topFrame, UDim2.new(1, -16, 0, 22), UDim2.new(0.5, 0, 0, 60), 18)
 local messageLabel = makeLabel("Message", topFrame, UDim2.new(1, -16, 0, 20), UDim2.new(0.5, 0, 0, 82), 15)
 messageLabel.TextWrapped = true
-local rankLabel = makeLabel("Rank", topFrame, UDim2.new(1, -16, 0, 26), UDim2.new(0.5, 0, 0, 108), 16)
-rankLabel.Text = "ランクを読み込み中"
+roleLabel.TextWrapped = true
+roleLabel.Size = UDim2.new(1, -12, 0, 36)
+messageLabel.Position = UDim2.new(0.5, 0, 0, 96)
+messageLabel.Size = UDim2.new(1, -12, 0, 32)
 
-local notifyLabel = makeLabel("Notify", gui, UDim2.new(0, 600, 0, 36), UDim2.new(0.5, 0, 0.62, 0), 24)
+local roundPanel = Instance.new("Frame")
+roundPanel.Name = "RoundStats"
+roundPanel.AnchorPoint = Vector2.new(1, 0)
+roundPanel.Position = UDim2.new(1, -EdgeMargin, 0, EdgeMargin)
+roundPanel.BackgroundColor3 = topFrame.BackgroundColor3
+roundPanel.BackgroundTransparency = topFrame.BackgroundTransparency
+roundPanel.Parent = gui
+
+local roundCorner = Instance.new("UICorner")
+roundCorner.CornerRadius = corner.CornerRadius
+roundCorner.Parent = roundPanel
+
+local rankLabel = makeLabel("Rank", roundPanel, UDim2.new(1, -12, 0, 48), UDim2.new(0.5, 0, 0, 4), 16)
+rankLabel.Text = "ランクを読み込み中"
+rankLabel.TextWrapped = true
+local countsLabel = makeLabel("RoundCounts", roundPanel, UDim2.new(1, -12, 0, 34), UDim2.new(0.5, 0, 0, 52), 14)
+countsLabel.TextWrapped = true
+local roundRPLabel = makeLabel("RoundRP", roundPanel, UDim2.new(1, -12, 0, 25), UDim2.new(0.5, 0, 0, 86), 14)
+
+local function refreshRoundStats()
+	countsLabel.Text = string.format("タッチ %d回　捕まった %d回",
+		localPlayer:GetAttribute("RoundTags") or 0, localPlayer:GetAttribute("RoundCaught") or 0)
+	roundRPLabel.Text = string.format("このラウンド +%d RP", localPlayer:GetAttribute("RoundRP") or 0)
+end
+
+for _, attribute in ipairs({ "RoundTags", "RoundCaught", "RoundRP" }) do
+	localPlayer:GetAttributeChangedSignal(attribute):Connect(refreshRoundStats)
+end
+refreshRoundStats()
+
+local notifyLabel = makeLabel("Notify", gui, UDim2.new(1, -2 * EdgeMargin, 0, 36), UDim2.new(0.5, 0, 0.62, 0), 24)
 notifyLabel.TextWrapped = true
 notifyLabel.AutomaticSize = Enum.AutomaticSize.Y -- 長いお知らせ（アイテムボックスの入れ替えなど）は複数行で表示
 notifyLabel.Visible = false
 
+local function resizeTopPanels()
+	local width = gui.AbsoluteSize.X
+	local available = math.max(0, width - 3 * EdgeMargin)
+	local statsWidth = math.min(320, math.floor(available * 0.55))
+	roundPanel.Size = UDim2.fromOffset(statsWidth, 114)
+	if width >= 460 + 2 * (statsWidth + 2 * EdgeMargin) then
+		topFrame.AnchorPoint = Vector2.new(0.5, 0)
+		topFrame.Position = UDim2.new(0.5, 0, 0, EdgeMargin)
+		topFrame.Size = UDim2.fromOffset(460, 128)
+	else
+		topFrame.AnchorPoint = Vector2.new(0, 0)
+		topFrame.Position = UDim2.fromOffset(EdgeMargin, EdgeMargin)
+		topFrame.Size = UDim2.fromOffset(math.min(460, available - statsWidth), 128)
+	end
+end
+
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(resizeTopPanels)
 gui.Parent = localPlayer:WaitForChild("PlayerGui")
+resizeTopPanels()
 
 ---------------------------------------------------------------------
 -- 状態の表示
@@ -207,7 +260,9 @@ end)
 -- 昇格（段位が上がった瞬間だけ。数秒で消える）
 ---------------------------------------------------------------------
 
-local rankUpLabel = makeLabel("RankUp", gui, UDim2.new(0, 640, 0, 44), UDim2.new(0.5, 0, 0.42, 0), 28)
+local rankUpLabel = makeLabel("RankUp", gui, UDim2.new(1, -2 * EdgeMargin, 0, 44), UDim2.new(0.5, 0, 0.42, 0), 28)
+rankUpLabel.TextWrapped = true
+rankUpLabel.AutomaticSize = Enum.AutomaticSize.Y
 rankUpLabel.TextColor3 = COLOR_WIN
 rankUpLabel.Visible = false
 

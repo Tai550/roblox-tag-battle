@@ -254,6 +254,7 @@ function RankManager.Award(player, amount)
 	if newName ~= oldName then
 		fireRankUp(player, newName)
 	end
+	return amount
 end
 
 -- 逃げ切り / 鬼タッチの累計を 1 増やす（保存用の数と leaderstats の両方）

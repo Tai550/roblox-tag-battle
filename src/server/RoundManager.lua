@@ -189,12 +189,27 @@ end
 -- タッチ判定
 ---------------------------------------------------------------------
 
+local function addRoundStat(player, attribute, amount)
+	if not isBot(player) then
+		player:SetAttribute(attribute, (player:GetAttribute(attribute) or 0) + amount)
+	end
+end
+
+local function awardRoundRP(player, amount)
+	local credited = RankManager.Award(player, amount)
+	if credited then
+		addRoundStat(player, "RoundRP", credited)
+	end
+end
+
 -- タッチが確定したときの記録と RP。
 -- 「全員捕まえた」の追加点は、ここでは保留して勝敗確定時に渡す。
 local function awardForTag(tagger, runner)
 	RankManager.AddCount(runner, "Tagged")
-	RankManager.Award(tagger, Config.RankPoints.Tag)
-	RankManager.Award(runner, Config.RankPoints.Caught)
+	addRoundStat(tagger, "RoundTags", 1)
+	addRoundStat(runner, "RoundCaught", 1)
+	awardRoundRP(tagger, Config.RankPoints.Tag)
+	awardRoundRP(runner, Config.RankPoints.Caught)
 
 	local caughtEveryone = true
 	for _, participant in ipairs(GameState.ParticipantList()) do
@@ -437,6 +452,11 @@ local function runRound()
 
 	local duration = GameState.ChosenDuration
 
+	for _, player in ipairs(Players:GetPlayers()) do
+		player:SetAttribute("RoundTags", 0)
+		player:SetAttribute("RoundCaught", 0)
+		player:SetAttribute("RoundRP", 0)
+	end
 	GameState.Phase = "Round"
 	GameState.Message = "次のマップ：" .. MapBuilder.GetCurrentMapInfo().Name
 	GameState.TimeLeft = duration
@@ -524,13 +544,13 @@ local function runResults(completed)
 				-- RP と記録は人間だけ。RankManager の入口でもボットは弾く
 				if not isBot(player) then
 					RankManager.AddCount(player, "Survived")
-					RankManager.Award(player, Config.RankPoints.Survived)
+					awardRoundRP(player, Config.RankPoints.Survived)
 				end
 			end
 		end
 		-- 逃げ切った人がいない＝鬼側の勝ち。最後にタッチした鬼へ追加点。ボットには付けない。
 		if #winners == 0 and sweepTagger and not isBot(sweepTagger) and sweepTagger.Parent == Players then
-			RankManager.Award(sweepTagger, Config.RankPoints.TaggedAll)
+			awardRoundRP(sweepTagger, Config.RankPoints.TaggedAll)
 		end
 	end
 

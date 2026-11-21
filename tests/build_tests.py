@@ -15,6 +15,7 @@ BUILD = os.path.join(ROOT, "tests", ".build")
 
 MODULES = [
     ("src/shared/Config.lua", "Config"),
+    ("src/shared/UILayout.lua", "UILayout"),
     ("src/server/GameState.lua", "GameState"),
     ("src/server/Remotes.lua", "Remotes"),
     ("src/server/Leaderstats.lua", "Leaderstats"),
@@ -28,6 +29,8 @@ MODULES = [
     ("src/server/RoundManager.lua", "RoundManager"),
 ]
 
+CLIENTS = ("HUD", "ItemControls", "MatchUI", "Shop")
+
 PRELUDE = """-- [test] Roblox API mock prelude
 local __RT = require("./mockenv")
 local game = __RT.game
@@ -37,8 +40,10 @@ local require = __RT.fakeRequire
 local Instance = __RT.Instance
 local Enum = __RT.Enum
 local Color3 = __RT.Color3
+local Vector2 = __RT.Vector2
 local Vector3 = __RT.Vector3
 local CFrame = __RT.CFrame
+local UDim = __RT.UDim
 local UDim2 = __RT.UDim2
 local PhysicalProperties = __RT.PhysicalProperties
 local OverlapParams = __RT.OverlapParams
@@ -60,6 +65,15 @@ def main():
         with open(os.path.join(BUILD, name + ".lua"), "w", encoding="utf-8") as f:
             f.write(PRELUDE.format(name=name))
             f.write(source)
+        print("built", name)
+    for name in CLIENTS:
+        with open(os.path.join(ROOT, "src", "client", name + ".client.lua"), encoding="utf-8") as f:
+            source = f.read()
+        with open(os.path.join(BUILD, name + ".lua"), "w", encoding="utf-8") as f:
+            f.write(PRELUDE.format(name=name))
+            f.write("return function()\n")
+            f.write(source)
+            f.write("\nend\n")
         print("built", name)
     print("done ->", BUILD)
 

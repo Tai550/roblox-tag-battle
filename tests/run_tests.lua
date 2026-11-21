@@ -6,6 +6,7 @@ local RT = require("./.build/mockenv")
 
 -- 依存順に本物のモジュールを読み込み、モックの参照表へ登録する
 RT.modules.Config = require("./.build/Config")
+RT.modules.UILayout = require("./.build/UILayout")
 RT.modules.GameState = require("./.build/GameState")
 RT.modules.Remotes = require("./.build/Remotes")
 RT.modules.Leaderstats = require("./.build/Leaderstats")
@@ -52,6 +53,75 @@ local function near(a, b)
 end
 local function point(x, y, z)
 	return { Position = Vector3.new(x, y, z) }
+end
+
+---------------------------------------------------------------------
+-- スマホ画面：本物のクライアントスクリプトをモック上で起動する
+---------------------------------------------------------------------
+
+do
+	local layout = RT.modules.UILayout
+	check("UI寸法表はスマホの最小寸法を満たす",
+		layout.EdgeMargin >= 16 and layout.MinTouchSize >= 52 and layout.BottomClearance >= 100)
+
+	local players = RT.game:GetService("Players")
+	local player = RT.Instance.new("Player")
+	local playerGui = RT.Instance.new("Folder")
+	playerGui.Name = "PlayerGui"
+	playerGui.Parent = player
+	players.LocalPlayer = player
+
+	local realWait = RT.task.wait
+	RT.task.wait = coroutine.yield
+	local clients = {
+		{ Name = "TagHUD", Run = require("./.build/HUD") },
+		{ Name = "ItemHUD", Run = require("./.build/ItemControls") },
+		{ Name = "MatchUI", Run = require("./.build/MatchUI") },
+		{ Name = "ShopGui", Run = require("./.build/Shop") },
+	}
+	for _, client in ipairs(clients) do
+		local ok, err = coroutine.resume(coroutine.create(client.Run))
+		assert(ok, err)
+		local gui = playerGui:FindFirstChild(client.Name)
+		check(client.Name .. " は共有寸法表から安全領域を設定する",
+			gui and gui.ScreenInsets == RT.Enum.ScreenInsets.CoreUISafeInsets)
+	end
+	RT.task.wait = realWait
+
+	local itemGui = playerGui:FindFirstChild("ItemHUD")
+	local itemRow = itemGui:FindFirstChild("ItemSlots")
+	local itemButton = itemRow:FindFirstChild("UseItemButton1")
+	check("アイテムボタンは中央で下端の空きと最小サイズを確保する",
+		itemRow.Position.XScale == 0.5 and itemRow.Position.YOffset == -layout.BottomClearance
+		and itemButton.Size.XOffset >= layout.MinTouchSize and itemButton.Size.YOffset >= layout.MinTouchSize)
+
+	local shopGui = playerGui:FindFirstChild("ShopGui")
+	local openShop = shopGui:FindFirstChild("OpenShop")
+	local closeShop = shopGui:FindFirstChild("Panel"):FindFirstChild("Close")
+	check("ショップの開閉ボタンに最小サイズと余白を適用する",
+		openShop.Size.YOffset == layout.MinTouchSize and openShop.Position.XOffset == layout.EdgeMargin
+		and closeShop.Size.XOffset >= layout.MinTouchSize and closeShop.Size.YOffset >= layout.MinTouchSize
+		and closeShop.Position.XOffset <= -12 and closeShop.Position.YOffset >= 12)
+
+	local matchGui = playerGui:FindFirstChild("MatchUI")
+	local deckConfirm = matchGui:FindFirstChild("DeckPanel"):FindFirstChild("Confirm")
+	local votePanel = matchGui:FindFirstChild("VotePanel")
+	local vote = votePanel:FindFirstChild("Vote" .. Config.MatchDurations[1])
+	check("投票とデッキ確定の押せる領域を確保する",
+		vote.Size.YOffset >= layout.MinTouchSize
+		and (matchGui.AbsoluteSize.X - 2 * layout.EdgeMargin) * vote.Size.XScale + vote.Size.XOffset >= layout.MinTouchSize
+		and deckConfirm.Size.XOffset >= layout.MinTouchSize and deckConfirm.Size.YOffset >= layout.MinTouchSize
+		and deckConfirm.Position.XScale == 0.5 and deckConfirm.Position.YOffset == -layout.EdgeMargin)
+
+	local stats = playerGui:FindFirstChild("TagHUD"):FindFirstChild("RoundStats")
+	player:SetAttribute("RoundTags", 2)
+	player:SetAttribute("RoundCaught", 1)
+	player:SetAttribute("RoundRP", 16)
+	check("HUDはラウンド属性の変更を表示する",
+		stats:FindFirstChild("RoundCounts").Text == "タッチ 2回　捕まった 1回"
+		and stats:FindFirstChild("RoundRP").Text == "このラウンド +16 RP")
+	players.LocalPlayer = nil
+	player:Destroy()
 end
 
 math.randomseed(12345)
@@ -1462,6 +1532,11 @@ do
 		and RankManager.Get(runner).RP == runnerRP + Config.RankPoints.Caught
 		and RankManager.Get(runner).Tagged == taggedCount + 1
 		and GameState.TaggerSince == now)
+	check("タッチした側と捕まった側の属性はそれぞれの回数と付与RPに一致する",
+		tagger:GetAttribute("RoundTags") == 1 and tagger:GetAttribute("RoundCaught") == nil
+		and tagger:GetAttribute("RoundRP") == RankManager.Get(tagger).RP - taggerRP
+		and runner:GetAttribute("RoundTags") == nil and runner:GetAttribute("RoundCaught") == 1
+		and runner:GetAttribute("RoundRP") == RankManager.Get(runner).RP - runnerRP)
 	arm:Destroy()
 
 	local accessory = RT.Instance.new("Accessory")
@@ -1510,6 +1585,9 @@ do
 		(botRoot.Position - taggerRoot.Position).Magnitude > Config.TagReachForward + Config.TagTouchDistance
 		and tryTag(bot))
 
+	check("捕まったボットにはラウンド属性を作らない",
+		bot.GetAttribute == nil and bot.RoundTags == nil and bot.RoundCaught == nil and bot.RoundRP == nil)
+
 	TaggerLook.Follow(nil)
 	BotManager.DespawnAll()
 	for _, player in ipairs({ tagger, runner }) do
@@ -1522,6 +1600,86 @@ do
 	GameState.TaggerSince = 0
 	GameState.Now = realNow
 	GameState.Phase = "Waiting"
+end
+
+---------------------------------------------------------------------
+-- ラウンド進行：開始時リセット、逃げ切りと全員捕獲のRP
+---------------------------------------------------------------------
+
+do
+	local players = RT.game:GetService("Players")
+	local humans = {}
+	for id = 1, 2 do
+		local player = RT.Instance.new("Player")
+		player.UserId = 17000 + id
+		player.DisplayName = "Round " .. id
+		player.Parent = players
+		local character = RT.Instance.new("Model")
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(id * 30, 8, 0)
+		root.CFrame = RT.CFrame.new(id * 30, 8, 0)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = character
+		player:SetAttribute("RoundTags", 3)
+		player:SetAttribute("RoundCaught", 4)
+		player:SetAttribute("RoundRP", 42)
+		humans[id] = player
+	end
+
+	local realGetPlayers, realFill = players.GetPlayers, BotManager.Fill
+	local realWait, realNow = RT.task.wait, GameState.Now
+	local now = 100
+	players.GetPlayers = function() return humans end
+	BotManager.Fill = function() end -- 逃走者と最後の捕獲対象を人間1人に固定する。
+	RT.task.wait = coroutine.yield
+	GameState.Now = function() return now end
+
+	local round = coroutine.create(RoundManager.Run)
+	local function advance(seconds)
+		now += seconds
+		local ok, err = coroutine.resume(round)
+		assert(ok, err)
+	end
+	advance(0)
+	check("合間は前ラウンドの値を表示する", GameState.Phase == "Intermission"
+		and humans[1]:GetAttribute("RoundRP") == 42)
+	advance(Config.IntermissionTime)
+	check("ラウンド開始で両プレイヤーのラウンド属性が0に戻る", GameState.Phase == "Round"
+		and humans[1]:GetAttribute("RoundTags") == 0 and humans[1]:GetAttribute("RoundCaught") == 0
+		and humans[1]:GetAttribute("RoundRP") == 0 and humans[2]:GetAttribute("RoundTags") == 0
+		and humans[2]:GetAttribute("RoundCaught") == 0 and humans[2]:GetAttribute("RoundRP") == 0)
+
+	local firstTagger = GameState.Tagger
+	local survivor = firstTagger == humans[1] and humans[2] or humans[1]
+	local before = RankManager.Get(survivor).RP
+	advance(GameState.ChosenDuration)
+	check("逃げ切りの20RPがラウンドRPと累計RPに1回だけ入る", GameState.Phase == "Results"
+		and survivor:GetAttribute("RoundRP") == 20 and RankManager.Get(survivor).RP - before == 20)
+
+	advance(Config.ResultsTime)
+	advance(Config.IntermissionTime)
+	local tagger = GameState.Tagger
+	local runner = tagger == humans[1] and humans[2] or humans[1]
+	local taggerRoot, runnerRoot = GameState.GetRootPart(tagger), GameState.GetRootPart(runner)
+	runnerRoot.Position = taggerRoot.Position
+	runnerRoot.CFrame = taggerRoot.CFrame
+	before = RankManager.Get(tagger).RP
+	advance(Config.TagCooldown)
+	advance(GameState.ChosenDuration)
+	local expected = Config.RankPoints.Tag + Config.RankPoints.TaggedAll
+	check("全員捕獲の追加RPが最後にタッチした鬼に1回だけ入る",
+		GameState.Phase == "Results" and tagger:GetAttribute("RoundTags") == 1
+		and tagger:GetAttribute("RoundRP") == expected and RankManager.Get(tagger).RP - before == expected)
+
+	table.clear(humans)
+	advance(Config.ResultsTime)
+	coroutine.close(round)
+	players.GetPlayers, BotManager.Fill = realGetPlayers, realFill
+	RT.task.wait, GameState.Now = realWait, realNow
 end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))

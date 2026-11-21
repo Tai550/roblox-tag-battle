@@ -93,11 +93,11 @@ Config.BoxExpireTime = 15  -- ボックスで手に入れたアイテムの使�
 -- アイテム使用の操作
 ---------------------------------------------------------------------
 -- 所持はリスト形式。枠ごとに使うキーが決まっている。
---   1枠目: キーボードの E / ゲームパッドの X
---   2枠目: キーボードの Q / ゲームパッドの Y（ダブルアイテム所有者のみ）
+--   1枠目: キーボードの E・1 / ゲームパッドの X
+--   2枠目: キーボードの Q・2 / ゲームパッドの Y（ダブルアイテム所有者のみ）
 Config.ItemSlotKeys = {
-	{ Enum.KeyCode.E, Enum.KeyCode.ButtonX },
-	{ Enum.KeyCode.Q, Enum.KeyCode.ButtonY },
+	{ Enum.KeyCode.E, Enum.KeyCode.One, Enum.KeyCode.ButtonX },
+	{ Enum.KeyCode.Q, Enum.KeyCode.Two, Enum.KeyCode.ButtonY },
 }
 Config.ItemSlotKeyLabels = { "E", "Q" } -- 画面のボタンやメッセージに出すキー名
 Config.BaseItemSlots = 1         -- 通常の所持枠の数
