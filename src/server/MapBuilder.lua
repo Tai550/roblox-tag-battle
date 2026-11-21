@@ -717,7 +717,7 @@ local function buildProps(map)
 
 	-- 信号機：柱＋灯器
 	for _, s in ipairs(SIGNALS) do
-		makeColumn(folder, "SignalPole", s.x, WALK_TOP, s.z, 12, 0.8, COLORS.Pole, SHIBUYA_SCALE)
+		makeColumn(folder, "SignalPole", s.x, WALK_TOP, s.z, 12, 0.8, COLORS.Pole, nil, SHIBUYA_SCALE)
 		makeShibuyaPart(folder, {
 			Name = "SignalHead",
 			Size = { 1.2, 3, 1.2 },
@@ -728,7 +728,7 @@ local function buildProps(map)
 
 	-- 街灯：柱＋光る笠
 	for _, l in ipairs(STREET_LIGHTS) do
-		makeColumn(folder, "LightPole", l.x, WALK_TOP, l.z, 14, 0.6, COLORS.Pole, SHIBUYA_SCALE)
+		makeColumn(folder, "LightPole", l.x, WALK_TOP, l.z, 14, 0.6, COLORS.Pole, nil, SHIBUYA_SCALE)
 		makeShibuyaPart(folder, {
 			Name = "Lamp",
 			Size = { 1.6, 0.6, 1.6 },
@@ -821,7 +821,7 @@ local function buildProps(map)
 
 	-- 木：幹（円柱）＋葉（球）
 	for _, t in ipairs(TREES) do
-		makeColumn(folder, "TreeTrunk", t.x, TILE_TOP, t.z, 6, 1.2, COLORS.Trunk, SHIBUYA_SCALE)
+		makeColumn(folder, "TreeTrunk", t.x, TILE_TOP, t.z, 6, 1.2, COLORS.Trunk, nil, SHIBUYA_SCALE)
 		makeShibuyaPart(folder, {
 			Name = "TreeLeaves",
 			Shape = Enum.PartType.Ball,

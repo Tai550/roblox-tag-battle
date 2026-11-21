@@ -400,6 +400,10 @@ local instanceMT = {
 			rawset(self, "_parent", value)
 			return
 		end
+		-- 本物の Roblox と同じく、Material に Enum 以外（数値など）を入れたらエラーにする
+		if key == "Material" and not (type(value) == "string" and string.sub(value, 1, 9) == "Material.") then
+			error("Unable to assign property Material. Invalid value " .. tostring(value) .. " for enum Material", 2)
+		end
 		rawset(self, key, value)
 	end,
 }
