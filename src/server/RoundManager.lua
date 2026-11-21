@@ -17,16 +17,23 @@ local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
+local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
 local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 local MatchSession = require(script.Parent:WaitForChild("MatchSession"))
 local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
 local BotManager = require(script.Parent:WaitForChild("BotManager"))
 local RankManager = require(script.Parent:WaitForChild("RankManager"))
+local TaggerSkills = require(script.Parent:WaitForChild("TaggerSkills"))
 local TaggerLook = require(script.Parent:WaitForChild("TaggerLook"))
 local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local VoltGimmicks = require(script.Parent:WaitForChild("VoltGimmicks"))
 
 local RoundManager = {}
+local suddenDeath = Config.SuddenDeath
+
+local function isSuddenDeath()
+	return GameState.ChosenMode == suddenDeath.Id
+end
 
 local broadcastState -- 下の「状態の送信」で定義する
 local soloRound = false -- このラウンドをボットと遊ぶか
@@ -38,6 +45,10 @@ local moveHumansToSpawn -- 下で定義する
 
 local votes = {}          -- [Player] = 投票した秒数
 local mapVotes = {}       -- [Player] = 投票したマップ Id
+local modeVotes = {}      -- [Player] = 投票したモード Id
+local botStrengthVotes = {} -- [Player] = 投票したボットの強さ Id
+local votingOpen = false
+local botStrengthName = Config.GetBotStrengthVote("Auto").Name
 
 -- 管理者の操作（AdminManager から呼ぶ）
 local startRequested = false   -- 待ちを飛ばしてすぐ始める
@@ -89,11 +100,10 @@ local function refreshVoteDisplay()
 	displayDuration, voteCounts = RoundManager.TallyVotes(votes)
 end
 
--- マップの投票を集計する（計算だけの関数）。
--- 戻り値: いちばん票の多いマップ Id（同数・無投票は nil ＝ローテーションの次）, 表示用の票数表
-function RoundManager.TallyMapVotes(voteMap)
+-- 単独の最多得票 Id（同数・無投票は nil）と表示用の票数表を返す。
+local function tallyPluralityVotes(options, voteMap)
 	local counts = {}
-	for _, info in ipairs(Config.MatchMaps) do
+	for _, info in ipairs(options) do
 		counts[info.Id] = 0
 	end
 	for _, id in pairs(voteMap) do
@@ -102,7 +112,7 @@ function RoundManager.TallyMapVotes(voteMap)
 		end
 	end
 	local best, bestCount, tie = nil, 0, false
-	for _, info in ipairs(Config.MatchMaps) do
+	for _, info in ipairs(options) do
 		local count = counts[info.Id]
 		if count > bestCount then
 			best, bestCount, tie = info.Id, count, false
@@ -116,8 +126,29 @@ function RoundManager.TallyMapVotes(voteMap)
 	return best, counts
 end
 
+function RoundManager.TallyMapVotes(voteMap)
+	return tallyPluralityVotes(Config.MatchMaps, voteMap)
+end
+
+function RoundManager.TallyBotStrengthVotes(voteMap)
+	local chosen, counts = tallyPluralityVotes(Config.BotStrengthVote, voteMap)
+	return chosen or "Auto", counts
+end
+
+local function canVote(player)
+	return votingOpen and GameState.Phase == "Intermission" and player.Parent == Players
+		and player:GetAttribute("AdminAdmissionPending") ~= true
+end
+
+local function onBotStrengthVote(player, id)
+	if canVote(player) and Config.GetBotStrengthVote(id) then
+		botStrengthVotes[player] = id
+		broadcastState()
+	end
+end
+
 local function onMapVote(player, id)
-	if GameState.Phase ~= "Intermission" or BotManager.IsBot(player) or type(id) ~= "string" then
+	if not canVote(player) or type(id) ~= "string" then
 		return
 	end
 	local _, counts = RoundManager.TallyMapVotes({})
@@ -128,8 +159,26 @@ local function onMapVote(player, id)
 	broadcastState()
 end
 
+function RoundManager.TallyModeVotes(voteMap)
+	local counts = { [suddenDeath.NormalId] = 0, [suddenDeath.Id] = 0 }
+	for _, id in pairs(voteMap) do
+		if id == suddenDeath.NormalId or id == suddenDeath.Id then
+			counts[id] += 1
+		end
+	end
+	local chosen = counts[suddenDeath.Id] > counts[suddenDeath.NormalId] and suddenDeath.Id or suddenDeath.NormalId
+	return chosen, counts
+end
+
+local function onModeVote(player, id)
+	if canVote(player) and (id == suddenDeath.NormalId or id == suddenDeath.Id) then
+		modeVotes[player] = id
+		broadcastState()
+	end
+end
+
 local function onDurationVote(player, durationArg)
-	if GameState.Phase ~= "Intermission" then
+	if not canVote(player) then
 		return
 	end
 	local duration = tonumber(durationArg)
@@ -216,8 +265,19 @@ local function userIdList(players)
 	return ids
 end
 
+local function countRunners()
+	local count = 0
+	for player in pairs(GameState.Participants) do
+		if not GameState.IsTagger(player) then
+			count += 1
+		end
+	end
+	return count
+end
+
 broadcastState = function()
 	local taggers = GameState.TaggerList()
+	local _, boostStage = GameState.TaggerLateBoost(GameState.TimeLeft, GameState.ChosenDuration)
 	local taggerNames = {}
 	for _, tagger in ipairs(taggers) do
 		table.insert(taggerNames, tagger.DisplayName)
@@ -233,6 +293,7 @@ broadcastState = function()
 		MinPlayers = Config.MinPlayers,
 		TaggerUserIds = userIdList(taggers),
 		TaggerNames = taggerNames,
+		TaggerBoostStage = GameState.Phase == "Round" and boostStage or 0,
 		Participants = userIdList(GameState.ParticipantList()),
 		Eliminated = userIdList(GameState.Eliminated),
 		Results = GameState.Results,
@@ -243,6 +304,11 @@ broadcastState = function()
 		CurrentMap = MapBuilder.CurrentMap,
 		NextMap = MapBuilder.GetNextMapId(),
 		Mode = MatchSession.Mode,
+		GameMode = GameState.ChosenMode,
+		ModeVoteCounts = select(2, RoundManager.TallyModeVotes(modeVotes)),
+		BotStrengthVoteCounts = select(2, RoundManager.TallyBotStrengthVotes(botStrengthVotes)),
+		BotStrengthName = botStrengthName,
+		RunnersLeft = GameState.Phase == "Round" and countRunners() or 0,
 		RoomCode = MatchSession.Code,
 		HostUserId = MatchSession.GetHostUserId(),
 	})
@@ -264,24 +330,48 @@ local function hasInitialRunner()
 	return false
 end
 
-local function removeParticipant(player)
-	ItemManager.ClearBeastEffects(player)
-	GameState.ClearFreeze(player)
-	GameState.Participants[player] = nil
-	GameState.Uncaught[player] = nil
+local function hasRunners()
+	if isSuddenDeath() then
+		return countRunners() > 0
+	end
+	return hasInitialRunner()
 end
 
 local function setTagger(oldTagger, newTagger, tagBackFrom)
 	if oldTagger then
 		GameState.Taggers[oldTagger] = nil
+		TaggerSkills.ResetRoleEffects(oldTagger)
+		if isSuddenDeath() and BotManager.IsBot(oldTagger) then
+			BotManager.RestoreRoundStrength(oldTagger)
+		end
 		GameState.RefreshSpeed(oldTagger)
 		TaggerLook.Clear(oldTagger)
 	end
 	if newTagger then
 		everTaggers[newTagger] = true
 		GameState.Taggers[newTagger] = { Since = GameState.Now(), NoTagBack = tagBackFrom }
-		GameState.RefreshSpeed(newTagger)
+		TaggerSkills.ResetRoleEffects(newTagger)
+		if isSuddenDeath() and BotManager.IsBot(newTagger) then
+			BotManager.ApplyTopStrength(newTagger)
+		else
+			GameState.RefreshSpeed(newTagger)
+		end
 		TaggerLook.Apply(newTagger)
+	end
+end
+
+local function removeParticipant(player, notify)
+	ItemManager.ClearExpansionEffects(player)
+	ItemManager.ClearBeastEffects(player)
+	GameState.ClearFreeze(player)
+	GameState.Participants[player] = nil
+	ItemManager.ClearRoundCombos(player, notify)
+	if GameState.IsTagger(player) then
+		setTagger(player, nil)
+	end
+	-- サドンデスの全員捕獲には開始時の逃げ手全員へのタッチが必要。
+	if not isSuddenDeath() then
+		GameState.Uncaught[player] = nil
 	end
 end
 
@@ -309,12 +399,32 @@ local function pickRunner()
 	end
 end
 
+function RoundManager.PickSuddenDeathTagger(participants)
+	local humans, bots = {}, {}
+	for _, player in ipairs(participants) do
+		if GameState.IsAlive(player) then
+			table.insert(BotManager.IsBot(player) and bots or humans, player)
+		end
+	end
+	local candidates = #humans >= 2 and humans or bots
+	if #candidates > 0 then
+		return candidates[math.random(1, #candidates)]
+	end
+end
+
 function RoundManager.SelectInitialTaggers()
 	initialRunners = {}
 	everTaggers = {}
 	GameState.Uncaught = {}
-	for _ = 1, targetTaggerCount(GameState.CountParticipants()) do
-		local tagger = pickRunner()
+	local sudden = isSuddenDeath()
+	local wanted = sudden and suddenDeath.TaggerCount or targetTaggerCount(GameState.CountParticipants())
+	for _ = 1, wanted do
+		local tagger
+		if sudden then
+			tagger = RoundManager.PickSuddenDeathTagger(GameState.ParticipantList()) or BotManager.SpawnTopTagger()
+		else
+			tagger = pickRunner()
+		end
 		if tagger then
 			setTagger(nil, tagger)
 			Remotes.NotifyPlayer(tagger, "あなたが最初の鬼です！ 3秒後からタッチできます")
@@ -336,12 +446,13 @@ local function reconcileTaggers()
 		end
 	end
 	local count = GameState.CountParticipants()
-	-- 残り1人、または開始時の逃げ役が全員抜けたら、そのまま試合を終える。
-	if count <= 1 or not hasInitialRunner() then
+	local sudden = isSuddenDeath()
+	-- 通常モードでは開始時の逃げ役がいなくなれば補充せずに終わる。
+	if not sudden and (count <= 1 or not hasInitialRunner()) then
 		return
 	end
 	local taggers = GameState.TaggerList()
-	local wanted = targetTaggerCount(count)
+	local wanted = sudden and suddenDeath.TaggerCount or targetTaggerCount(count)
 	for index = wanted + 1, #taggers do
 		setTagger(taggers[index], nil)
 	end
@@ -381,7 +492,7 @@ local function eliminate(player, reason)
 	if not GameState.IsParticipant(player) then
 		return
 	end
-	removeParticipant(player)
+	removeParticipant(player, true)
 	table.insert(GameState.Eliminated, player)
 	sendToSpectator(player)
 	Remotes.NotifyPlayer(player, "脱落… 観戦席から見守ろう")
@@ -392,7 +503,7 @@ local function eliminate(player, reason)
 	end
 	reconcileTaggers()
 	broadcastState()
-	return not hasInitialRunner()
+	return not hasRunners()
 end
 
 -- 落下ダンジョン：足場から落ちたら脱落（命綱を持っていれば最後の足場に戻る）
@@ -459,7 +570,7 @@ function RoundManager.IsBodyContact(taggerPos, runner)
 	return flat <= Config.TagStackRadius and math.abs(offset.Y) <= 6
 end
 
-local function isWithinTagReach(origin, character)
+local function isWithinTagReach(origin, character, touchDistance)
 	if not character then
 		return false
 	end
@@ -472,12 +583,37 @@ local function isWithinTagReach(origin, character)
 				math.clamp(localOrigin.Y, -halfSize.Y, halfSize.Y),
 				math.clamp(localOrigin.Z, -halfSize.Z, halfSize.Z)
 			)
-			if (localOrigin - closest).Magnitude <= Config.TagTouchDistance then
+			if (localOrigin - closest).Magnitude <= touchDistance then
 				return true
 			end
 		end
 	end
 	return false
+end
+
+function RoundManager.ApplyTag(tagger, runner)
+	TaggerSkills.RecordCatch(tagger, GameState.Now())
+	GameState.TagCounts[runner] = (GameState.TagCounts[runner] or 0) + 1
+	Leaderstats.Set(runner, "Tagged", GameState.TagCounts[runner])
+	RankManager.AddCount(runner, "Tagged")
+	addRoundStat(tagger, "RoundTags", 1)
+	addRoundStat(runner, "RoundCaught", 1)
+	awardRoundRP(tagger, Config.RankPoints.Tag)
+	awardRoundRP(runner, Config.RankPoints.Caught)
+	if GameState.Uncaught[runner] then
+		GameState.Uncaught[runner] = nil
+		if next(GameState.Uncaught) == nil then
+			awardRoundRP(tagger, Config.RankPoints.TaggedAll)
+		end
+	end
+	if isSuddenDeath() then
+		eliminate(runner, "タッチ")
+		return
+	end
+	Remotes.NotifyPlayer(runner, "タッチされた！ 今度はあなたが鬼！（" .. tagger.DisplayName .. " にはタッチ返しできない）")
+	Remotes.NotifyPlayer(tagger, runner.DisplayName .. " にタッチ！ 鬼を交代した")
+	setTagger(tagger, runner, tagger)
+	broadcastState()
 end
 
 local function tryTagFor(tagger, role, now)
@@ -491,11 +627,13 @@ local function tryTagFor(tagger, role, now)
 		return
 	end
 
-	local origin = taggerRoot.Position + taggerRoot.CFrame.LookVector * Config.TagReachForward
+	local reach = ItemManager.TagReachMultiplier(tagger, now)
+	local touchDistance = Config.TagTouchDistance * reach
+	local origin = taggerRoot.Position + taggerRoot.CFrame.LookVector * (Config.TagReachForward * reach)
 	for _, runner in ipairs(GameState.ParticipantList()) do
 		if not GameState.IsTagger(runner) and GameState.IsAlive(runner)
 			and not RoundManager.IsTagBackBlocked(runner, role.NoTagBack) then
-			if isWithinTagReach(origin, runner.Character) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
+			if isWithinTagReach(origin, runner.Character, touchDistance) or RoundManager.IsBodyContact(taggerRoot.Position, runner) then
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now or data.BeastProneUntil > now
 					or ItemManager.TryBeastChargeHit(runner, tagger, now) then
@@ -505,24 +643,10 @@ local function tryTagFor(tagger, role, now)
 				elseif ItemManager.ConsumeShield(runner) then
 					Remotes.NotifyPlayer(runner, "シールドがタッチを防いだ！ 今のうちに逃げよう")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " のシールドに防がれた！")
+				elseif ItemManager.TryReflect(runner, tagger) then
+					return
 				else
-					GameState.TagCounts[runner] = (GameState.TagCounts[runner] or 0) + 1
-					Leaderstats.Set(runner, "Tagged", GameState.TagCounts[runner])
-					RankManager.AddCount(runner, "Tagged")
-					addRoundStat(tagger, "RoundTags", 1)
-					addRoundStat(runner, "RoundCaught", 1)
-					awardRoundRP(tagger, Config.RankPoints.Tag)
-					awardRoundRP(runner, Config.RankPoints.Caught)
-					if GameState.Uncaught[runner] then
-						GameState.Uncaught[runner] = nil
-						if next(GameState.Uncaught) == nil then
-							awardRoundRP(tagger, Config.RankPoints.TaggedAll)
-						end
-					end
-					Remotes.NotifyPlayer(runner, "タッチされた！ 今度はあなたが鬼！（" .. tagger.DisplayName .. " にはタッチ返しできない）")
-					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " にタッチ！ 鬼を交代した")
-					setTagger(tagger, runner, tagger)
-					broadcastState()
+					RoundManager.ApplyTag(tagger, runner)
 					return
 				end
 			end
@@ -533,7 +657,10 @@ end
 function RoundManager.TryTag()
 	local now = GameState.Now()
 	for _, tagger in ipairs(GameState.TaggerList()) do
-		tryTagFor(tagger, GameState.Taggers[tagger], now)
+		local role = GameState.Taggers[tagger]
+		if role then
+			tryTagFor(tagger, role, now)
+		end
 	end
 end
 
@@ -642,10 +769,16 @@ end
 
 -- 人数が足りなくなったら false
 local function runIntermission()
-	setPhase("Intermission", "まもなく鬼ごっこが始まります。試合時間とマップに投票しよう")
 	votes = {}
 	mapVotes = {}
+	modeVotes = {}
+	botStrengthVotes = {}
+	votingOpen = true
+	GameState.ChosenMode = suddenDeath.NormalId
+	GameState.ChosenBotStrength = "Auto"
+	botStrengthName = Config.GetBotStrengthVote("Auto").Name
 	refreshVoteDisplay()
+	setPhase("Intermission", "マップ・試合時間・モード・ボットの強さに投票しよう")
 	local endTime = GameState.Now() + Config.IntermissionTime
 	while true do
 		local left = endTime - GameState.Now()
@@ -654,6 +787,7 @@ local function runIntermission()
 		end
 		local needed = soloRound and 1 or Config.MinPlayers
 		if #Players:GetPlayers() < needed then
+			votingOpen = false
 			return false
 		end
 		GameState.TimeLeft = left
@@ -662,6 +796,9 @@ local function runIntermission()
 	end
 	GameState.ChosenDuration = RoundManager.TallyVotes(votes)
 	displayDuration = GameState.ChosenDuration
+	GameState.ChosenMode = RoundManager.TallyModeVotes(modeVotes)
+	GameState.ChosenBotStrength = RoundManager.TallyBotStrengthVotes(botStrengthVotes)
+	votingOpen = false
 	return true
 end
 
@@ -692,6 +829,13 @@ moveHumansToSpawn = function()
 end
 
 -- 試合本体。戻り値: 試合をしたら true、始められなかったら false
+local function isChampionEligible(player)
+	if isSuddenDeath() then
+		return GameState.IsParticipant(player) and not GameState.IsTagger(player)
+	end
+	return initialRunners[player] == true and not everTaggers[player]
+end
+
 local function runRound()
 	GameState.Participants = {}
 	GameState.Winners = {}
@@ -722,12 +866,18 @@ local function runRound()
 			table.insert(entrants, player)
 		end
 	end
-	local bots
+	local strengthChoice = GameState.ChosenBotStrength
+	BotManager.SetRoundStrengthChoice(strengthChoice)
+	botStrengthName = Config.GetBotStrengthVote(strengthChoice).Name
+	local bots, averageTierIndex
 	if soloRound then
 		bots = BotManager.Spawn(Config.SoloBotCount, { SoloCap = true })
 	else
 		-- 人間が目標人数（8人）未満なら、差分をボットで補う
-		bots = BotManager.Fill(entrants)
+		bots, averageTierIndex = BotManager.Fill(entrants)
+		if averageTierIndex then
+			botStrengthName ..= "（" .. Config.RankTiers[averageTierIndex].Name .. "）"
+		end
 	end
 	if #bots > 0 then
 		for _, bot in ipairs(bots) do
@@ -740,15 +890,22 @@ local function runRound()
 			GameState.Participants[player] = true
 			GameState.TagCounts[player] = 0
 			GameState.ResetData(player)
-			GameState.RefreshSpeed(player)
 		end
 	end
-	if GameState.CountParticipants() < Config.MinPlayers then
+	local minimum = isSuddenDeath() and 1 or Config.MinPlayers
+	if GameState.CountParticipants() < minimum then
 		BotManager.Clear()
 		GameState.Participants = {}
 		return false
 	end
-	local roster = GameState.ParticipantList() -- 結果に載せる人（途中で抜けた人は除く）
+
+	for _, player in ipairs(GameState.ParticipantList()) do
+		local data = GameState.GetData(player)
+		for _, combo in ipairs(Config.FindCombos(DeckManager.GetDeck(player))) do
+			data.ActiveCombos[combo.Id] = true
+		end
+		GameState.RefreshSpeed(player)
+	end
 
 	local duration = GameState.ChosenDuration
 	GameState.Phase = "Round"
@@ -767,19 +924,34 @@ local function runRound()
 	ZoneManager.Start(duration)
 
 	RoundManager.SelectInitialTaggers()
+	local roster = GameState.ParticipantList() -- 結果に載せる人（途中で抜けた人は除く）
 	ItemManager.DeliverPendingItems()
 
 	local startedAt = GameState.Now()
 	VoltGimmicks.Start(startedAt)
 	local endTime = startedAt + duration
 	local nextBroadcast = 0
+	local _, boostStage = GameState.TaggerLateBoost(duration, duration)
+	local timedOut = false
 
 	while true do
 		local now = GameState.Now()
 		local left = endTime - now
 		if left <= 0 or endRequested or nextMapRequested then
+			timedOut = left <= 0
 			endRequested = false
 			break
+		end
+
+		GameState.TimeLeft = left
+		local _, stage = GameState.TaggerLateBoost(left, duration)
+		if stage > boostStage then
+			boostStage = stage
+			for tagger in pairs(GameState.Taggers) do
+				GameState.RefreshSpeed(tagger)
+			end
+			Remotes.Notify:FireAllClients("鬼が速くなった！")
+			nextBroadcast = 0
 		end
 
 		-- 抜けたプレイヤーを参加者から外す
@@ -793,28 +965,32 @@ local function runRound()
 				humansLeft = humansLeft + 1
 			end
 		end
-		-- 残りが1人以下、人間がいない、または開始時の逃げ役が全員抜けたら終わり
-		if GameState.CountParticipants() < 2 or humansLeft == 0 or not hasInitialRunner() then
+		if not isSuddenDeath() and (GameState.CountParticipants() < 2 or humansLeft == 0 or not hasRunners()) then
 			break
 		end
 
 		reconcileTaggers()
+		if not hasRunners() then
+			break
+		end
 
 		VoltGimmicks.Tick(now)
 		RoundManager.TryTag()
+		if isSuddenDeath() and not hasRunners() then
+			break
+		end
 		ItemManager.Tick()
 		ZoneManager.Tick()
-		if not hasInitialRunner() then
+		if not hasRunners() then
 			break
 		end
 		RoundManager.CheckSkyFalls()
-		if not hasInitialRunner() then
+		if not hasRunners() then
 			break
 		end
 		BotManager.Tick()
 
 		if now >= nextBroadcast then
-			GameState.TimeLeft = left
 			broadcastState()
 			nextBroadcast = now + 1
 		end
@@ -838,7 +1014,7 @@ local function runRound()
 				Key = player,
 				Tags = GameState.TagCounts[player] or 0,
 				FinalTagger = GameState.IsTagger(player),
-				ChampionEligible = initialRunners[player] == true and not everTaggers[player],
+				ChampionEligible = (not isSuddenDeath() or timedOut) and isChampionEligible(player),
 				EliminatedOrder = eliminatedOrder,
 			})
 		end
@@ -880,11 +1056,14 @@ local function runRound()
 end
 
 local function runResults()
-	local initialRunnersGone = not hasInitialRunner()
+	local runnersGone = not hasRunners()
 	initialRunners = {}
 	everTaggers = {}
 	GameState.Uncaught = {}
 	BotManager.Halt()
+	for _, tagger in ipairs(GameState.TaggerList()) do
+		setTagger(tagger, nil)
+	end
 	ItemManager.Stop()
 	ZoneManager.Stop()
 	GameState.Taggers = {}
@@ -899,7 +1078,7 @@ local function runResults()
 			table.insert(names, player.DisplayName)
 		end
 		message = "優勝: " .. table.concat(names, "、")
-	elseif initialRunnersGone then
+	elseif runnersGone then
 		message = "鬼の勝ち！"
 	else
 		message = "一度もタッチされずに逃げ切った人はいませんでした"
@@ -931,7 +1110,7 @@ end
 
 local function onCharacterAdded(player, character)
 	local humanoid = character:WaitForChild("Humanoid", 10)
-	if not humanoid then
+	if not humanoid or player.Character ~= character or player.Parent ~= Players then
 		return
 	end
 	GameState.RefreshSpeed(player)
@@ -956,6 +1135,10 @@ end
 
 local function watchPlayer(player)
 	player.CharacterRemoving:Connect(function()
+		if not GameState.AllData()[player] then
+			return
+		end
+		ItemManager.ClearExpansionEffects(player)
 		ItemManager.ClearBeastEffects(player)
 		GameState.ClearFreeze(player)
 	end)
@@ -968,8 +1151,11 @@ local function watchPlayer(player)
 end
 
 function RoundManager.Init()
+	TaggerSkills.Init()
 	Remotes.DurationVote.OnServerEvent:Connect(onDurationVote)
 	Remotes.MapVote.OnServerEvent:Connect(onMapVote)
+	Remotes.ModeVote.OnServerEvent:Connect(onModeVote)
+	Remotes.BotStrengthVote.OnServerEvent:Connect(onBotStrengthVote)
 	ZoneManager.OnEliminate = eliminate
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -989,7 +1175,13 @@ function RoundManager.Init()
 		GameState.ClearData(player)
 		votes[player] = nil
 		mapVotes[player] = nil
+		modeVotes[player] = nil
+		botStrengthVotes[player] = nil
 		refreshVoteDisplay()
+		if GameState.Phase == "Round" and isSuddenDeath() then
+			reconcileTaggers()
+			broadcastState()
+		end
 	end)
 end
 

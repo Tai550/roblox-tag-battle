@@ -20,6 +20,7 @@ local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
 local RouletteBoard = require(script.Parent:WaitForChild("RouletteBoard"))
 local BeastFollower = require(script.Parent:WaitForChild("BeastFollower"))
 local LobbyTrade = require(script.Parent:WaitForChild("LobbyTrade"))
+local LobbyShop = require(script.Parent:WaitForChild("LobbyShop"))
 local LobbyAdmin = require(script.Parent:WaitForChild("LobbyAdmin"))
 
 ---------------------------------------------------------------------
@@ -53,7 +54,11 @@ local SpinRoulette = remote("SpinRoulette") -- 本人 → サーバー: ルー�
 local RouletteResult = remote("RouletteResult") -- サーバー → 本人: 当たった景品の番号（失敗時は nil）
 local RouletteSpinVisual = remote("RouletteSpinVisual") -- サーバー → 全員: 回転演出と停止時刻
 local AdminRequest = remote("AdminRequest")
-remoteFolder.Parent = ReplicatedStorage
+local OpenShop = remote("OpenShop")
+local BuyTrail = remote("BuyTrail")
+local EquipTrail = remote("EquipTrail")
+local PromptPurchase = remote("PromptPurchase")
+local ShopUpdate = remote("ShopUpdate")
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -71,6 +76,7 @@ local function sendData(player)
 	DataUpdate:FireClient(player, {
 		Coins = data.Coins, Owned = data.Owned, Deck = data.Deck, Wins = data.Wins,
 		Beasts = data.Beasts, EquippedBeast = data.EquippedBeast,
+		Trails = data.Trails, EquippedTrail = data.EquippedTrail,
 		RP = rankRP[player] or 0,
 		RouletteStock = stock, RouletteNextIn = nextIn,
 	})
@@ -200,6 +206,20 @@ local checkAdmission = LobbyAdmin.Init({
 	end,
 })
 
+local spawn = workspace:WaitForChild("LobbyMap"):WaitForChild("SpawnLocation")
+local shop = LobbyShop.Init({
+	Spawn = spawn,
+	OpenShop = OpenShop,
+	BuyTrail = BuyTrail,
+	EquipTrail = EquipTrail,
+	PromptPurchase = PromptPurchase,
+	ShopUpdate = ShopUpdate,
+	IsLoaded = function(player) return loaded[player] == true and player.Parent == Players end,
+	SendData = sendData,
+	Notify = notify,
+})
+remoteFolder.Parent = ReplicatedStorage
+
 local function onPlayerAdded(player)
 	if not checkAdmission(player) then
 		return
@@ -229,6 +249,7 @@ local function onPlayerAdded(player)
 	end
 	loaded[player] = true
 	BeastFollower.SetEquipped(player, data.EquippedBeast)
+	shop.PlayerLoaded(player)
 	sendData(player)
 end
 
@@ -238,6 +259,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerRemoving:Connect(function(player)
 	loaded[player] = nil
+	shop.Remove(player)
 	trade.Remove(player)
 	beastRequest[player] = nil
 	BeastFollower.Remove(player)
@@ -286,7 +308,6 @@ end)
 -- 召喚獣ガチャ
 ---------------------------------------------------------------------
 
-local spawn = workspace:WaitForChild("LobbyMap"):WaitForChild("SpawnLocation")
 local machineOrigin = spawn.Position + Vector3.new(11, -0.5, 0)
 local machine = Instance.new("Model")
 machine.Name = "BeastGacha"

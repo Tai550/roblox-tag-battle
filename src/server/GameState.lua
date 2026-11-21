@@ -15,8 +15,10 @@ GameState.PlayersNeeded = 0
 GameState.Message = ""
 GameState.Taggers = {}           -- [参加者] = { Since, NoTagBack }
 GameState.ChosenDuration = Config.DefaultDuration -- 投票で決まった今ラウンドの試合時間（秒）
+GameState.ChosenMode = Config.SuddenDeath.NormalId -- 投票で決まった今ラウンドのルール
+GameState.ChosenBotStrength = "Auto" -- 投票で決まった今ラウンドのボットの強さ
 GameState.Participants = {}       -- [Player またはボット] = true  このラウンドの参加者
-GameState.Uncaught = {}          -- 開始時に逃げ役で、まだタッチされていない参加者
+GameState.Uncaught = {}          -- 開始時の逃げ役で、まだタッチされていない人
 GameState.Winners = {}            -- 結果表示用の勝者リスト（Player の配列）
 GameState.TagCounts = {}          -- [Player] = この試合で鬼にタッチされた回数（順位に使う）
 GameState.Eliminated = {}         -- 脱落した人（脱落した順の Player 配列）
@@ -34,7 +36,16 @@ local function newData()
 		HeldItems = {},           -- 持っているアイテムの Id のリスト（古い順。枠数は GetItemSlots）
 		HeldExpireAt = {},        -- HeldItems と同じ並びの使用期限（時刻）。0 は期限なし（購入アイテム）
 		PendingItems = {},        -- ラウンド外に買ったアイテム（次のラウンド開始時に渡す）
+		TaggerSkillReadyAt = {}, -- サーバー時刻でのクールダウン終了
+		TaggerDashUntil = 0,
+		TaggerSmellUntil = 0,
+		NextSmellUpdate = 0,
+		CatchBoostUntil = 0,
+		ActiveCombos = {},        -- このラウンドで発動したデッキの組み合わせ
 		DashUntil = 0,            -- ダッシュ効果が切れる時刻
+		GiantUntil = 0,
+		ShrinkUntil = 0,
+		ReflectUntil = 0,
 		ShieldUntil = 0,          -- シールドが切れる時刻
 		StarUntil = 0,            -- スター（タッチ無効）が切れる時刻
 		StunUntil = 0,
@@ -49,7 +60,8 @@ local function newData()
 		JumpUntil = 0,            -- ハイジャンプが切れる時刻
 		SneakUntil = 0,           -- しのび足が切れる時刻
 		ZoneGuardUntil = 0,       -- エリアガードが切れる時刻
-		SlowUntil = 0,            -- ねばねば罠で遅くなっているのが切れる時刻
+		SlowUntil = 0,            -- アイテムによる減速がすべて切れる時刻
+		SlowEffects = {},         -- アイテム Id ごとの減速終了時刻
 		FrozenUntil = 0,          -- タイムストップで止まっているのが切れる時刻
 		BlindUntil = 0,           -- （ボットの鬼）スモーク・フラッシュで見えないのが切れる時刻
 		LastUseTime = 0,          -- 最後にアイテム使用を受け付けた時刻
@@ -312,6 +324,31 @@ function GameState.ClearFreeze(player)
 	releaseFrozenRoot(data)
 end
 
+local function slowDefinition(effectId)
+	if effectId == "Roar" then
+		return Config.TaggerSkills.Roar
+	end
+	return Config.Items[effectId]
+end
+
+function GameState.ApplySlow(player, itemId)
+	local data = GameState.GetData(player)
+	local untilTime = GameState.Now() + slowDefinition(itemId).SlowTime
+	data.SlowEffects[itemId] = untilTime
+	data.SlowUntil = math.max(data.SlowUntil, untilTime)
+	GameState.RefreshSpeed(player)
+end
+
+function GameState.TaggerLateBoost(timeLeft, duration)
+	local boost = Config.TaggerSkills.LateBoost
+	if timeLeft <= boost.FinalSeconds then
+		return boost.FinalMultiplier, 2
+	elseif timeLeft <= duration * boost.FirstRatio then
+		return boost.FirstMultiplier, 1
+	end
+	return 1, 0
+end
+
 function GameState.RefreshSpeed(player)
 	local data = GameState.GetData(player)
 	local humanoid = GameState.GetHumanoid(player)
@@ -321,8 +358,14 @@ function GameState.RefreshSpeed(player)
 	end
 	local now = GameState.Now()
 	local speed = Config.NormalWalkSpeed
-	if GameState.Phase == "Round" and GameState.IsTagger(player) then
-		speed = Config.TaggerWalkSpeed
+	local isRoundTagger = GameState.Phase == "Round" and GameState.IsTagger(player)
+	local lateMultiplier = 1
+	if isRoundTagger then
+		lateMultiplier = GameState.TaggerLateBoost(GameState.TimeLeft, GameState.ChosenDuration)
+		speed = Config.TaggerWalkSpeed * lateMultiplier
+		if data.TaggerDashUntil > now then
+			speed = math.max(speed, Config.TaggerSkills.Dash.WalkSpeed)
+		end
 	end
 	if GameState.IsDashing(player) then
 		speed = math.max(speed, Config.Items.Dash.WalkSpeed)
@@ -336,7 +379,7 @@ function GameState.RefreshSpeed(player)
 		-- ひとりモードのボットは人より少し遅くして、ひとりでも勝ち目があるようにする
 		if player.SoloCap then
 			local cap = GameState.IsTagger(player) and Config.BotTaggerWalkSpeed or Config.BotRunnerWalkSpeed
-			speed = math.min(speed, cap)
+			speed = math.min(speed, cap * lateMultiplier)
 		end
 	end
 	local beast = data.BeastEffectUntil > now and Config.Beasts[data.BeastUsed]
@@ -344,11 +387,24 @@ function GameState.RefreshSpeed(player)
 		local roleSpeed = GameState.IsTagger(player) and Config.TaggerWalkSpeed or Config.NormalWalkSpeed
 		speed = math.max(speed, roleSpeed * beast.SpeedMultiplier)
 	end
+	if isRoundTagger and data.CatchBoostUntil > now then
+		speed *= Config.TaggerSkills.CatchStreak.Multiplier
+	end
+	if isRoundTagger and type(player) == "table" and player.IsBot == true then
+		local chase = player.Chase
+		if chase and chase.Role == GameState.Taggers[player] then
+			speed *= chase.SpeedMultiplier
+		end
+	end
 	if data.BeastSlowUntil > now then
 		speed *= Config.Beasts.Sekhmet.SpeedMultiplier
 	end
 	if data.SlowUntil > now then
-		speed = math.min(speed, Config.Items.Glue.SlowSpeed)
+		for itemId, untilTime in pairs(data.SlowEffects) do
+			if untilTime > now then
+				speed = math.min(speed, slowDefinition(itemId).SlowSpeed)
+			end
+		end
 	end
 	local frozen = data.FrozenUntil > now
 	local root = frozen and GameState.GetRootPart(player) or nil
@@ -371,7 +427,7 @@ function GameState.RefreshSpeed(player)
 		humanoid.Jump = false
 		speed = 0
 	end
-	humanoid.WalkSpeed = speed
+	humanoid.WalkSpeed = speed * Config.ComboMultiplier(data.ActiveCombos, "SpeedMultiplier")
 
 	-- ジャンプの高さ（ハイジャンプで高く、タイムストップ中は跳べない）
 	humanoid.UseJumpPower = false

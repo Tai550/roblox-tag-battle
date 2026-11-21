@@ -74,9 +74,11 @@ RunService.PostSimulation:Connect(function(dt)
 		previous = nil
 		return
 	end
-	if not participant or workspace:GetAttribute("CurrentGimmick") ~= "Ice"
+	local onIce = workspace:GetAttribute("CurrentGimmick") == "Ice"
+		or (character and character:GetAttribute("IcePatch"))
+	if not participant or not onIce
 		or not root or root.Anchored or not humanoid or humanoid.Health <= 0
-		or bootsUntil > workspace:GetServerTimeNow() then
+		or character:GetAttribute("Grappling") or bootsUntil > workspace:GetServerTimeNow() then
 		previous = nil
 		return
 	end

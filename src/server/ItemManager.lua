@@ -28,7 +28,13 @@ local spawnLoopToken = 0
 local spawnedItems = {}     -- [Part] = { IsBox = true, PointKey = ... } フィールドのボックス
 local boxMotions = {}       -- [Part] = Heartbeat の接続（箱を消したら必ず切る）
 local occupiedPoints = {}   -- [PointKey] = Part
-local placedBananas = {}    -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }
+local placedBananas = {}
+local placedSlowBombs = {}
+local placedFakeBoxes = {}
+local icePatches = {}
+local icedCharacters = {}
+local thunderFlashes = {}
+local flyingBoomerangs = {}
 local placedGlue = {}       -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }  ねばねば罠
 local roundModels = {}      -- [Model] = 消える時刻（ダミー人形・召喚獣）
 local warnedNoSpawns = false
@@ -116,7 +122,14 @@ local function sendItemUpdate(player)
 		local expireAt = data.HeldExpireAt[index] or 0
 		expireLeft[index] = expireAt > 0 and math.max(0, expireAt - now) or 0
 	end
+	local combos = {}
+	for _, combo in ipairs(Config.ItemCombos) do
+		if data.ActiveCombos[combo.Id] then
+			table.insert(combos, Config.ItemComboText(combo))
+		end
+	end
 	Remotes.ItemUpdate:FireClient(player, {
+		ActiveCombos = combos,
 		HeldItems = held,
 		HeldExpireLeft = expireLeft, -- 枠ごとの使用期限の残り秒（0 は期限なし）
 		MaxSlots = GameState.GetItemSlots(player),
@@ -133,11 +146,15 @@ local function sendItemUpdate(player)
 			{ Name = "セクメトの減速", Left = math.max(0, data.BeastSlowUntil - now) },
 			{ Name = "ダッシュ", Left = math.max(0, data.DashUntil - now) },
 			{ Name = "シールド", Left = math.max(0, data.ShieldUntil - now) },
+			{ Name = "巨大化", Left = math.max(0, data.GiantUntil - now) },
+			{ Name = "縮小", Left = math.max(0, data.ShrinkUntil - now) },
+			{ Name = "リフレクト", Left = math.max(0, data.ReflectUntil - now) },
 			{ Name = "スター", Left = math.max(0, data.StarUntil - now) },
 			{ Name = "ハイジャンプ", Left = math.max(0, data.JumpUntil - now) },
 			{ Name = "しのび足", Left = math.max(0, data.SneakUntil - now) },
 			{ Name = "エリアガード", Left = math.max(0, data.ZoneGuardUntil - now) },
-			{ Name = "ねばねば", Left = math.max(0, data.SlowUntil - now) },
+			{ Name = "ねばねば", Left = math.max(0, (data.SlowEffects.Glue or 0) - now) },
+			{ Name = "スロウボム", Left = math.max(0, (data.SlowEffects.SlowBomb or 0) - now) },
 			{ Name = "タイムストップ", Left = math.max(0, data.FrozenUntil - now) },
 			{ Name = "壁抜け", Left = math.max(0, (data.PhaseUntil or 0) - now) },
 			{ Name = "スパイクブーツ", Left = math.max(0, (data.SpikeBootsUntil or 0) - now) },
@@ -477,9 +494,9 @@ end
 ItemManager.CreateBoxPart = createBoxPart
 
 -- 本体と、溶接した部品のどれに触れても同じ拾う処理になるようにする
-local function connectBoxTouch(part)
+local function connectBoxTouch(part, onTouched)
 	local function onHit(hit)
-		onBoxTouched(part, hit)
+		onTouched(part, hit)
 	end
 	part.Touched:Connect(onHit)
 	for _, desc in ipairs(part:GetDescendants()) do
@@ -569,7 +586,7 @@ local function spawnOne()
 	spawnedItems[part] = { IsBox = true, PointKey = key }
 	occupiedPoints[key] = part
 
-	connectBoxTouch(part)
+	connectBoxTouch(part, onBoxTouched)
 	part.Parent = getItemContainer()
 	startBoxMotion(part)
 end
@@ -582,9 +599,10 @@ end
 local handlers = {}
 
 handlers.Dash = function(player, def, data)
-	data.DashUntil = math.max(data.DashUntil, GameState.Now() + def.Duration)
+	local duration = Config.ComboDuration(data.ActiveCombos, "DashBonusSeconds", def.Duration)
+	data.DashUntil = math.max(data.DashUntil, GameState.Now() + duration)
 	GameState.RefreshSpeed(player)
-	Remotes.NotifyPlayer(player, string.format("ダッシュ！ %d秒間 速くなる", def.Duration))
+	Remotes.NotifyPlayer(player, string.format("ダッシュ！ %g秒間 速くなる", duration))
 	return true
 end
 
@@ -664,7 +682,7 @@ local function onBananaTouched(part, hit)
 	if not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
 		return
 	end
-	if not GameState.TryDown(player) then
+	if not GameState.TryDown(player, info.DownTime) then
 		return
 	end
 
@@ -688,7 +706,11 @@ handlers.Banana = function(player, def, data)
 	part.Color = def.Color
 	part.Position = Vector3.new(root.Position.X, root.Position.Y - 2.5, root.Position.Z)
 
-	placedBananas[part] = { PlacedBy = player, ExpireAt = GameState.Now() + def.Duration }
+	placedBananas[part] = {
+		PlacedBy = player,
+		ExpireAt = GameState.Now() + def.Duration,
+		DownTime = Config.ComboDuration(data.ActiveCombos, "TrapBonusSeconds", def.DownTime),
+	}
 	part.Touched:Connect(function(hit)
 		onBananaTouched(part, hit)
 	end)
@@ -807,6 +829,124 @@ handlers.Sneak = function(player, def, data)
 	return true
 end
 
+local function createItemPart(name, position, size, color)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.Position = position
+	part.Color = color
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Parent = getItemContainer()
+	return part
+end
+
+handlers.SlowBomb = function(player, def)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false
+	end
+	local part = createItemPart("SlowBomb", root.Position - def.PlacementOffset, def.Size, def.Color)
+	placedSlowBombs[part] = { Owner = player, ExpireAt = GameState.Now() + def.Duration }
+	return true
+end
+
+handlers.Boomerang = function(player, def)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false
+	end
+	local part = createItemPart("Boomerang", root.Position, def.Size, def.Color)
+	flyingBoomerangs[part] = {
+		Owner = player,
+		Direction = root.CFrame.LookVector,
+		Remaining = def.Range,
+		UpdatedAt = GameState.Now(),
+	}
+	return true
+end
+
+-- 設置・投擲した本人と、脱落した参加者は判定から除く。
+local function targetRoot(owner, player)
+	if player ~= owner and GameState.IsAlive(player) then
+		return GameState.GetRootPart(player)
+	end
+end
+
+function ItemManager.IsSlowBombTarget(owner, player, position, radius)
+	local root = targetRoot(owner, player)
+	return root ~= nil and (root.Position - position).Magnitude <= radius
+end
+
+-- 今回進む線分と当たり判定球の最初の交点までの距離を返す。
+function ItemManager.GetBoomerangHitDistance(owner, player, position, direction, travel, radius)
+	local root = targetRoot(owner, player)
+	if not root then
+		return nil
+	end
+	local offset = root.Position - position
+	local projection = offset.X * direction.X + offset.Y * direction.Y + offset.Z * direction.Z
+	local perpendicular = offset - direction * projection
+	local overlap = radius * radius - perpendicular.Magnitude ^ 2
+	if overlap < 0 then
+		return nil
+	end
+	local halfChord = math.sqrt(overlap)
+	local entry = math.max(0, projection - halfChord)
+	if projection + halfChord >= 0 and entry <= travel then
+		return entry
+	end
+	return nil
+end
+
+local function tickSlowBombs(now, participants)
+	local def = Config.Items.SlowBomb
+	for part, info in pairs(placedSlowBombs) do
+		local triggered = false
+		if now < info.ExpireAt then
+			for _, player in ipairs(participants) do
+				if ItemManager.IsSlowBombTarget(info.Owner, player, part.Position, def.Radius) then
+					triggered = true
+					GameState.ApplySlow(player, def.Id)
+					sendItemUpdate(player)
+				end
+			end
+		end
+		if triggered or now >= info.ExpireAt then
+			placedSlowBombs[part] = nil
+			part:Destroy()
+		end
+	end
+end
+
+local function tickBoomerangs(now, participants)
+	local def = Config.Items.Boomerang
+	for part, info in pairs(flyingBoomerangs) do
+		local travel = math.min(info.Remaining, (now - info.UpdatedAt) * def.Speed)
+		local target, closest = nil, math.huge
+		for _, player in ipairs(participants) do
+			local distance = ItemManager.GetBoomerangHitDistance(info.Owner, player, part.Position,
+				info.Direction, travel, def.HitRadius)
+			if distance and distance < closest then
+				target, closest = player, distance
+			end
+		end
+		if target then
+			GameState.ApplyStun(target, def.StunTime)
+		end
+		if target or travel >= info.Remaining then
+			flyingBoomerangs[part] = nil
+			part:Destroy()
+		else
+			part.Position += info.Direction * travel
+			info.Remaining -= travel
+			info.UpdatedAt = now
+		end
+	end
+end
+
 local function removeGlue(part)
 	placedGlue[part] = nil
 	part:Destroy()
@@ -821,9 +961,7 @@ local function onGlueTouched(part, hit)
 	if not player or not GameState.IsTagger(player) then
 		return -- 鬼だけが引っかかる（ボットの鬼も）
 	end
-	local def = Config.Items.Glue
-	GameState.GetData(player).SlowUntil = GameState.Now() + def.SlowTime
-	GameState.RefreshSpeed(player)
+	GameState.ApplySlow(player, "Glue")
 	removeGlue(part)
 	Remotes.NotifyPlayer(player, "ねばねば罠にかかった！")
 	if info.PlacedBy and info.PlacedBy.Parent then
@@ -855,6 +993,10 @@ handlers.Glue = function(player, def, data)
 	return true
 end
 
+local function knockbackMultiplier(player)
+	return GameState.GetData(player).GiantUntil > GameState.Now() and Config.Items.Giant.KnockbackMultiplier or 1
+end
+
 handlers.AirBurst = function(player, def, data)
 	local root = GameState.GetRootPart(player)
 	if not root then
@@ -868,7 +1010,8 @@ handlers.AirBurst = function(player, def, data)
 			local flat = Vector3.new(offset.X, 0, offset.Z)
 			if offset.Magnitude <= def.Range then
 				local direction = flat.Magnitude > 0.1 and flat.Unit or Vector3.new(0, 0, 1)
-				otherRoot.AssemblyLinearVelocity = direction * def.PushSpeed + Vector3.new(0, def.LiftSpeed, 0)
+				otherRoot.AssemblyLinearVelocity = (direction * def.PushSpeed + Vector3.new(0, def.LiftSpeed, 0))
+					* knockbackMultiplier(other)
 				Remotes.NotifyPlayer(other, player.DisplayName .. " のエアバーストで吹き飛ばされた！")
 				count = count + 1
 			end
@@ -909,8 +1052,26 @@ handlers.Radar = function(player, def, data)
 	return true
 end
 
+local function endGrapple(data)
+	local pull = data.GrapplePull
+	if not pull then
+		return
+	end
+	data.GrapplePull = nil
+	pull.Connection:Disconnect()
+	pull.Character:SetAttribute("Grappling", nil)
+	local root = pull.Root
+	if root.Parent and not root.Anchored then
+		root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		if pull.RestoreOwnership and root:CanSetNetworkOwnership() then
+			root:SetNetworkOwnershipAuto()
+		end
+	end
+end
+
 local function freezeParticipant(player, untilTime)
 	local data = GameState.GetData(player)
+	endGrapple(data)
 	data.FrozenUntil = math.max(data.FrozenUntil, untilTime)
 	GameState.RefreshSpeed(player)
 	sendItemUpdate(player)
@@ -1085,30 +1246,56 @@ local function warpForward(player, root, distance)
 	end
 end
 
--- 地面に接していて、マップ上かつゾーン内にある入れ替え先だけを使う。
-local function safeSwapRoot(player, params)
-	local root = GameState.GetRootPart(player)
+local function standingHeight(player, root)
 	local humanoid = GameState.GetHumanoid(player)
-	if not root or not humanoid or humanoid.FloorMaterial == Enum.Material.Air
-		or not ZoneManager.IsInside(root.Position) then
-		return nil
+	local height = root.Size.Y * 0.5 + (humanoid.HipHeight or 0)
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		local leg = player.Character:FindFirstChild("Left Leg")
+		height += leg and leg.Size.Y or 0
 	end
-	local reach = math.max(5, humanoid.HipHeight + root.Size.Y / 2 + 1)
-	if workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), params) then
-		return root
-	end
-	return nil
+	return height
 end
 
-local function swapWithOpponent(player)
+local function mapFootingQuery()
 	local map = workspace:FindFirstChild(MapBuilder.MapFolderName)
 	if not map then
-		return
+		return nil
 	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { map }
 	params.RespectCanCollide = true
+	return params
+end
+
+local function mapFooting(position, reach, params)
+	return params and ZoneManager.IsInside(position)
+		and workspace:Raycast(position, Vector3.new(0, -reach, 0), params)
+end
+
+-- 地面に接していて、マップ上かつゾーン内にある入れ替え先だけを使う。
+local function safeSwapRoot(player, params)
+	local root = GameState.GetRootPart(player)
+	local humanoid = GameState.GetHumanoid(player)
+	if root and not root.Anchored and humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+		if mapFooting(root.Position, standingHeight(player, root) + Config.ItemFootingTolerance, params) then
+			return root
+		end
+	end
+end
+
+local function clearItemDestination(player, root, destination, params)
+	local box, size = player.Character:GetBoundingBox()
+	local bounds = OverlapParams.new()
+	bounds.FilterType = Enum.RaycastFilterType.Include
+	bounds.FilterDescendantsInstances = params.FilterDescendantsInstances
+	bounds.RespectCanCollide = true
+	bounds.MaxParts = 1
+	return #workspace:GetPartBoundsInBox(destination * root.CFrame:ToObjectSpace(box), size, bounds) == 0
+end
+
+local function swapWithOpponent(player)
+	local params = mapFootingQuery()
 	local root = safeSwapRoot(player, params)
 	if not root then
 		return
@@ -1289,11 +1476,423 @@ local function horizontalForward(root)
 	return forward.Magnitude > 0.01 and forward.Unit or Vector3.new(0, 0, -1)
 end
 
-local function knockBack(root, otherRoot, def)
+local function endSizeEffect(data)
+	local effect = data.SizeEffect
+	if effect then
+		if effect.ModelScale then
+			effect.Character:ScaleTo(effect.ModelScale)
+		else
+			for value, original in pairs(effect.Scales) do
+				if value.Parent then
+					value.Value = original
+				end
+			end
+		end
+		data.SizeEffect = nil
+	end
+	data.GiantUntil = 0
+	data.ShrinkUntil = 0
+end
+
+local function startSizeEffect(player, def, data)
+	local humanoid = GameState.GetHumanoid(player)
+	if not humanoid then
+		return false
+	end
+	endSizeEffect(data)
+	local effect = { Character = player.Character, Scales = {} }
+	for _, name in ipairs({ "BodyHeightScale", "BodyWidthScale", "BodyDepthScale", "HeadScale" }) do
+		local value = humanoid:FindFirstChild(name)
+		if value and value:IsA("NumberValue") then
+			effect.Scales[value] = value.Value
+		end
+	end
+	if next(effect.Scales) and humanoid.AutomaticScalingEnabled ~= false then
+		for value, original in pairs(effect.Scales) do
+			value.Value = original * def.Scale
+		end
+	else
+		-- R6 には Humanoid のスケール値がない。
+		effect.ModelScale = player.Character:GetScale()
+		player.Character:ScaleTo(effect.ModelScale * def.Scale)
+	end
+	data.SizeEffect = effect
+	data[def.Id .. "Until"] = GameState.Now() + def.Duration
+	return true
+end
+
+handlers.Giant = startSizeEffect
+handlers.Shrink = startSizeEffect
+
+function ItemManager.TagReachMultiplier(player, now)
+	return GameState.GetData(player).GiantUntil > now and Config.Items.Giant.ReachMultiplier or 1
+end
+
+handlers.RecoveryDrink = function(player, def, data)
+	data.ZoneStamina = Config.ZoneStaminaMax
+	Remotes.NotifyPlayer(player, "ゾーン外スタミナが全回復した！")
+	return true
+end
+
+handlers.Teleporter = function(player, def, data)
+	local params = mapFootingQuery()
+	if not data.TeleporterMarker then
+		local root = safeSwapRoot(player, params)
+		if not root then
+			return false, "ゾーン内の足場で位置を記録してください"
+		end
+		data.TeleporterMarker = root.CFrame
+		return false, "現在位置を記録した！ もう一度使うと戻ります"
+	end
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false, "現在位置を取得できません"
+	end
+	local destination = data.TeleporterMarker + Vector3.new(0, def.HeightOffset, 0)
+	local reach = standingHeight(player, root) + def.HeightOffset + Config.ItemFootingTolerance
+	if not mapFooting(destination.Position, reach, params)
+		or not clearItemDestination(player, root, destination, params) then
+		data.TeleporterMarker = nil
+		return false, "記録した場所に戻れません。位置を記録し直してください"
+	end
+	returnToFooting(player, root, destination * root.CFrame:ToObjectSpace(player.Character:GetPivot()))
+	data.TeleporterMarker = nil
+	Remotes.NotifyPlayer(player, "記録した場所に戻った！")
+	return true
+end
+
+local function solidRayParams()
+	local characters = {}
+	for _, player in ipairs(GameState.ParticipantList()) do
+		if player.Character then
+			table.insert(characters, player.Character)
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = characters
+	params.RespectCanCollide = true
+	return params
+end
+
+function ItemManager.GrappleDestination(hit, standHeight)
+	if not hit then
+		return nil
+	end
+	local def = Config.Items.Grapple
+	if hit.Normal.Y >= def.TopNormalMinY then
+		return hit.Position + Vector3.new(0, standHeight, 0)
+	end
+	return hit.Position + hit.Normal * def.SurfaceOffset
+end
+
+function ItemManager.GrappleArrived(position, destination)
+	return (destination - position).Magnitude <= Config.Items.Grapple.ArrivalDistance
+end
+
+handlers.Grapple = function(player, def, data)
+	local root = GameState.GetRootPart(player)
+	if not root or root.Anchored or data.GrapplePull then
+		return false, "今はグラップルを使えません"
+	end
+	local params = solidRayParams()
+	local forward = root.CFrame.LookVector
+	local height = standingHeight(player, root)
+	local hit = workspace:Raycast(root.Position, forward * def.Range, params)
+	if not hit then
+		-- 視線のすぐ下にある台も狙える。今立っている高さの床は対象にしない。
+		local lowerAim = (forward - Vector3.new(0, def.PlatformAimDrop, 0)).Unit
+		local platform = workspace:Raycast(root.Position, lowerAim * def.Range, params)
+		if platform and platform.Normal.Y >= def.TopNormalMinY
+			and platform.Position.Y >= root.Position.Y - height + def.MinPlatformRise then
+			hit = platform
+		end
+	end
+	local destination = ItemManager.GrappleDestination(hit, height)
+	if not destination or ItemManager.GrappleArrived(root.Position, destination) then
+		return false, "前方にグラップルで移動できる壁や台がありません"
+	end
+	local character = player.Character
+	local canOwn = type(root.CanSetNetworkOwnership) == "function" and root:CanSetNetworkOwnership()
+	if type(root.CanSetNetworkOwnership) == "function" and not canOwn then
+		return false, "今はグラップルを使えません"
+	end
+	local restoreOwnership = canOwn and not (type(player) == "table" and player.IsBot)
+	if canOwn then
+		root:SetNetworkOwner(nil)
+	end
+	character:SetAttribute("Grappling", true)
+	local expires = GameState.Now() + def.Timeout
+	root.AssemblyLinearVelocity = (destination - root.Position).Unit * def.Speed
+	local connection = game:GetService("RunService").Heartbeat:Connect(function(dt)
+		if not active or player.Character ~= character or not root.Parent or root.Anchored
+			or not GameState.IsParticipant(player) or not GameState.IsAlive(player)
+			or GameState.IsStunned(player) or GameState.IsDowned(player) or GameState.IsProne(player)
+			or GameState.Now() >= expires or ItemManager.GrappleArrived(root.Position, destination) then
+			endGrapple(data)
+			return
+		end
+		local offset = destination - root.Position
+		local speed = math.min(def.Speed, offset.Magnitude / math.max(dt, def.ArrivalDistance / def.Speed))
+		root.AssemblyLinearVelocity = offset.Unit * speed
+	end)
+	data.GrapplePull = { Root = root, Character = character, Connection = connection, RestoreOwnership = restoreOwnership }
+	return true
+end
+
+local function nearestSwapTarget(player, position, params)
+	local target, targetRoot, best = nil, nil, math.huge
+	for _, other in ipairs(GameState.ParticipantList()) do
+		local root = other ~= player and GameState.IsAlive(other) and safeSwapRoot(other, params)
+		if root then
+			local distance = (root.Position - position).Magnitude
+			if distance < best then
+				target, targetRoot, best = other, root, distance
+			end
+		end
+	end
+	return target, targetRoot
+end
+
+handlers.Swap = function(player, def)
+	local params = mapFootingQuery()
+	local root = safeSwapRoot(player, params)
+	if not root then
+		return false, "ゾーン内の足場でスワップを使ってください"
+	end
+	local target, targetRoot = nearestSwapTarget(player, root.Position, params)
+	if not target then
+		return false, "交換できる相手がいません"
+	end
+	local offset = targetRoot.Position - root.Position
+	local lift = Vector3.new(0, def.HeightOffset, 0)
+	if not clearItemDestination(player, root, root.CFrame + (offset + lift), params)
+		or not clearItemDestination(target, targetRoot, targetRoot.CFrame + (lift - offset), params) then
+		return false, "安全に位置を交換できません"
+	end
+	local first = player.Character:GetPivot() + (offset + lift)
+	local second = target.Character:GetPivot() + (lift - offset)
+	returnToFooting(player, root, first)
+	returnToFooting(target, targetRoot, second)
+	Remotes.NotifyPlayer(player, target.DisplayName .. " と位置を交換した！")
+	Remotes.NotifyPlayer(target, player.DisplayName .. " と位置を交換された！")
+	return true
+end
+
+local function removeFakeBox(part)
+	placedFakeBoxes[part] = nil
+	removeItem(part)
+end
+
+function ItemManager.TryTriggerFakeBox(part, player)
+	local info = placedFakeBoxes[part]
+	if not active or not info or info.ExpireAt <= GameState.Now() or not player or player == info.PlacedBy
+		or not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
+		return false
+	end
+	removeFakeBox(part)
+	GameState.ApplyStun(player, info.StunTime)
+	Remotes.NotifyPlayer(player, "フェイクボックスでスタンした！")
+	return true
+end
+
+local function floorHit(player, root, params)
+	local reach = standingHeight(player, root) + Config.Items.IceBomb.HeightTolerance
+	return workspace:Raycast(root.Position, Vector3.new(0, -reach, 0), params)
+end
+
+handlers.FakeBox = function(player, def, data)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false, "現在位置を取得できません"
+	end
+	local floor = floorHit(player, root, solidRayParams())
+	local position = floor and floor.Position + Vector3.new(0, Config.ItemHeightOffset, 0) or root.Position
+	local part = createBoxPart(position)
+	placedFakeBoxes[part] = {
+		PlacedBy = player,
+		ExpireAt = GameState.Now() + def.Duration,
+		StunTime = Config.ComboDuration(data.ActiveCombos, "TrapBonusSeconds", def.StunTime),
+	}
+	connectBoxTouch(part, function(box, hit)
+		ItemManager.TryTriggerFakeBox(box, GameState.ParticipantFromHit(hit))
+	end)
+	part.Parent = getItemContainer()
+	startBoxMotion(part)
+	Remotes.NotifyPlayer(player, "フェイクボックスを置いた！")
+	return true
+end
+
+function ItemManager.IsOnIcePatch(patchPosition, floorPosition)
+	local offset = floorPosition - patchPosition
+	local def = Config.Items.IceBomb
+	return math.abs(offset.Y) <= def.HeightTolerance
+		and offset.X * offset.X + offset.Z * offset.Z <= def.Radius * def.Radius
+end
+
+handlers.IceBomb = function(player, def)
+	local root = GameState.GetRootPart(player)
+	local hit = root and floorHit(player, root, solidRayParams())
+	if not hit then
+		return false, "足元に氷を張れる床がありません"
+	end
+	local part = Instance.new("Part")
+	part.Name = "IcePatch"
+	part.Shape = Enum.PartType.Cylinder
+	part.Size = Vector3.new(def.Thickness, def.Radius * 2, def.Radius * 2)
+	part.CFrame = CFrame.new(hit.Position + Vector3.new(0, def.Thickness / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Material = Enum.Material.Ice
+	part.Color = def.Color
+	part.Transparency = def.Transparency
+	part.Parent = getItemContainer()
+	icePatches[part] = { Position = hit.Position, ExpireAt = GameState.Now() + def.Duration }
+	return true
+end
+
+local function isOnAnyIcePatch(player, params)
+	local root = GameState.GetRootPart(player)
+	local humanoid = GameState.GetHumanoid(player)
+	if not root or not humanoid or humanoid.FloorMaterial == Enum.Material.Air then
+		return false
+	end
+	local feet = root.Position - Vector3.new(0, standingHeight(player, root), 0)
+	for _, patch in pairs(icePatches) do
+		if ItemManager.IsOnIcePatch(patch.Position, feet) then
+			local hit = floorHit(player, root, params)
+			if hit and ItemManager.IsOnIcePatch(patch.Position, hit.Position) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function updateIcePatches()
+	if not next(icePatches) and not next(icedCharacters) then
+		return
+	end
+	local onIce = {}
+	if next(icePatches) then
+		local params = solidRayParams()
+		for _, player in ipairs(GameState.ParticipantList()) do
+			if GameState.IsAlive(player) and isOnAnyIcePatch(player, params) then
+				local character = player.Character
+				onIce[character] = true
+				if not icedCharacters[character] then
+					character:SetAttribute("IcePatch", true)
+				end
+			end
+		end
+	end
+	for character in pairs(icedCharacters) do
+		if not onIce[character] then
+			character:SetAttribute("IcePatch", nil)
+		end
+	end
+	icedCharacters = onIce
+end
+
+function ItemManager.ThunderTarget(position)
+	local tagger, distance = GameState.NearestTagger(position)
+	if tagger and distance <= Config.Items.Thunder.Range and GameState.IsParticipant(tagger) then
+		return tagger
+	end
+	return nil
+end
+
+handlers.Thunder = function(player, def)
+	local root = GameState.GetRootPart(player)
+	local target = root and ItemManager.ThunderTarget(root.Position)
+	if not target then
+		return false, "射程内に鬼がいません"
+	end
+	GameState.ApplyStun(target, def.StunTime)
+	local part = Instance.new("Part")
+	part.Name = "ThunderFlash"
+	part.Size = Vector3.new(def.FlashWidth, def.FlashHeight, def.FlashWidth)
+	part.Position = GameState.GetRootPart(target).Position + Vector3.new(0, def.FlashHeight / 2, 0)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Material = Enum.Material.Neon
+	part.Color = def.Color
+	part.Parent = getItemContainer()
+	thunderFlashes[part] = true
+	task.delay(def.FlashDuration, function()
+		if thunderFlashes[part] then
+			thunderFlashes[part] = nil
+			part:Destroy()
+		end
+	end)
+	Remotes.NotifyPlayer(target, "サンダーでスタンした！")
+	return true
+end
+
+handlers.Reflect = function(player, def, data)
+	data.ReflectUntil = GameState.Now() + def.Duration
+	Remotes.NotifyPlayer(player, "リフレクトを構えた！")
+	return true
+end
+
+function ItemManager.TryReflect(runner, tagger)
+	local data = GameState.GetData(runner)
+	local now = GameState.Now()
+	if data.ReflectUntil <= now then
+		return false
+	end
+	local root, taggerRoot = GameState.GetRootPart(runner), GameState.GetRootPart(tagger)
+	if not root or not taggerRoot then
+		return false
+	end
+	local def = Config.Items.Reflect
+	data.ReflectUntil = 0
+	data.InvulnerableUntil = math.max(data.InvulnerableUntil, now + def.GraceTime)
+	local offset = taggerRoot.Position - root.Position
+	local flat = Vector3.new(offset.X, 0, offset.Z)
+	local direction = flat.Magnitude > 0.01 and flat.Unit or horizontalForward(taggerRoot) * -1
+	taggerRoot.AssemblyLinearVelocity = (direction * def.PushSpeed + Vector3.new(0, def.LiftSpeed, 0))
+		* knockbackMultiplier(tagger)
+	taggerRoot:SetAttribute("BeastKnockback", (taggerRoot:GetAttribute("BeastKnockback") or 0) + 1)
+	Remotes.NotifyPlayer(runner, "リフレクトでタッチを防いだ！")
+	Remotes.NotifyPlayer(tagger, "リフレクトで押し戻された！")
+	sendItemUpdate(runner)
+	return true
+end
+
+function ItemManager.ClearRoundCombos(player, notify)
+	local data = GameState.GetData(player)
+	if next(data.ActiveCombos) then
+		table.clear(data.ActiveCombos)
+		GameState.RefreshSpeed(player)
+		if notify then
+			sendItemUpdate(player)
+		end
+	end
+end
+
+function ItemManager.ClearExpansionEffects(player)
+	local data = GameState.GetData(player)
+	endSizeEffect(data)
+	endGrapple(data)
+	data.ReflectUntil = 0
+	local character = player.Character
+	if character and icedCharacters[character] then
+		icedCharacters[character] = nil
+		character:SetAttribute("IcePatch", nil)
+	end
+end
+
+local function knockBack(root, otherRoot, def, target)
 	local offset = otherRoot.Position - root.Position
 	local flat = Vector3.new(offset.X, 0, offset.Z)
 	local direction = flat.Magnitude > 0.01 and flat.Unit or horizontalForward(root)
-	otherRoot.AssemblyLinearVelocity = direction * def.KnockbackSpeed + Vector3.new(0, def.KnockbackUpSpeed, 0)
+	otherRoot.AssemblyLinearVelocity = (direction * def.KnockbackSpeed + Vector3.new(0, def.KnockbackUpSpeed, 0))
+		* knockbackMultiplier(target)
 	otherRoot:SetAttribute("BeastKnockback", (otherRoot:GetAttribute("BeastKnockback") or 0) + 1)
 end
 
@@ -1305,7 +1904,7 @@ local function knockBackNearby(player, root, def, taggersOnly)
 		if other ~= player and (not taggersOnly or GameState.IsTagger(other)) and GameState.IsAlive(other) then
 			local otherRoot = GameState.GetRootPart(other)
 			if otherRoot and (otherRoot.Position - root.Position).Magnitude <= def.Radius then
-				knockBack(root, otherRoot, def)
+				knockBack(root, otherRoot, def, other)
 			end
 		end
 	end
@@ -1345,7 +1944,7 @@ function ItemManager.TryBeastChargeHit(player, tagger, now)
 	local root, otherRoot = GameState.GetRootPart(player), GameState.GetRootPart(tagger)
 	local def = Config.Beasts.Apis
 	if root and otherRoot and (otherRoot.Position - root.Position).Magnitude <= def.Radius then
-		knockBack(root, otherRoot, def)
+		knockBack(root, otherRoot, def, tagger)
 		hits[tagger] = now + def.HitCooldown
 		return true
 	end
@@ -1566,7 +2165,28 @@ end
 -- 効果時間切れの処理（RoundManager のループから定期的に呼ぶ）
 function ItemManager.Tick()
 	local now = GameState.Now()
+	for part, info in pairs(placedFakeBoxes) do
+		if info.ExpireAt <= now then
+			removeFakeBox(part)
+		end
+	end
+	for part, patch in pairs(icePatches) do
+		if patch.ExpireAt <= now then
+			icePatches[part] = nil
+			part:Destroy()
+		end
+	end
+	updateIcePatches()
 	for player, data in pairs(GameState.AllData()) do
+		if data.SizeEffect and (math.max(data.GiantUntil, data.ShrinkUntil) <= now
+			or data.SizeEffect.Character ~= player.Character or not GameState.IsAlive(player)) then
+			endSizeEffect(data)
+			sendItemUpdate(player)
+		end
+		if data.ReflectUntil > 0 and data.ReflectUntil <= now then
+			data.ReflectUntil = 0
+			sendItemUpdate(player)
+		end
 		if data.PhaseEffect and (data.PhaseUntil <= now or data.PhaseEffect.Character ~= player.Character
 			or not GameState.IsAlive(player)) then
 			ItemManager.EndPhase(player)
@@ -1661,10 +2281,21 @@ function ItemManager.Tick()
 			GameState.RefreshSpeed(player)
 			sendItemUpdate(player)
 		end
-		if data.SlowUntil > 0 and data.SlowUntil <= now then
-			data.SlowUntil = 0
-			GameState.RefreshSpeed(player)
-			sendItemUpdate(player)
+		if data.SlowUntil > 0 then
+			local expired = false
+			for itemId, untilTime in pairs(data.SlowEffects) do
+				if untilTime <= now then
+					data.SlowEffects[itemId] = nil
+					expired = true
+				end
+			end
+			if expired then
+				if data.SlowUntil <= now then
+					data.SlowUntil = 0
+				end
+				GameState.RefreshSpeed(player)
+				sendItemUpdate(player)
+			end
 		end
 		if data.FrozenUntil > 0 and (data.FrozenUntil <= now or not GameState.IsAlive(player)) then
 			GameState.ClearFreeze(player)
@@ -1706,6 +2337,12 @@ function ItemManager.Tick()
 		end
 	end
 
+	if next(placedSlowBombs) or next(flyingBoomerangs) then
+		local participants = GameState.ParticipantList()
+		tickSlowBombs(now, participants)
+		tickBoomerangs(now, participants)
+	end
+
 	-- 置いたまま時間が過ぎたバナナを消す
 	local expiredBananas = {}
 	for part, info in pairs(placedBananas) do
@@ -1741,6 +2378,7 @@ end
 
 -- 復活したときにシールド・スターの見た目を付け直す
 function ItemManager.OnCharacterAdded(player)
+	ItemManager.ClearExpansionEffects(player)
 	ItemManager.ClearBeastEffects(player)
 	ItemManager.EndPhase(player)
 	if GameState.IsDowned(player) then
@@ -1850,10 +2488,59 @@ local function deliverPending(player)
 	sendItemUpdate(player)
 end
 
+local deliveringSavedBoxes = {}
+
+local function finishSavedBoxClaim(player, operation, delivered)
+	if not PlayerDataStore.FinishItemBoxClaim(player, operation, delivered) then
+		task.delay(30, finishSavedBoxClaim, player, operation, delivered)
+	end
+end
+
+function ItemManager.DeliverSavedItemBoxes(player)
+	local participants = GameState.Participants
+	local function canDeliver()
+		return active and GameState.Phase == "Round" and GameState.Participants == participants
+			and participants[player] == true and player.Parent == Players
+			and player:GetAttribute("AdminAdmissionPending") ~= true
+	end
+	if deliveringSavedBoxes[player] or not canDeliver() then
+		return
+	end
+	deliveringSavedBoxes[player] = true
+	while canDeliver() do
+		local count = PlayerDataStore.Get(player).ItemBoxes
+		if count == 0 or not pickBoxItemFor(player) then
+			break
+		end
+		local taken, saved, operation = PlayerDataStore.TakeItemBoxes(player, count, canDeliver)
+		if saved and taken == 0 then
+			break
+		end
+		local delivered = saved and canDeliver()
+		if delivered then
+			-- 保存完了から付与までは yield しない。
+			for _ = 1, taken do
+				ItemManager.GrantItemBox(player)
+			end
+		end
+		if operation and not PlayerDataStore.FinishItemBoxClaim(player, operation, delivered) then
+			warn("[ItemManager] アイテムボックスの受け渡しを確定できませんでした", player.UserId, operation)
+			task.delay(30, finishSavedBoxClaim, player, operation, delivered)
+		end
+		if not delivered then
+			break
+		end
+	end
+	deliveringSavedBoxes[player] = nil
+end
+
 -- ラウンド開始直後（最初の鬼が決まった後）に呼ぶ: 予約中のアイテムを参加者に渡す
 function ItemManager.DeliverPendingItems()
 	for _, player in ipairs(GameState.ParticipantList()) do
 		deliverPending(player)
+		if Remotes.IsRealPlayer(player) then
+			task.spawn(ItemManager.DeliverSavedItemBoxes, player)
+		end
 	end
 end
 
@@ -1900,6 +2587,19 @@ function ItemManager.Stop()
 		removeItem(part)
 	end
 
+	for part in pairs(placedFakeBoxes) do
+		removeFakeBox(part)
+	end
+	for part in pairs(icePatches) do
+		part:Destroy()
+	end
+	table.clear(icePatches)
+	updateIcePatches()
+	for part in pairs(thunderFlashes) do
+		part:Destroy()
+	end
+	table.clear(thunderFlashes)
+
 	local bananas = {}
 	for part in pairs(placedBananas) do
 		table.insert(bananas, part)
@@ -1914,6 +2614,14 @@ function ItemManager.Stop()
 	for _, part in ipairs(glue) do
 		removeGlue(part)
 	end
+	for part in pairs(placedSlowBombs) do
+		part:Destroy()
+	end
+	table.clear(placedSlowBombs)
+	for part in pairs(flyingBoomerangs) do
+		part:Destroy()
+	end
+	table.clear(flyingBoomerangs)
 	local models = {}
 	for model in pairs(roundModels) do
 		table.insert(models, model)
@@ -1923,7 +2631,9 @@ function ItemManager.Stop()
 		model:Destroy()
 	end
 
-	for player in pairs(GameState.AllData()) do
+	for player, data in pairs(GameState.AllData()) do
+		table.clear(data.ActiveCombos)
+		ItemManager.ClearExpansionEffects(player)
 		ItemManager.ClearBeastEffects(player)
 		GameState.ClearFreeze(player)
 		ItemManager.EndPhase(player)

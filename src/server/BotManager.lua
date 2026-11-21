@@ -24,6 +24,7 @@ local COLOR_LIMB = Color3.fromRGB(140, 148, 160)
 
 local activeBots = {}
 local roundRepathInterval = Config.BotStrengthByTier[1].RepathInterval
+local roundStrengthTierIndex
 
 ---------------------------------------------------------------------
 -- 補充人数と強さ（計算だけ。テストから呼ぶ）
@@ -106,6 +107,37 @@ function BotManager.StrengthForTierIndex(tierIndex)
 	return speed, interval
 end
 
+function BotManager.SetRoundStrengthChoice(choiceId)
+	local option = Config.GetBotStrengthVote(choiceId)
+	roundStrengthTierIndex = option and option.TierIndex
+end
+
+function BotManager.ApplyTopStrength(bot)
+	if not bot.StrengthBeforeTagger then
+		bot.StrengthBeforeTagger = {
+			SpeedMultiplier = bot.SpeedMultiplier,
+			RepathInterval = bot.RepathInterval,
+			SoloCap = bot.SoloCap,
+		}
+	end
+	bot.SpeedMultiplier, bot.RepathInterval = BotManager.StrengthForTierIndex(#Config.BotStrengthByTier)
+	bot.SoloCap = nil
+	bot.NextRepathAt = nil
+	GameState.RefreshSpeed(bot)
+end
+
+-- サドンデスで鬼を交代したら、逃げ手に戻ったボットにラウンドの設定を戻す。
+function BotManager.RestoreRoundStrength(bot)
+	local previous = bot.StrengthBeforeTagger
+	if previous then
+		bot.SpeedMultiplier = previous.SpeedMultiplier
+		bot.RepathInterval = previous.RepathInterval
+		bot.SoloCap = previous.SoloCap
+		bot.StrengthBeforeTagger = nil
+		bot.NextRepathAt = nil
+	end
+end
+
 -- アイテムを使うか。スモークは画面への Remote なので、ボットは使わない。
 function BotManager.ShouldUseItem(itemId, isTagger, distance)
 	if itemId == "Smoke" then
@@ -119,14 +151,28 @@ function BotManager.ShouldUseItem(itemId, isTagger, distance)
 			return distance >= Config.BotTaggerDashDistance
 		end
 		return distance <= Config.BotDashDistance
-	elseif itemId == "Shield" then
+	elseif itemId == "Shield" or itemId == "Reflect" then
 		return isTagger ~= true and distance <= Config.BotShieldDistance
 	elseif itemId == "Star" then
 		return isTagger ~= true and distance <= Config.BotStarDistance
 	elseif itemId == "Warp" then
 		return distance <= Config.BotWarpDistance
-	elseif itemId == "Banana" then
+	elseif itemId == "Banana" or itemId == "FakeBox" then
 		return distance <= Config.BotBananaDistance
+	elseif itemId == "SlowBomb" then
+		return distance <= Config.BotSlowBombDistance
+	elseif itemId == "Boomerang" then
+		return not isTagger and distance <= Config.BotBoomerangDistance
+	elseif itemId == "Giant" then
+		return distance <= Config.BotGiantDistance
+	elseif itemId == "Shrink" then
+		return not isTagger and distance <= Config.BotShrinkDistance
+	elseif itemId == "Swap" then
+		return not isTagger and distance <= Config.BotSwapDistance
+	elseif itemId == "IceBomb" then
+		return distance <= Config.BotIceBombDistance
+	elseif itemId == "Thunder" then
+		return not isTagger and distance <= Config.Items.Thunder.Range
 	end
 	return false
 end
@@ -208,18 +254,22 @@ function BotManager.ChooseGoal(ctx)
 	end
 
 	if ctx.Role == "Tagger" then
-		local nearest = nil
-		local best = math.huge
+		local nearest, nearestSneaking = nil, nil
+		local best, bestSneaking = math.huge, math.huge
 		for _, runner in ipairs(ctx.Runners or {}) do
 			local dx = (runner.X or 0) - x
 			local dz = (runner.Z or 0) - z
 			local dy = (runner.Y or ctx.Y or 0) - (ctx.Y or 0)
 			local d2 = dx * dx + dy * dy + dz * dz
-			if d2 < best then
-				best = d2
-				nearest = runner
+			if runner.Sneaking then
+				if d2 < bestSneaking then
+					bestSneaking, nearestSneaking = d2, runner
+				end
+			elseif d2 < best then
+				best, nearest = d2, runner
 			end
 		end
+		nearest = nearest or nearestSneaking
 		if nearest then
 			return nearest.X or x, nearest.Z or z, "chase", nearest
 		end
@@ -557,6 +607,49 @@ local function horizontal(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
 
+local chaseConfig = Config.BotChase
+
+function BotManager.ChaseFatigueMultiplier(seconds)
+	local progress = math.clamp((seconds - chaseConfig.FatigueStartSeconds) / chaseConfig.FatigueRampSeconds, 0, 1)
+	return 1 - progress * chaseConfig.FatigueMaxReduction
+end
+
+-- 切り返す前の方向を返す。停止や上下動によるノイズは無視する。
+function BotManager.ChaseTurnError(previous, current, elapsed)
+	if not previous or not current or elapsed > chaseConfig.TurnWindowSeconds then
+		return nil
+	end
+	local before, after = horizontal(previous), horizontal(current)
+	if before.Magnitude < chaseConfig.TurnMinSpeed or after.Magnitude < chaseConfig.TurnMinSpeed then
+		return nil
+	end
+	if before.Unit:Dot(after.Unit) <= math.cos(math.rad(chaseConfig.TurnDegrees)) then
+		return before.Unit * chaseConfig.ErrorDistance
+	end
+	return nil
+end
+
+function BotManager.ChaseAim(position, velocity, errorOffset, errorUntil, now)
+	local predicted = BotManager.PredictPosition(position, velocity)
+	return errorOffset and now < errorUntil and predicted + errorOffset or predicted
+end
+
+function BotManager.LostChaseGoal(lastSeen, position, lostAt, searchStartedAt, now)
+	if searchStartedAt then
+		if now - searchStartedAt >= chaseConfig.SearchSeconds then
+			return nil, "idle"
+		end
+		return lastSeen, "search"
+	end
+	if (position - lastSeen).Magnitude <= chaseConfig.SearchReach then
+		return lastSeen, "search"
+	end
+	if now - lostAt >= chaseConfig.LastSeenTimeout then
+		return nil, "idle"
+	end
+	return lastSeen, "lastSeen"
+end
+
 local function navigationQuery(bot)
 	local query = RaycastParams.new()
 	query.FilterType = Enum.RaycastFilterType.Exclude
@@ -835,7 +928,8 @@ local function followPath(bot, humanoid, root, goal, actualGoal, reason, now, qu
 	local skyPlatform = sky and MapBuilder.GetNearestSkyPlatform(goal)
 	local rootPlatform = sky and MapBuilder.GetNearestSkyPlatform(root.Position)
 	local canRecover = not sky or (skyPlatform and skyPlatform == rootPlatform)
-	local elevated = reason == "chase" and actualGoal.Y - root.Position.Y >= Config.BotElevatedThreshold
+	local pursuit = reason == "chase" or reason == "lastSeen"
+	local elevated = pursuit and actualGoal.Y - root.Position.Y >= Config.BotElevatedThreshold
 	if followRecovery(bot, humanoid, root, actualGoal, now, sky) then
 		return
 	end
@@ -864,7 +958,7 @@ local function followPath(bot, humanoid, root, goal, actualGoal, reason, now, qu
 			or (goal - bot.PathGoal).Magnitude >= Config.BotRepathGoalShift))
 	if need and not bot.PathComputing and not bot.PathResult then
 		local target = goal
-		if skyPlatform and reason ~= "chase" and reason ~= "item" then
+		if skyPlatform and not pursuit and reason ~= "item" then
 			local top = skyPlatform.Position.Y + skyPlatform.Size.Y / 2
 			target = Vector3.new(goal.X, top, goal.Z)
 			if math.abs(goal.X - skyPlatform.Position.X) > skyPlatform.Size.X / 2 - 2
@@ -875,7 +969,7 @@ local function followPath(bot, humanoid, root, goal, actualGoal, reason, now, qu
 		local fallback = reason == "chase" and (target - actualGoal).Magnitude > 0 and actualGoal or nil
 		requestPath(bot, root.Position, target, fallback, goal)
 		bot.PathGoal = goal
-		bot.NextRepathAt = now + roundRepathInterval
+		bot.NextRepathAt = now + (bot.RepathInterval or roundRepathInterval)
 		bot.RepathAllowedAt = now + Config.BotRepathMinInterval
 		bot.GoalChanged = false
 	end
@@ -912,7 +1006,10 @@ local function considerItems(bot, threat)
 		return
 	end
 	local taggerRole = GameState.IsTagger(bot)
-	local order = { "Shield", "Star", "Warp", "Dash", "Banana" }
+	local order = {
+		"Shield", "Star", "Warp", "Dash", "Banana", "Boomerang", "SlowBomb",
+		"Reflect", "Swap", "Thunder", "Giant", "Shrink", "FakeBox", "IceBomb",
+	}
 	for _, want in ipairs(order) do
 		for slot, itemId in ipairs(data.HeldItems) do
 			if itemId == want then
@@ -944,6 +1041,127 @@ local function perceivedPosition(player, now)
 	end
 	local root = GameState.GetRootPart(player)
 	return root and root.Position, root and root.AssemblyLinearVelocity
+end
+
+local function canChase(player, role)
+	return player ~= role.NoTagBack and GameState.IsParticipant(player)
+		and not GameState.IsTagger(player) and GameState.IsAlive(player)
+end
+
+local function seenRunner(player, eyes, now, query)
+	local position, velocity = perceivedPosition(player, now)
+	if not position then
+		return nil
+	end
+	local direction = position - eyes
+	if direction.Magnitude > 0 and workspace:Raycast(eyes, direction, query) then
+		return nil
+	end
+	return {
+		X = position.X, Y = position.Y, Z = position.Z,
+		Position = position, Velocity = velocity, Player = player,
+		Sneaking = GameState.GetData(player).SneakUntil > now,
+	}
+end
+
+local function clearChaseTarget(chase)
+	chase.Target = nil
+	chase.StartedAt = nil
+	chase.LostAt = nil
+	chase.SearchStartedAt = nil
+	chase.HeadingVelocity = nil
+	chase.HeadingAt = nil
+	chase.ErrorOffset = nil
+	chase.ErrorUntil = nil
+end
+
+local function updateChase(bot, root, role, now)
+	local chase = bot.Chase
+	if not chase or chase.Role ~= role then
+		chase = { Role = role, SpeedMultiplier = 1 }
+		bot.Chase = chase
+	end
+	local target = chase.Target
+	if target and not canChase(target.Player, role) then
+		clearChaseTarget(chase)
+	end
+	local pos = root.Position
+	if chase.LostAt then
+		local _, reason = BotManager.LostChaseGoal(target.Position, pos, chase.LostAt, chase.SearchStartedAt, now)
+		if reason == "idle" then
+			clearChaseTarget(chase)
+		elseif reason == "search" then
+			chase.SearchStartedAt = chase.SearchStartedAt or now
+		end
+	end
+
+	if not chase.NextSightAt or now >= chase.NextSightAt then
+		chase.NextSightAt = now + (bot.RepathInterval or roundRepathInterval)
+		bot.NextRepathAt = now
+		local head = bot.Character:FindFirstChild("Head")
+		local eyes = head and head.Position or pos
+		local query = navigationQuery(bot)
+		query.IgnoreWater = true
+		target = chase.Target
+		local visible = target and seenRunner(target.Player, eyes, now, query)
+		if target and not visible and not chase.LostAt then
+			chase.LostAt = now
+			chase.HeadingVelocity = nil
+			chase.ErrorOffset = nil
+			if (pos - target.Position).Magnitude <= chaseConfig.SearchReach then
+				chase.SearchStartedAt = now
+			end
+		end
+		if (not visible and (not target or chase.SearchStartedAt)) or (visible and visible.Sneaking) then
+			local runners = {}
+			for _, player in ipairs(GameState.ParticipantList()) do
+				if (not target or player ~= target.Player) and canChase(player, role) then
+					local runner = seenRunner(player, eyes, now, query)
+					if runner and (not visible or not runner.Sneaking) then
+						table.insert(runners, runner)
+					end
+				end
+			end
+			local _, _, _, selected = BotManager.ChooseGoal({
+				Role = "Tagger", X = pos.X, Y = pos.Y, Z = pos.Z, Runners = runners,
+			})
+			visible = selected or visible
+		end
+		if visible then
+			if not target or visible.Player ~= target.Player then
+				clearChaseTarget(chase)
+				chase.StartedAt = now
+			end
+			if chase.HeadingVelocity then
+				local offset = BotManager.ChaseTurnError(chase.HeadingVelocity, visible.Velocity, now - chase.HeadingAt)
+				if offset then
+					chase.ErrorOffset = offset
+					chase.ErrorUntil = now + chaseConfig.ErrorSeconds
+				end
+			end
+			if visible.Velocity and horizontal(visible.Velocity).Magnitude >= chaseConfig.TurnMinSpeed then
+				chase.HeadingVelocity, chase.HeadingAt = visible.Velocity, now
+			end
+			chase.Target = visible
+			chase.LostAt, chase.SearchStartedAt = nil, nil
+		elseif chase.SearchStartedAt then
+			root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(chaseConfig.SearchTurnDegrees), 0)
+		end
+	end
+
+	local multiplier = BotManager.ChaseFatigueMultiplier(chase.StartedAt and now - chase.StartedAt or 0)
+	if multiplier ~= chase.SpeedMultiplier then
+		chase.SpeedMultiplier = multiplier
+		GameState.RefreshSpeed(bot)
+	end
+	target = chase.Target
+	if not target then
+		return pos, "idle"
+	elseif chase.LostAt then
+		local goal, reason = BotManager.LostChaseGoal(target.Position, pos, chase.LostAt, chase.SearchStartedAt, now)
+		return goal, reason, target
+	end
+	return target.Position, "chase", target
 end
 
 local function think(bot, now)
@@ -1007,7 +1225,6 @@ local function think(bot, now)
 		bot.BlindAngle = nil
 	end
 
-	local runners = {}
 	local taggerX, taggerZ = nil, nil
 	local role = GameState.Taggers[bot]
 	local threat = math.huge
@@ -1023,21 +1240,6 @@ local function think(bot, now)
 			end
 		end
 	end
-	if role and not blind then
-		for _, other in ipairs(GameState.ParticipantList()) do
-			-- タッチ返しできない相手は追いかけない
-			if not GameState.IsTagger(other) and other ~= role.NoTagBack and GameState.IsAlive(other) then
-				local position, velocity = perceivedPosition(other, now)
-				if position then
-					table.insert(runners, {
-						X = position.X, Y = position.Y, Z = position.Z,
-						Position = position, Velocity = velocity, Player = other,
-					})
-				end
-			end
-		end
-	end
-
 	local boxes = {}
 	if not role then
 		for _, position in ipairs(ItemManager.GetActiveBoxPositions()) do
@@ -1048,31 +1250,42 @@ local function think(bot, now)
 	local zoneActive = ZoneManager.IsActive()
 	local center = ZoneManager.GetCenter()
 	local radius = ZoneManager.GetRadius()
-	local gx, gz, reason, subject = BotManager.ChooseGoal({
-		Role = GameState.IsTagger(bot) and "Tagger" or "Runner",
-		X = pos.X,
-		Y = pos.Y,
-		Z = pos.Z,
-		TaggerX = taggerX,
-		TaggerZ = taggerZ,
-		Runners = runners,
-		Boxes = boxes,
-		ZoneActive = zoneActive,
-		ZoneX = center and center.X or 0,
-		ZoneZ = center and center.Z or 0,
-		ZoneRadius = radius,
-		ZoneShrunk = ZoneManager.IsShrunk(),
-		Blind = blind,
-		BlindAngle = bot.BlindAngle,
-	})
-
-	local actualGoal = subject and subject.Position or Vector3.new(gx, pos.Y, gz)
+	local actualGoal, reason, subject
+	if role and not blind then
+		actualGoal, reason, subject = updateChase(bot, root, role, now)
+	else
+		if bot.Chase then
+			bot.Chase = nil
+			GameState.RefreshSpeed(bot)
+		end
+		local gx, gz
+		gx, gz, reason, subject = BotManager.ChooseGoal({
+			Role = role and "Tagger" or "Runner",
+			X = pos.X,
+			Y = pos.Y,
+			Z = pos.Z,
+			TaggerX = taggerX,
+			TaggerZ = taggerZ,
+			Boxes = boxes,
+			ZoneActive = zoneActive,
+			ZoneX = center and center.X or 0,
+			ZoneZ = center and center.Z or 0,
+			ZoneRadius = radius,
+			ZoneShrunk = ZoneManager.IsShrunk(),
+			Blind = blind,
+			BlindAngle = bot.BlindAngle,
+		})
+		actualGoal = subject and subject.Position or Vector3.new(gx, pos.Y, gz)
+	end
 	local targetPlayer = subject and subject.Player
-	if reason ~= bot.GoalReason or targetPlayer ~= bot.GoalPlayer then
+	local chase = bot.Chase
+	local aimError = reason == "chase" and chase.ErrorUntil and now < chase.ErrorUntil and chase.ErrorOffset or nil
+	if reason ~= bot.GoalReason or targetPlayer ~= bot.GoalPlayer or aimError ~= bot.GoalAimError then
 		if bot.GoalReason then
 			bot.NextRepathAt = nil
 		end
 		bot.GoalReason, bot.GoalPlayer = reason, targetPlayer
+		bot.GoalAimError = aimError
 		bot.GoalChanged = true
 		bot.PathGoal = nil
 		bot.Recovery = nil
@@ -1086,14 +1299,14 @@ local function think(bot, now)
 		threat = (pos - actualGoal).Magnitude
 	end
 	considerItems(bot, threat)
-	if reason == "idle" then
+	if reason == "idle" or reason == "search" then
 		moveTo(humanoid, root.Position)
 		return
 	end
 	local query = navigationQuery(bot)
 	local goal = actualGoal
 	if reason == "chase" then
-		local predicted = BotManager.PredictPosition(actualGoal, subject.Velocity)
+		local predicted = BotManager.ChaseAim(actualGoal, subject.Velocity, aimError, chase.ErrorUntil, now)
 		local offset = predicted - actualGoal
 		if offset.Magnitude > 0 and not workspace:Raycast(actualGoal, offset, query) then
 			if actualGoal.Y - pos.Y < Config.BotElevatedThreshold then
@@ -1154,6 +1367,7 @@ function BotManager.DespawnAll()
 	local bots = activeBots
 	activeBots = {}
 	for _, bot in ipairs(bots) do
+		ItemManager.ClearExpansionEffects(bot)
 		GameState.UnregisterCharacter(bot.Character)
 		TaggerLook.Clear(bot)
 		DeckManager.Release(bot)
@@ -1176,15 +1390,16 @@ end
 function BotManager.Fill(humans)
 	local list = humans or {}
 	local count = BotManager.CountToSpawn(#list)
-	local speed, interval = BotManager.StrengthForTierIndex(1)
-	if count > 0 then
+	local averageTierIndex
+	if count > 0 and not roundStrengthTierIndex then
 		local indices = {}
 		for _, player in ipairs(list) do
 			local record = RankManager.Get(player)
 			table.insert(indices, BotManager.TierIndexForRP(record and record.RP))
 		end
-		speed, interval = BotManager.StrengthForTierIndex(BotManager.AverageTierIndex(indices))
+		averageTierIndex = BotManager.AverageTierIndex(indices)
 	end
+	local speed, interval = BotManager.StrengthForTierIndex(roundStrengthTierIndex or averageTierIndex or 1)
 
 	BotManager.DespawnAll()
 	roundRepathInterval = interval
@@ -1197,22 +1412,29 @@ function BotManager.Fill(humans)
 	for index = 1, count do
 		local bot = createBot(index, count, spawnPart)
 		bot.SpeedMultiplier = speed
+		bot.RepathInterval = interval
 		bot.NextRepathAt = GameState.Now() + (index - 1) * 0.12
 		GameState.Participants[bot] = true
 		GameState.ResetData(bot)
 		GameState.RefreshSpeed(bot)
 		table.insert(activeBots, bot)
 	end
-	return BotManager.GetActive()
+	return BotManager.GetActive(), averageTierIndex
 end
 
 -- ひとりモード用：count 体を出す。opts.SoloCap = true なら人より少し遅くする
 function BotManager.Spawn(count, opts)
 	BotManager.DespawnAll()
-	roundRepathInterval = Config.BotSoloRepathInterval
+	local speed, interval
+	if roundStrengthTierIndex then
+		speed, interval = BotManager.StrengthForTierIndex(roundStrengthTierIndex)
+	end
+	roundRepathInterval = interval or Config.BotSoloRepathInterval
 	local spawnPart = findSpawnPart()
 	for index = 1, count do
 		local bot = createBot(index, count, spawnPart)
+		bot.SpeedMultiplier = speed or bot.SpeedMultiplier
+		bot.RepathInterval = interval
 		bot.SoloCap = opts and opts.SoloCap or nil
 		bot.NextRepathAt = GameState.Now() + (index - 1) * 0.12
 		GameState.Participants[bot] = true
@@ -1223,16 +1445,35 @@ function BotManager.Spawn(count, opts)
 	return BotManager.GetActive()
 end
 
+-- 補充で鬼候補が用意できなかった場合だけ、既存のボットを残して追加する。
+function BotManager.SpawnTopTagger()
+	local platforms = MapBuilder.GetSkyPlatforms()
+	local spawnPart = platforms and platforms:FindFirstChild("ArenaStart") or findSpawnPart()
+	local index = #activeBots + 1
+	local bot = createBot(index, index, spawnPart)
+	if roundStrengthTierIndex then
+		bot.SpeedMultiplier, bot.RepathInterval = BotManager.StrengthForTierIndex(roundStrengthTierIndex)
+	end
+	GameState.Participants[bot] = true
+	GameState.TagCounts[bot] = 0
+	GameState.ResetData(bot)
+	table.insert(activeBots, bot)
+	return bot
+end
+
 function BotManager.IsBot(player)
 	return type(player) == "table" and player.IsBot == true
 end
 
 BotManager.List = BotManager.GetActive
-BotManager.Clear = BotManager.DespawnAll
+function BotManager.Clear()
+	BotManager.DespawnAll()
+	roundStrengthTierIndex = nil
+end
 
 -- サーバー所有のボットは、人間と同じ式で毎フレーム氷上の慣性を更新する。
 game:GetService("RunService").Heartbeat:Connect(function(dt)
-	if GameState.Phase ~= "Round" or MapBuilder.CurrentMap ~= "Ice" then
+	if GameState.Phase ~= "Round" then
 		return
 	end
 	for _, bot in ipairs(activeBots) do
@@ -1244,8 +1485,9 @@ game:GetService("RunService").Heartbeat:Connect(function(dt)
 			bot.IceStunSequence = stunSequence
 			bot.IceVelocity = nil
 		end
-		if root and not root.Anchored and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
-			and not GameState.IsStunned(bot)
+		local onIce = MapBuilder.CurrentMap == "Ice" or bot.Character:GetAttribute("IcePatch")
+		if onIce and root and not root.Anchored and humanoid and GameState.IsAlive(bot) and GameState.IsParticipant(bot)
+			and not bot.Character:GetAttribute("Grappling") and not GameState.IsStunned(bot)
 			and data.SpikeBootsUntil <= GameState.Now() and not GameState.IsDowned(bot) then
 			local actual = root.AssemblyLinearVelocity
 			local knockback = root:GetAttribute("BeastKnockback")

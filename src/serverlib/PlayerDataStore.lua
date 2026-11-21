@@ -5,6 +5,8 @@
 -- 保存形式（キー "u_<UserId>"）:
 --   { Coins = 数, Owned = { [アイテムId] = true }, Deck = { アイテムId, ... }, Wins = 数,
 --     Beasts = { [召喚獣Id] = true }, EquippedBeast = Id,
+--     Trails = { [トレイルId] = true }, EquippedTrail = Id, ItemBoxes = 未受領の数,
+--     ItemBoxReceipts = 処理済み購入ID, ItemBoxClaims = 試合内で受け渡し中の数,
 --     RouletteStock = ルーレットを回せる回数, RouletteAt = 権利を数え始めた時刻（os.time。0 は未開始） }
 --
 -- DataStore が使えない環境では、
@@ -34,15 +36,34 @@ local trading = {}       -- [UserId] = 交換の保存中
 -- 壊れたデータや古い形式を、正しい形にそろえて返す
 function PlayerDataStore.Normalize(raw)
 	local data = type(raw) == "table" and raw or {}
+	local boxes = tonumber(data.ItemBoxes) or 0
 	local result = {
 		Coins = math.max(0, math.floor(tonumber(data.Coins) or 0)),
 		Owned = {},
 		Deck = {},
 		Beasts = {},
+		Trails = {},
+		ItemBoxReceipts = {},
+		ItemBoxClaims = {},
+		ItemBoxes = boxes > 0 and boxes < math.huge and math.floor(boxes) or 0,
 		Wins = math.max(0, math.floor(tonumber(data.Wins) or 0)),
 		RouletteStock = math.clamp(math.floor(tonumber(data.RouletteStock) or 0), 0, Config.Roulette.MaxStock),
 		RouletteAt = math.max(0, math.floor(tonumber(data.RouletteAt) or 0)),
 	}
+	if type(data.ItemBoxReceipts) == "table" then
+		for id, recorded in pairs(data.ItemBoxReceipts) do
+			if type(id) == "string" and recorded == true then
+				result.ItemBoxReceipts[id] = true
+			end
+		end
+	end
+	if type(data.ItemBoxClaims) == "table" then
+		for id, count in pairs(data.ItemBoxClaims) do
+			if type(id) == "string" and type(count) == "number" and count > 0 and count < math.huge then
+				result.ItemBoxClaims[id] = math.floor(count)
+			end
+		end
+	end
 	if type(data.Owned) == "table" then
 		for itemId, owned in pairs(data.Owned) do
 			if owned == true and Config.Items[itemId] then
@@ -70,6 +91,18 @@ function PlayerDataStore.Normalize(raw)
 	end
 	if type(data.EquippedBeast) == "string" and result.Beasts[data.EquippedBeast] then
 		result.EquippedBeast = data.EquippedBeast
+	end
+	if type(data.Trails) == "table" then
+		for id, owned in pairs(data.Trails) do
+			if owned == true and Config.Trails[id] then
+				result.Trails[id] = true
+			end
+		end
+	end
+	local equipped = data.EquippedTrail
+	-- 空文字は明示的な装備解除。未設定のパス所持者には従来の見た目を適用する。
+	if type(equipped) == "string" and (equipped == "" or equipped == "Sparkle" or result.Trails[equipped]) then
+		result.EquippedTrail = equipped
 	end
 	if type(data.BeastTradeId) == "string" then
 		result.BeastTradeId = data.BeastTradeId
@@ -165,8 +198,8 @@ local function getStore()
 	if ok then
 		store = result
 	else
-		storeFailed = true
-		warn("[PlayerDataStore] DataStore が使えないため、保存せずに遊びます: " .. tostring(result))
+		storeFailed = game:GetService("RunService"):IsStudio()
+		warn("[PlayerDataStore] DataStore の取得に失敗: " .. tostring(result))
 	end
 	return store
 end
@@ -226,9 +259,9 @@ local function write(player, transform, memoryData)
 			warn(string.format("[PlayerDataStore] 保存に失敗（%d回目）: %s", attempt, tostring(result)))
 			task.wait(attempt)
 		end
-		if not storeFailed then
-			return nil, SAVE_FAILED
-		end
+	end
+	if not storeFailed then
+		return nil, SAVE_FAILED
 	end
 	-- DataStore が使えない環境ではメモリ上だけ更新する
 	local current = cache[player]
@@ -242,13 +275,13 @@ local function write(player, transform, memoryData)
 	return data
 end
 
-local function update(player, transform)
+local function update(player, transform, memoryData)
 	local userId = player.UserId
 	if trading[userId] then
 		return nil, SAVE_FAILED
 	end
 	activeWrites[userId] = (activeWrites[userId] or 0) + 1
-	local data, reason = write(player, transform)
+	local data, reason = write(player, transform, memoryData)
 	local remaining = activeWrites[userId] - 1
 	activeWrites[userId] = remaining > 0 and remaining or nil
 	return data, reason
@@ -487,6 +520,120 @@ function PlayerDataStore.BuyItem(player, itemId)
 		return false, "コインが足りません", data
 	end
 	return true, nil, data
+end
+
+-- BuyItem と同じ戻り値（成功、失敗理由、データ）。
+function PlayerDataStore.BuyTrail(player, id)
+	local current = PlayerDataStore.Get(player)
+	local def = type(id) == "string" and Config.Trails[id]
+	if not def then
+		return false, "このトレイルは買えません", current
+	end
+	local function rejection(data)
+		if data.Trails[id] then
+			return "もう持っています"
+		elseif data.Coins < def.Price then
+			return "コインが足りません"
+		end
+	end
+	local reason = rejection(current)
+	if reason then
+		return false, reason, current
+	end
+	local data, saveError = update(player, function(fresh)
+		reason = rejection(fresh)
+		if reason then
+			return false
+		end
+		fresh.Coins = fresh.Coins - def.Price
+		fresh.Trails[id] = true
+	end)
+	return data ~= nil, saveError or reason, data or current
+end
+
+-- Sparkle のパス所持は呼び出し元が確認する。
+function PlayerDataStore.SetEquippedTrail(player, id)
+	local current = PlayerDataStore.Get(player)
+	if type(id) ~= "string" or (id ~= "" and id ~= "Sparkle" and not current.Trails[id]) then
+		return false, current
+	end
+	local data, saveError = update(player, function(fresh)
+		if id ~= "" and id ~= "Sparkle" and not fresh.Trails[id] then
+			return false
+		end
+		fresh.EquippedTrail = id
+	end)
+	return data ~= nil, data or current, saveError
+end
+
+-- レシートを確定できるのは永続保存に成功した場合だけ。
+function PlayerDataStore.AddItemBox(player, purchaseId)
+	if not getStore() or (purchaseId ~= nil and (type(purchaseId) ~= "string" or purchaseId == "")) then
+		return false
+	end
+	local added
+	local data = update(player, function(fresh)
+		if storeFailed then
+			return false
+		end
+		added = purchaseId == nil or not fresh.ItemBoxReceipts[purchaseId]
+		if added then
+			fresh.ItemBoxes += 1
+			if purchaseId then
+				fresh.ItemBoxReceipts[purchaseId] = true
+			end
+		end
+	end)
+	return data ~= nil, data ~= nil and added
+end
+
+-- 引き出す上限を指定すると、同時に買い足された分は残す。
+function PlayerDataStore.TakeItemBoxes(player, limit, canTake)
+	if not getStore() then
+		return 0, false
+	end
+	-- UpdateAsync の応答が失われて再試行されても、同じ引き出しを繰り返さない。
+	local operation = HttpService:GenerateGUID(false)
+	local count = 0
+	local data = update(player, function(fresh)
+		if storeFailed then
+			return false
+		end
+		local previous = fresh.ItemBoxClaims[operation]
+		if previous then
+			count = previous
+			return
+		end
+		if canTake and not canTake() then
+			return false
+		end
+		count = limit and math.min(limit, fresh.ItemBoxes) or fresh.ItemBoxes
+		fresh.ItemBoxes -= count
+		if count > 0 then
+			fresh.ItemBoxClaims[operation] = count
+		end
+	end)
+	if not data then
+		return 0, false, operation
+	end
+	return count, true, operation
+end
+
+function PlayerDataStore.FinishItemBoxClaim(player, operation, delivered)
+	local data = update(player, function(fresh)
+		if storeFailed then
+			return false
+		end
+		local count = fresh.ItemBoxClaims[operation]
+		if not count then
+			return
+		end
+		if not delivered then
+			fresh.ItemBoxes += count
+		end
+		fresh.ItemBoxClaims[operation] = nil
+	end, {})
+	return data ~= nil
 end
 
 -- ルーレットを1回まわす。prizeIndex は先に選んだ景品の番号。

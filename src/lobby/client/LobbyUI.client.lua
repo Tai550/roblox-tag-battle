@@ -11,6 +11,7 @@ local Config = require(Shared:WaitForChild("Config"))
 local BrandColors = Config.BrandColors
 local BeastModels = require(Shared:WaitForChild("BeastModels"))
 local UILayout = require(Shared:WaitForChild("UILayout"))
+local LobbyMenu = require(Shared:WaitForChild("LobbyMenu"))
 local Music = require(Shared:WaitForChild("Music"))
 local RouletteFace = require(Shared:WaitForChild("RouletteFace"))
 local RouletteVisual = require(Shared:WaitForChild("RouletteVisual"))
@@ -89,12 +90,12 @@ local function button(parent, text, size, position, color)
 end
 
 ---------------------------------------------------------------------
--- 左上：コイン　左：メニュー
+-- 左中央：段位とコイン　左上：メニュー
 ---------------------------------------------------------------------
 
 local coinPill = Instance.new("Frame")
 coinPill.Size = UDim2.new(0, 150, 0, 36)
-coinPill.Position = UDim2.new(0, 8, 0.5, -125) -- 左のメニューの上（チャットの案内文と重ならない位置）
+coinPill.Position = UDim2.new(0, 8, 0.5, -125) -- チャットの案内文と重ならない位置
 coinPill.BackgroundColor3 = DARK
 coinPill.BackgroundTransparency = 0.3
 coinPill.Parent = gui
@@ -110,27 +111,59 @@ rankPill.BackgroundTransparency = 0.3
 rankPill.Parent = gui
 corner(rankPill)
 local rankLabel = label(rankPill, "", UDim2.new(1, -16, 1, 0), UDim2.new(0, 12, 0, 0), 17, WHITE, true)
-local function showRank(rp)
+local function showRank(target, rp)
 	local tier = Config.TierForRP(rp)
-	rankLabel.Text = string.format("%s  %d RP", tier and tier.Name or "", rp)
-	rankLabel.TextColor3 = tier and tier.Color or WHITE
+	target.Text = string.format("%s  %d RP", tier and tier.Name or "", rp)
+	target.TextColor3 = tier and tier.Color or WHITE
 end
-showRank(0)
+showRank(rankLabel, 0)
 
-local menu = Instance.new("Frame")
-menu.BackgroundTransparency = 1
-menu.Size = UDim2.new(0, 120, 0, 5 * 50)
-menu.Position = UDim2.new(0, 8, 0.5, -75)
+local edge = UILayout.EdgeMargin
+local touchSize = UILayout.MinTouchSize
+local rowGap = 6
+local menuTop = edge + touchSize + rowGap
+local menuWidth = 176
+local menuButton = button(gui, "≡ メニュー", UDim2.fromOffset(132, touchSize), UDim2.fromOffset(edge, edge))
+menuButton.ZIndex = 4
+
+local menu = Instance.new("ScrollingFrame")
+menu.Name = "LobbyMenu"
+menu.BackgroundColor3 = DARK
+menu.BorderSizePixel = 0
+menu.Position = UDim2.fromOffset(edge, menuTop)
+menu.Size = UDim2.new(0, menuWidth, 1, -menuTop - edge)
+menu.CanvasSize = UDim2.fromOffset(0, 0)
+menu.ScrollingDirection = Enum.ScrollingDirection.Y
+menu.ScrollBarThickness = 5
+menu.Visible = false
+menu.ZIndex = 3
 menu.Parent = gui
-local deckButton = button(menu, "デッキ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 0))
-local shopButton = button(menu, "ショップ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 50))
-local roomButton = button(menu, "友達部屋", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 100))
-local rouletteButton = button(menu, "ルーレット", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 150))
-local tradeButton = button(menu, "召喚獣交換", UDim2.fromOffset(108, UILayout.MinTouchSize),
-	UDim2.fromOffset(126, 0), BrandColors.Secondary)
-local soloButton = button(menu, "ひとりで遊ぶ", UDim2.new(1, 0, 0, 44), UDim2.new(0, 0, 0, 200), BrandColors.Accent)
-soloButton.MouseButton1Click:Connect(function()
-	SoloPlay:FireServer()
+corner(menu, 8)
+
+local menuSize = Instance.new("UISizeConstraint")
+menuSize.Parent = menu
+
+local menuLayout = Instance.new("UIListLayout")
+menuLayout.Padding = UDim.new(0, rowGap)
+menuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+menuLayout.Parent = menu
+
+local menuButtons = {}
+
+playerGui:GetAttributeChangedSignal("LobbyAdminOpen"):Connect(function()
+	if playerGui:GetAttribute("LobbyAdminOpen") then
+		menu.Visible = false
+	end
+end)
+
+menuButton.Activated:Connect(function()
+	if playerGui:GetAttribute("LobbyAdminOpen") or playerGui:GetAttribute("LobbyPanelOpen") then
+		return
+	end
+	menu.Visible = not menu.Visible
+	if menu.Visible then
+		menu.CanvasPosition = Vector2.zero
+	end
 end)
 
 -- 下の中央：すぐ遊ぶの状況
@@ -168,7 +201,7 @@ end
 -- 中央のパネル（1つずつ開く）
 ---------------------------------------------------------------------
 
-local function makePanel(titleText)
+local function makePanel(titleText, closeSize)
 	local panel = Instance.new("Frame")
 	-- 画面より大きい固定サイズだと、スマホでは上下が画面外に出てしまう。
 	-- 画面から余白を引いた大きさを上限（560×400）で止める。
@@ -183,7 +216,9 @@ local function makePanel(titleText)
 	constraint.MaxSize = Vector2.new(560, 400)
 	constraint.Parent = panel
 	label(panel, titleText, UDim2.new(1, -80, 0, 30), UDim2.new(0, 16, 0, 10), 20, WHITE, true)
-	local close = button(panel, "×", UDim2.new(0, 36, 0, 30), UDim2.new(1, -46, 0, 10), BrandColors.Secondary)
+	local closeWidth = closeSize or 36
+	local close = button(panel, "×", UDim2.fromOffset(closeWidth, closeSize or 30),
+		UDim2.new(1, -closeWidth - 10, 0, closeSize and 4 or 10), BrandColors.Secondary)
 	close.MouseButton1Click:Connect(function()
 		panel.Visible = false
 	end)
@@ -196,7 +231,9 @@ local roomPanel = makePanel("友達部屋")
 local roulettePanel = makePanel("デイリールーレット")
 local beastPanel = makePanel("召喚獣ガチャ")
 local tradePanel = makePanel("召喚獣交換")
-local panels = { deckPanel, shopPanel, roomPanel, roulettePanel, beastPanel, tradePanel }
+local storePanel = makePanel("ショップ", UILayout.MinTouchSize)
+local statusPanel = makePanel("ステータス", UILayout.MinTouchSize)
+local panels = { statusPanel, deckPanel, shopPanel, storePanel, roomPanel, roulettePanel, beastPanel, tradePanel }
 
 local function syncPanelVisibility()
 	for _, panel in ipairs(panels) do
@@ -212,6 +249,7 @@ for _, panel in ipairs(panels) do
 end
 
 local function open(panel)
+	menu.Visible = false
 	if playerGui:GetAttribute("LobbyAdminOpen") then
 		return
 	end
@@ -220,18 +258,64 @@ local function open(panel)
 		other.Visible = other == panel and show
 	end
 end
-deckButton.MouseButton1Click:Connect(function()
-	open(deckPanel)
-end)
-shopButton.MouseButton1Click:Connect(function()
-	open(shopPanel)
-end)
-roomButton.MouseButton1Click:Connect(function()
-	open(roomPanel)
-end)
-rouletteButton.MouseButton1Click:Connect(function()
-	open(roulettePanel)
-end)
+local menuPanels = {
+	Status = statusPanel,
+	Deck = deckPanel,
+	Shop = shopPanel,
+	Store = storePanel,
+	Room = roomPanel,
+	Roulette = roulettePanel,
+	Beasts = beastPanel,
+	Trade = tradePanel,
+}
+local menuActions = {
+	Solo = function()
+		SoloPlay:FireServer()
+	end,
+	Admin = function()
+		playerGui:SetAttribute("LobbyAdminOpenRequest", true)
+	end,
+}
+
+local function rebuildMenu()
+	local items = LobbyMenu.VisibleItems(localPlayer:GetAttribute("IsAdmin") == true)
+	local visibleButtons = {}
+	for index, item in ipairs(items) do
+		local id = item.Id
+		-- 残る項目はボタンを再利用し、ルーレットと交換の現在の表示を保つ。
+		local row = menuButtons[id]
+		if not row then
+			row = button(menu, item.Label, UDim2.new(1, -8, 0, touchSize), UDim2.new(),
+				BrandColors[item.Color or "Primary"])
+			row.Name = id
+			row.ZIndex = 4
+			row.Activated:Connect(function()
+				menu.Visible = false
+				local panel = menuPanels[id]
+				if panel then
+					open(panel)
+				else
+					menuActions[id]()
+				end
+			end)
+		end
+		row.LayoutOrder = index
+		visibleButtons[id] = row
+	end
+	for id, row in pairs(menuButtons) do
+		if not visibleButtons[id] then
+			row:Destroy()
+		end
+	end
+	menuButtons = visibleButtons
+
+	local height = #items * touchSize + (#items - 1) * rowGap
+	menuSize.MaxSize = Vector2.new(menuWidth, height)
+	menu.CanvasSize = UDim2.fromOffset(0, height)
+end
+
+localPlayer:GetAttributeChangedSignal("IsAdmin"):Connect(rebuildMenu)
+rebuildMenu()
 
 local function scrollList(panel, top, bottomSpace)
 	local scroll = Instance.new("ScrollingFrame")
@@ -259,9 +343,267 @@ local shownCoins = 0
 local myData = { Coins = 0, Owned = {}, Deck = {}, Beasts = {} }
 local draftDeck = {}  -- デッキ画面で選んでいる途中のもの
 
+local equipTrail = Remotes:WaitForChild("EquipTrail")
+local shopUpdate = Remotes:WaitForChild("ShopUpdate")
+local shopState = { Owned = {}, Configured = {} }
+
+local renderStore
+do
+	local openShop = Remotes:WaitForChild("OpenShop")
+	local buyTrail = Remotes:WaitForChild("BuyTrail")
+	local promptPurchase = Remotes:WaitForChild("PromptPurchase")
+	local tab = "Trails"
+	local touchSize = UILayout.MinTouchSize
+	local trailTab = button(storePanel, "トレイル", UDim2.new(0.5, -16, 0, touchSize), UDim2.fromOffset(12, 58), GOLD)
+	local robuxTab = button(storePanel, "Robux", UDim2.new(0.5, -16, 0, touchSize), UDim2.new(0.5, 4, 0, 58))
+	local balance = label(storePanel, "", UDim2.new(1, -24, 0, 24), UDim2.fromOffset(12, 114), 16, GOLD, true)
+	local list = scrollList(storePanel, 142, 12)
+
+	local function addRow(name, price, description, swatch, order)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -8, 0, 0)
+		row.AutomaticSize = Enum.AutomaticSize.Y
+		row.BackgroundColor3 = BrandColors.Primary
+		row.LayoutOrder = order
+		row.Parent = list
+		corner(row, 8)
+
+		local padding = Instance.new("UIPadding")
+		padding.PaddingTop = UDim.new(0, 8)
+		padding.PaddingBottom = UDim.new(0, 8)
+		padding.PaddingLeft = UDim.new(0, 10)
+		padding.PaddingRight = UDim.new(0, 10)
+		padding.Parent = row
+
+		local layout = Instance.new("UIListLayout")
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0, 4)
+		layout.Parent = row
+
+		local header = Instance.new("Frame")
+		header.BackgroundTransparency = 1
+		header.Size = UDim2.new(1, 0, 0, 24)
+		header.Parent = row
+		label(header, name, UDim2.new(1, swatch and -44 or 0, 1, 0), UDim2.new(), 16, WHITE, true)
+		if swatch then
+			local sample = Instance.new("Frame")
+			sample.BackgroundColor3 = WHITE
+			sample.Size = UDim2.fromOffset(38, 16)
+			sample.Position = UDim2.new(1, -38, 0, 4)
+			sample.Parent = header
+			corner(sample, 8)
+			local gradient = Instance.new("UIGradient")
+			gradient.Color = ColorSequence.new(swatch.ColorStart, swatch.ColorEnd)
+			gradient.Parent = sample
+		end
+
+		local details = label(row, description and (price .. "\n" .. description) or price,
+			UDim2.new(1, 0, 0, 0), UDim2.new(), 14, WHITE)
+		details.AutomaticSize = Enum.AutomaticSize.Y
+		details.LayoutOrder = 1
+		return row
+	end
+
+	local function addAction(row, text, callback)
+		local action = button(row, text, UDim2.new(1, 0, 0, touchSize), UDim2.new(),
+			callback and GOLD or DARK)
+		action.LayoutOrder = 2
+		action.Active = callback ~= nil
+		action.Interactable = callback ~= nil
+		action.AutoButtonColor = callback ~= nil
+		if callback then
+			action.Activated:Connect(callback)
+		end
+	end
+
+	local function addTrail(id, def, order)
+		local sparkle = id == "Sparkle"
+		local equipped = myData.EquippedTrail == id or (sparkle and myData.EquippedTrail == nil)
+		local price = sparkle and "ゲームパス所持済み" or string.format("%d コイン", def.Price)
+		if equipped then
+			price ..= "  ・  装備中"
+		end
+		local row = addRow(def.DisplayName, price, nil, def, order)
+		if equipped then
+			addAction(row, "外す", function() equipTrail:FireServer("") end)
+		elseif sparkle or (myData.Trails and myData.Trails[id]) then
+			addAction(row, "装備する", function() equipTrail:FireServer(id) end)
+		else
+			addAction(row, string.format("%dコインで買う", def.Price), function() buyTrail:FireServer(id) end)
+		end
+	end
+
+	renderStore = function()
+		if not storePanel.Visible then
+			return
+		end
+		for _, child in ipairs(list:GetChildren()) do
+			if child:IsA("Frame") then
+				child:Destroy()
+			end
+		end
+		local showTrails = tab == "Trails"
+		trailTab.BackgroundColor3 = showTrails and GOLD or BrandColors.Secondary
+		trailTab.TextColor3 = showTrails and DARK or WHITE
+		robuxTab.BackgroundColor3 = showTrails and BrandColors.Secondary or GOLD
+		robuxTab.TextColor3 = showTrails and WHITE or DARK
+		balance.Visible = showTrails
+		local top = showTrails and 142 or 118
+		list.Position = UDim2.fromOffset(12, top)
+		list.Size = UDim2.new(1, -24, 1, -top - 12)
+		if showTrails then
+			balance.Text = string.format("コイン残高  %d", myData.Coins or 0)
+			for order, id in ipairs(Config.TrailOrder) do
+				addTrail(id, Config.Trails[id], order)
+			end
+			if shopState.Owned.SparkleTrail then
+				addTrail("Sparkle", Config.Monetization.SparkleTrail, #Config.TrailOrder + 1)
+			end
+		else
+			for order, key in ipairs(Config.ShopProductOrder) do
+				local def = Config.Monetization[key]
+				local row = addRow(def.DisplayName, string.format("約%d Robux", def.PriceHint), def.Description, nil, order)
+				if not shopState.Configured[key] then
+					addAction(row, "準備中")
+				elseif shopState.Owned[key] then
+					addAction(row, "所持済み")
+				else
+					addAction(row, "購入する", function() promptPurchase:FireServer(key) end)
+				end
+			end
+		end
+	end
+
+	local function setTab(nextTab)
+		tab = nextTab
+		list.CanvasPosition = Vector2.zero
+		renderStore()
+	end
+	trailTab.Activated:Connect(function() setTab("Trails") end)
+	robuxTab.Activated:Connect(function() setTab("Robux") end)
+	storePanel:GetPropertyChangedSignal("Visible"):Connect(function()
+		if storePanel.Visible then
+			renderStore()
+			shopUpdate:FireServer()
+		end
+	end)
+
+	local function showStore()
+		if not storePanel.Visible then
+			open(storePanel)
+		end
+	end
+	openShop.OnClientEvent:Connect(showStore)
+	ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+		if player == localPlayer and prompt.Name == "ShopPrompt" then
+			showStore()
+		end
+	end)
+end
+
 local function tierTag(def)
 	return "［" .. Config.GetTierName(def.Tier) .. "］"
 end
+
+---------------------------------------------------------------------
+-- ステータス
+---------------------------------------------------------------------
+
+local renderStatus
+do
+	local list = scrollList(statusPanel, 60, 12)
+	local order = 0
+
+	local function add(child)
+		order += 1
+		child.LayoutOrder = order
+		child.Parent = list
+		return child
+	end
+
+	local function addText(text, height, color, bold)
+		return add(label(list, text, UDim2.new(1, -10, 0, height), UDim2.new(), 16, color, bold))
+	end
+
+	local function addEquipment(name, color, owned, equipped, remote, id)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -8, 0, UILayout.MinTouchSize + 16)
+		row.BackgroundColor3 = BrandColors.Primary
+		corner(row, 8)
+		add(row)
+
+		label(row, name, UDim2.new(1, -120, 1, equipped and -24 or 0),
+			UDim2.fromOffset(10, 0), 15, color, true)
+		if equipped then
+			label(row, "装備中", UDim2.new(1, -120, 0, 24),
+				UDim2.new(0, 10, 1, -30), 14, GOLD, true)
+		end
+		if owned then
+			local action = button(row, equipped and "外す" or "装備する",
+				UDim2.fromOffset(96, UILayout.MinTouchSize), UDim2.new(1, -104, 0, 8), GOLD)
+			action.Activated:Connect(function()
+				remote:FireServer(equipped and "" or id)
+			end)
+		else
+			label(row, "未所持", UDim2.fromOffset(96, UILayout.MinTouchSize),
+				UDim2.new(1, -104, 0, 8), 14, WHITE).TextXAlignment = Enum.TextXAlignment.Center
+		end
+	end
+
+	renderStatus = function()
+		if not statusPanel.Visible then
+			return
+		end
+		for _, child in ipairs(list:GetChildren()) do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+		order = 0
+		addText("自分の情報", 26, GOLD, true)
+		showRank(addText("", 24, WHITE, true), myData.RP or 0)
+		addText(string.format("コイン残高  %d", myData.Coins or 0), 24, GOLD, true)
+
+		addText("召喚獣", 26, GOLD, true)
+		for _, id in ipairs(Config.BeastOrder) do
+			local def = Config.Beasts[id]
+			addEquipment(tierTag(def) .. def.DisplayName, Config.Tiers[def.Tier].Color,
+				myData.Beasts[id], myData.EquippedBeast == id, EquipBeast, id)
+		end
+
+		addText("トレイル", 26, GOLD, true)
+		for _, id in ipairs(Config.TrailOrder) do
+			addEquipment(Config.Trails[id].DisplayName, WHITE, myData.Trails and myData.Trails[id],
+				myData.EquippedTrail == id, equipTrail, id)
+		end
+		if shopState.Owned.SparkleTrail then
+			local equipped = myData.EquippedTrail == nil or myData.EquippedTrail == "Sparkle"
+			addEquipment(Config.Monetization.SparkleTrail.DisplayName, WHITE, true, equipped, equipTrail, "Sparkle")
+		end
+
+		addText("デッキ", 26, GOLD, true)
+		local deck = myData.Deck or {}
+		for _, id in ipairs(deck) do
+			addText(Config.Items[id].DisplayName, 26, WHITE)
+		end
+		if #deck == 0 then
+			addText("アイテムなし", 26, WHITE)
+		end
+		local edit = add(button(list, "デッキを変更する", UDim2.new(1, -8, 0, UILayout.MinTouchSize),
+			UDim2.new(), GOLD))
+		edit.Activated:Connect(function()
+			open(deckPanel)
+		end)
+	end
+
+	statusPanel:GetPropertyChangedSignal("Visible"):Connect(renderStatus)
+end
+
+shopUpdate.OnClientEvent:Connect(function(data)
+	shopState = data
+	renderStore()
+	renderStatus()
+end)
 
 ---------------------------------------------------------------------
 -- 召喚獣交換
@@ -385,9 +727,6 @@ do
 		end
 	end
 
-	tradeButton.Activated:Connect(function()
-		open(tradePanel)
-	end)
 	tradePanel:GetPropertyChangedSignal("Visible"):Connect(renderTrade)
 	Players.PlayerAdded:Connect(renderTrade)
 	Players.PlayerRemoving:Connect(function(player)
@@ -413,7 +752,7 @@ do
 					showToast("召喚獣の交換申し込みが届きました")
 				end
 			end
-			tradeButton.Text = state.Phase == "idle" and "召喚獣交換" or "交換を確認"
+			menuButtons.Trade.Text = state.Phase == "idle" and "召喚獣交換" or "交換を確認"
 		end
 		message = notice
 		if notice and not tradePanel.Visible then
@@ -515,7 +854,10 @@ renderBeasts()
 ---------------------------------------------------------------------
 
 local deckInfo = label(deckPanel, "", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 42), 14, WHITE)
-local deckList = scrollList(deckPanel, 66, UILayout.MinTouchSize + UILayout.EdgeMargin + 8)
+local deckCombos = label(deckPanel, "", UDim2.new(1, -32, 0, 0), UDim2.new(0, 16, 0, 66), 13, GOLD)
+deckCombos.TextYAlignment = Enum.TextYAlignment.Top
+local deckBottomSpace = UILayout.MinTouchSize + UILayout.EdgeMargin + 8
+local deckList = scrollList(deckPanel, 66, deckBottomSpace)
 local saveDeck = button(deckPanel, "このデッキで保存", UDim2.new(0, 200, 0, UILayout.MinTouchSize), UDim2.new(0.5, 0, 1, -UILayout.EdgeMargin), GOLD)
 saveDeck.AnchorPoint = Vector2.new(0.5, 1)
 saveDeck.MouseButton1Click:Connect(function()
@@ -529,6 +871,16 @@ local function renderDeck()
 		end
 	end
 	deckInfo.Text = string.format("持っているアイテムから %d 個えらぶ（いま %d 個）", Config.DeckSize, #draftDeck)
+	local combos = {}
+	for _, combo in ipairs(Config.FindCombos(draftDeck)) do
+		table.insert(combos, Config.ItemComboText(combo))
+	end
+	local comboHeight = #combos * 36
+	deckCombos.Text = table.concat(combos, "\n")
+	deckCombos.Size = UDim2.new(1, -32, 0, comboHeight)
+	deckCombos.Visible = comboHeight > 0
+	deckList.Position = UDim2.new(0, 12, 0, 66 + comboHeight)
+	deckList.Size = UDim2.new(1, -24, 1, -(66 + comboHeight + deckBottomSpace))
 	for index, itemId in ipairs(Config.ItemOrder) do
 		local def = Config.Items[itemId]
 		if def and myData.Owned[itemId] then
@@ -771,8 +1123,8 @@ local angle = 0
 local rewardToken = 0
 
 local function renderRoulette()
-	rouletteButton.Text = rouletteStock > 0 and string.format("ルーレット (%d)", rouletteStock) or "ルーレット"
-	rouletteButton.BackgroundColor3 = rouletteStock > 0 and BrandColors.Danger or BrandColors.Primary
+	menuButtons.Roulette.Text = rouletteStock > 0 and string.format("ルーレット (%d)", rouletteStock) or "ルーレット"
+	menuButtons.Roulette.BackgroundColor3 = rouletteStock > 0 and BrandColors.Danger or BrandColors.Primary
 	stockLabel.Text = string.format("まわせる回数：%d / %d", rouletteStock, rouletteRules.MaxStock)
 	if nextGrantAt then
 		local left = math.max(0, math.ceil(nextGrantAt - os.clock()))
@@ -888,7 +1240,7 @@ end)
 
 DataUpdate.OnClientEvent:Connect(function(data)
 	myData = data
-	showRank(data.RP or 0)
+	showRank(rankLabel, data.RP or 0)
 	latestGrantAt = data.RouletteNextIn and (os.clock() + data.RouletteNextIn) or nil
 	if not pendingSpin and not spinning then
 		applyRouletteBalances()
@@ -899,6 +1251,8 @@ DataUpdate.OnClientEvent:Connect(function(data)
 	end
 	renderDeck()
 	renderShop()
+	renderStore()
+	renderStatus()
 	renderBeasts()
 	renderTrade()
 end)

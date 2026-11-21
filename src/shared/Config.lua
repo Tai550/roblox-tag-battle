@@ -68,6 +68,14 @@ Config.VoltLightningHeight = 36
 Config.FallEliminateY = 20      -- Sky の中央足場（Y=50）から30下
 
 Config.TaggerWalkSpeed = 20      -- 鬼の WalkSpeed
+
+Config.TaggerSkills = {
+	Dash = { Duration = 2, Cooldown = 12, WalkSpeed = 30 },
+	Roar = { Radius = 12, SlowTime = 1.5, Cooldown = 18, SlowSpeed = 10 },
+	Smell = { Duration = 4, Cooldown = 20, UpdateInterval = 0.25 },
+	LateBoost = { FirstRatio = 0.5, FirstMultiplier = 1.05, FinalSeconds = 30, FinalMultiplier = 1.10 },
+	CatchStreak = { Window = 10, Duration = 3, Multiplier = 1.10 },
+}
 Config.NormalJumpHeight = 7.2    -- 通常のジャンプの高さ
 
 ---------------------------------------------------------------------
@@ -156,6 +164,7 @@ Config.ItemSlotKeys = {
 }
 Config.ItemSlotKeyLabels = { "E", "Q", "R", "F" } -- 画面のボタンやメッセージに出すキー名
 Config.BaseItemSlots = 3         -- 通常の所持枠の数（ためて終盤に使えるよう 3 枠）
+Config.ItemFootingTolerance = 1 -- 移動系アイテムの足場確認に使う余裕（スタッド）
 Config.UseItemCooldown = 0.5     -- 連打防止（サーバー側でもチェック）
 
 ---------------------------------------------------------------------
@@ -191,6 +200,12 @@ Config.RankTiers = {
 	{ MinRP = 1300, Name = "マスター", Color = Color3.fromRGB(176, 96, 255) }, -- 紫
 }
 
+Config.SuddenDeath = {
+	NormalId = "Normal",
+	Id = "SuddenDeath",
+	TaggerCount = 1,
+}
+
 -- 1回のできごとでもらえる RP。減点はない。
 Config.RankPoints = {
 	Survived = 20,  -- 逃げ切り（最後まで捕まらなかった）
@@ -215,6 +230,22 @@ Config.BotStrengthByTier = {
 	{ SpeedMultiplier = 1.15, RepathInterval = 0.45 }, -- 6 マスター
 }
 
+Config.BotStrengthVote = {
+	{ Id = "Weak", Name = "よわい", TierIndex = 1 },
+	{ Id = "Normal", Name = "ふつう", TierIndex = 3 },
+	{ Id = "Strong", Name = "つよい", TierIndex = #Config.RankTiers },
+	{ Id = "Auto", Name = "おまかせ" },
+}
+
+function Config.GetBotStrengthVote(id)
+	for _, option in ipairs(Config.BotStrengthVote) do
+		if option.Id == id then
+			return option
+		end
+	end
+	return nil
+end
+
 -- ボットの判断に使う距離（スタッド）と時間（秒）
 Config.BotItemSeekDistance = 40   -- この距離以内の宝箱を取りに行く
 Config.BotItemSafeDistance = 30   -- 鬼がこれより近いときは宝箱を諦めて逃げる
@@ -224,6 +255,12 @@ Config.BotDashDistance = 32       -- 逃げ中、鬼がこの距離以内なら�
 Config.BotShieldDistance = 18     -- 鬼がこの距離以内ならシールドを使う
 Config.BotStarDistance = 18       -- 鬼がこの距離以内ならスターを使う
 Config.BotWarpDistance = 14       -- 相手がこの距離以内ならワープを使う
+Config.BotSlowBombDistance = 10   -- 相手がこの距離以内ならスロウボムを置く
+Config.BotBoomerangDistance = 20  -- 鬼がこの距離以内ならブーメランを投げる
+Config.BotGiantDistance = 18
+Config.BotShrinkDistance = 18
+Config.BotSwapDistance = 8
+Config.BotIceBombDistance = 12
 Config.BotBananaDistance = 16     -- 相手がこの距離以内ならバナナを置く
 Config.BotStuckSpeed = 0.75       -- これより遅い（スタッド/秒）状態が続くと行き詰まり
 Config.BotStuckTime = 0.7         -- 行き詰まりとみなすまでの秒数（超えたらジャンプ）
@@ -233,6 +270,20 @@ Config.BotDecisionInterval = 0.09 -- 通常のラウンド更新（0.1 秒）ご
 Config.BotSoloRepathInterval = 0.8
 Config.BotRepathMinInterval = 0.25 -- 目標変更で経路を引き直す場合の下限
 Config.BotRepathGoalShift = 6
+Config.BotChase = {
+	SearchSeconds = 3,
+	SearchReach = 3.5,
+	SearchTurnDegrees = 45, -- 視界を確認する間隔で向きを変える
+	LastSeenTimeout = 8, -- 最後に見た場所に到達できない場合の打ち切り
+	TurnDegrees = 60,
+	TurnWindowSeconds = 1.2,
+	TurnMinSpeed = 1,
+	ErrorSeconds = 0.8,
+	ErrorDistance = 6,
+	FatigueStartSeconds = 20,
+	FatigueRampSeconds = 20,
+	FatigueMaxReduction = 0.05,
+}
 Config.BotPredictionTime = 0.25
 Config.BotPredictionMaxDistance = 6
 Config.BotProgressTimeout = 2.4
@@ -408,6 +459,169 @@ Config.Items = {
 		Duration = 8,
 		Transparency = 0.85,
 	},
+	SlowBomb = {
+		Id = "SlowBomb",
+		Tier = "B",
+		Price = 150,
+		DisplayName = "スロウボム",
+		Description = "足元に置く。半径10スタッド以内に他の参加者が入ると起爆し、範囲内の自分以外を3秒間遅くする",
+		Color = Color3.fromRGB(100, 205, 150),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Radius = 10,
+		SlowTime = 3,
+		SlowSpeed = 9,
+		PlacementOffset = Vector3.new(0, 2.5, 0),
+		Size = Vector3.new(1.8, 1, 1.8),
+		Duration = 20,
+	},
+	Boomerang = {
+		Id = "Boomerang",
+		Tier = "A",
+		Price = 400,
+		DisplayName = "ブーメラン",
+		Description = "前方に投げ、最初に当たった相手を1.5秒間スタンさせる（射程30スタッド）",
+		Color = Color3.fromRGB(255, 185, 70),
+		SpawnWeight = 1,
+		CanTaggerUse = false,
+		StunTime = 1.5,
+		Range = 30,
+		Speed = 48,
+		HitRadius = 2.5,
+		Size = Vector3.new(1.8, 0.3, 0.7),
+	},
+	RecoveryDrink = {
+		Id = "RecoveryDrink",
+		Tier = "B",
+		Price = 150,
+		DisplayName = "回復ドリンク",
+		Description = "ゾーン外スタミナを全回復する",
+		Color = Color3.fromRGB(100, 245, 155),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+	},
+	Teleporter = {
+		Id = "Teleporter",
+		Tier = "A",
+		Price = 400,
+		DisplayName = "テレポーター",
+		Description = "1回目で今いる場所を記録し、2回目でそこに戻る",
+		Color = Color3.fromRGB(160, 105, 255),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		HeightOffset = 3,
+	},
+	Giant = {
+		Id = "Giant",
+		Tier = "A",
+		Price = 400,
+		DisplayName = "巨大化",
+		Description = "6秒間、体が1.5倍になる。鬼のタッチが伸び、吹き飛ばされにくくなる",
+		Color = Color3.fromRGB(245, 130, 80),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Duration = 6,
+		Scale = 1.5,
+		ReachMultiplier = 1.5,
+		KnockbackMultiplier = 0.5,
+	},
+	Shrink = {
+		Id = "Shrink",
+		Tier = "B",
+		Price = 150,
+		DisplayName = "縮小",
+		Description = "6秒間、体が0.6倍になる",
+		Color = Color3.fromRGB(110, 210, 160),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Duration = 6,
+		Scale = 0.6,
+	},
+	Grapple = {
+		Id = "Grapple",
+		Tier = "A",
+		Price = 400,
+		DisplayName = "グラップル",
+		Description = "前方の壁や台に向けて素早く移動する（射程40スタッド）",
+		Color = Color3.fromRGB(130, 175, 205),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Range = 40,
+		Speed = 90,
+		ArrivalDistance = 1,
+		SurfaceOffset = 2,
+		TopNormalMinY = 0.65,
+		PlatformAimDrop = 0.2,
+		MinPlatformRise = 1,
+		Timeout = 0.8,
+	},
+	Swap = {
+		Id = "Swap",
+		Tier = "S",
+		Price = 900,
+		DisplayName = "スワップ",
+		Description = "最も近い他の参加者と位置を交換する",
+		Color = Color3.fromRGB(230, 105, 230),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		HeightOffset = 1,
+	},
+	FakeBox = {
+		Id = "FakeBox",
+		Tier = "B",
+		Price = 150,
+		DisplayName = "フェイクボックス",
+		Description = "宝箱に見える罠を置く。他の参加者が触れると2秒間スタンする",
+		Color = Color3.fromRGB(220, 165, 90),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Duration = 20,
+		StunTime = 2,
+	},
+	IceBomb = {
+		Id = "IceBomb",
+		Tier = "B",
+		Price = 150,
+		DisplayName = "アイスボム",
+		Description = "足元に5秒間、滑る氷の床を作る",
+		Color = Color3.fromRGB(115, 215, 255),
+		SpawnWeight = 1,
+		CanTaggerUse = true,
+		Duration = 5,
+		Radius = 8,
+		Thickness = 0.12,
+		Transparency = 0.25,
+		HeightTolerance = 1.5,
+	},
+	Thunder = {
+		Id = "Thunder",
+		Tier = "S",
+		Price = 900,
+		DisplayName = "サンダー",
+		Description = "30スタッド以内の最も近い鬼を2秒間スタンさせる",
+		Color = Color3.fromRGB(255, 245, 135),
+		SpawnWeight = 1,
+		CanTaggerUse = false,
+		Range = 30,
+		StunTime = 2,
+		FlashDuration = 0.2,
+		FlashHeight = 18,
+		FlashWidth = 0.6,
+	},
+	Reflect = {
+		Id = "Reflect",
+		Tier = "A",
+		Price = 400,
+		DisplayName = "リフレクト",
+		Description = "4秒間構え、鬼のタッチを一度だけ防いで押し戻す",
+		Color = Color3.fromRGB(255, 145, 205),
+		SpawnWeight = 1,
+		CanTaggerUse = false,
+		Duration = 4,
+		PushSpeed = 44,
+		LiftSpeed = 9,
+		GraceTime = 1.5,
+	},
 	Glue = {
 		Id = "Glue",
 		Tier = "A",
@@ -536,10 +750,71 @@ end
 
 -- アイテムの並び順（ショップやデッキ画面の表示順）
 Config.ItemOrder = {
-	"Dash", "Banana", "HighJump", "Decoy", "Flash", "Sneak",
-	"Warp", "Shield", "Smoke", "Glue", "AirBurst", "ZoneGuard", "Radar",
-	"Star", "TimeStop", "SecondChance",
+	"Dash", "Banana", "HighJump", "Decoy", "Flash", "Sneak", "SlowBomb", "RecoveryDrink", "Shrink", "FakeBox", "IceBomb",
+	"Warp", "Shield", "Smoke", "Glue", "AirBurst", "ZoneGuard", "Radar", "Boomerang", "Teleporter", "Giant", "Grapple", "Reflect",
+	"Star", "TimeStop", "SecondChance", "Swap", "Thunder",
 }
+
+Config.ItemCombos = {
+	{
+		Id = "HighJumpGrapple", Items = { "HighJump", "Grapple" },
+		Description = "移動速度 +3%", SpeedMultiplier = 1.03,
+	},
+	{
+		Id = "ShieldReflect", Items = { "Shield", "Reflect" },
+		Description = "ゾーンスタミナ回復 ×1.5", StaminaRegenMultiplier = 1.5,
+	},
+	{
+		Id = "BananaFakeBox", Items = { "Banana", "FakeBox" },
+		Description = "罠の効果時間 +0.5秒", TrapBonusSeconds = 0.5,
+	},
+	{
+		Id = "StarDash", Items = { "Star", "Dash" },
+		Description = "ダッシュ持続 +0.5秒", DashBonusSeconds = 0.5,
+	},
+}
+
+function Config.FindCombos(deckItems)
+	local deck = {}
+	for _, itemId in ipairs(deckItems) do
+		local item = Config.Items[itemId]
+		if item and not item.ExclusiveMap then
+			deck[itemId] = true
+		end
+	end
+	local combos = {}
+	for _, combo in ipairs(Config.ItemCombos) do
+		if deck[combo.Items[1]] and deck[combo.Items[2]] then
+			table.insert(combos, combo)
+		end
+	end
+	return combos
+end
+
+function Config.ItemComboText(combo)
+	return Config.Items[combo.Items[1]].DisplayName .. " ＋ " .. Config.Items[combo.Items[2]].DisplayName
+		.. "\n" .. combo.Description
+end
+
+-- 同じ種類の効果を持つ行を足した場合、倍率は掛け合わせ、秒数は足し合わせる。
+function Config.ComboMultiplier(activeCombos, effect)
+	local multiplier = 1
+	for _, combo in ipairs(Config.ItemCombos) do
+		if activeCombos[combo.Id] and combo[effect] then
+			multiplier *= combo[effect]
+		end
+	end
+	return multiplier
+end
+
+function Config.ComboDuration(activeCombos, effect, duration)
+	for _, combo in ipairs(Config.ItemCombos) do
+		if activeCombos[combo.Id] and combo[effect] then
+			duration += combo[effect]
+		end
+	end
+	return duration
+end
 
 -- アイテムのレア度の表示（B = 150 / A = 400 / S = 900 コイン。以前の梅・竹・松）
 Config.Tiers = {
@@ -743,8 +1018,51 @@ Config.Monetization = {
 	},
 }
 
+Config.TrailOrder = { "PurpleGlow", "GoldStar", "RedFlame" }
+Config.Trails = {
+	PurpleGlow = {
+		DisplayName = "紫の光",
+		Price = 300,
+		Lifetime = 0.4,
+		ColorStart = Color3.fromRGB(203, 127, 255),
+		ColorEnd = Config.BrandColors.Secondary,
+		TransparencyStart = 0.25,
+		LightEmission = 0.8,
+		AttachmentHeight = 0.75,
+	},
+	GoldStar = {
+		DisplayName = "黄の星",
+		Price = 800,
+		Lifetime = 0.55,
+		ColorStart = Color3.fromRGB(255, 241, 140),
+		ColorEnd = Config.BrandColors.Accent,
+		TransparencyStart = 0.2,
+		LightEmission = 1,
+		AttachmentHeight = 0.85,
+	},
+	RedFlame = {
+		DisplayName = "赤の炎",
+		Price = 2000,
+		Lifetime = 0.65,
+		ColorStart = Config.BrandColors.Danger,
+		ColorEnd = Color3.fromRGB(255, 130, 50),
+		TransparencyStart = 0.15,
+		LightEmission = 1,
+		AttachmentHeight = 0.95,
+	},
+}
+
 -- Game Pass の一覧（所有確認やショップ表示で使う）
 Config.GamePassKeys = { "DoubleItem", "SparkleTrail" }
+Config.ShopProductOrder = { "ItemBox", "DoubleItem", "SparkleTrail" }
+
+function Config.ShopProductId(key)
+	if not table.find(Config.ShopProductOrder, key) then
+		return 0
+	end
+	local product = Config.Monetization[key]
+	return tonumber(product.ProductId or product.PassId) or 0
+end
 
 ---------------------------------------------------------------------
 -- 順位とコイン

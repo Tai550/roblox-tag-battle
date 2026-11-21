@@ -59,12 +59,6 @@ local gui = make("ScreenGui", nil, {
 UILayout.ApplySafeArea(gui)
 gui.Parent = playerGui
 
-local open = textControl("TextButton", gui, "管理", touchSize)
-open.Name = "AdminButton"
-open.AnchorPoint = Vector2.new(1, 0)
-open.Position = UDim2.new(1, -edge, 0.5, -math.max(touchSize, UILayout.BottomClearance / 2))
-open.Size = UDim2.fromOffset(72, touchSize)
-
 local overlay = make("Frame", gui, {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = background,
@@ -340,11 +334,14 @@ local function syncAdmin()
 		playerGui:SetAttribute("LobbyAdminOpen", nil)
 		requestPending = false
 	end
-	open.Visible = gui.Enabled and not overlay.Visible and not playerGui:GetAttribute("LobbyPanelOpen")
 end
 
-open.Activated:Connect(function()
-	if playerGui:GetAttribute("LobbyPanelOpen") then
+local function handleOpenRequest()
+	if playerGui:GetAttribute("LobbyAdminOpenRequest") ~= true then
+		return
+	end
+	playerGui:SetAttribute("LobbyAdminOpenRequest", nil)
+	if player:GetAttribute("IsAdmin") ~= true or playerGui:GetAttribute("LobbyPanelOpen") or overlay.Visible then
 		return
 	end
 	playerGui:SetAttribute("LobbyAdminOpen", true)
@@ -352,15 +349,16 @@ open.Activated:Connect(function()
 	syncAdmin()
 	feedback.Text = ""
 	request("Status")
-end)
+end
 close.Activated:Connect(function()
 	overlay.Visible = false
 	playerGui:SetAttribute("LobbyAdminOpen", nil)
 	syncAdmin()
 end)
 player:GetAttributeChangedSignal("IsAdmin"):Connect(syncAdmin)
-playerGui:GetAttributeChangedSignal("LobbyPanelOpen"):Connect(syncAdmin)
+playerGui:GetAttributeChangedSignal("LobbyAdminOpenRequest"):Connect(handleOpenRequest)
 syncAdmin()
+handleOpenRequest()
 
 task.spawn(function()
 	while true do

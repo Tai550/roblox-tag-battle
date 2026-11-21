@@ -3,7 +3,7 @@
 --   1. アイテムボックス（Developer Product）
 --      MarketplaceService.ProcessReceipt でレシートを受け取り、ProductId が
 --      Config.Monetization.ItemBox.ProductId と一致するときだけアイテムを付与する。
---      同じレシートを二重に付与しないよう、処理済みの PurchaseId をセッション内で記録する。
+--      同じレシートを二重に付与しないよう、PurchaseId と未受領数を同時に永続保存する。
 --   2. Game Pass（ダブルアイテム / キラキラトレイル）
 --      参加時と購入完了時（PromptGamePassPurchaseFinished）に UserOwnsGamePassAsync で
 --      所有を確認し、結果を GameState に持つ。購入直後から再参加なしで反映する。
@@ -18,6 +18,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
+local PlayerDataStore = require(script.Parent:WaitForChild("PlayerDataStore"))
 local SparkleTrail = require(script.Parent:WaitForChild("SparkleTrail"))
 
 local Monetization = {}
@@ -26,7 +27,7 @@ local OWNERSHIP_RETRIES = 3       -- 所有確認が通信エラーで失敗し�
 local RETRY_WAIT = 2              -- 再試行の間隔（秒）
 local PASS_REQUEST_COOLDOWN = 1   -- クライアントからの「所有状態を送って」の受付間隔（秒）
 
-local processedPurchaseIds = {}   -- [PurchaseId] = true  このサーバーで付与済みのレシート
+local loaded = {}                -- [Player] = 保存データの読み込み済み
 local lastPassRequest = {}        -- [Player] = 時刻
 
 local function isInGame(player)
@@ -93,13 +94,7 @@ local function applyPassEffects(player)
 		return
 	end
 	ItemManager.OnSlotsChanged(player) -- 枠数が変わったことをアイテム表示に送る
-	if player.Character then
-		if GameState.OwnsPass(player, "SparkleTrail") then
-			task.spawn(SparkleTrail.Attach, player.Character)
-		else
-			SparkleTrail.Detach(player.Character)
-		end
-	end
+	task.spawn(SparkleTrail.Refresh, player, player.Character)
 	sendPassUpdate(player)
 end
 
@@ -112,7 +107,7 @@ local function checkAllPasses(player)
 			if not isInGame(player) then
 				return
 			end
-			if checked then
+			if checked and not GameState.OwnsPass(player, passKey) then
 				GameState.SetPassOwned(player, passKey, owns)
 			end
 		end
@@ -153,36 +148,34 @@ end
 ---------------------------------------------------------------------
 
 local function processReceipt(receipt)
+	local granted = Enum.ProductPurchaseDecision.PurchaseGranted
+	local pending = Enum.ProductPurchaseDecision.NotProcessedYet
 	local purchaseId = receipt.PurchaseId
-
-	-- 同じレシートがもう一度届いたら、付与せずに「処理済み」と返す
-	if purchaseId ~= nil and processedPurchaseIds[purchaseId] then
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+	local itemBoxId = Config.ShopProductId("ItemBox")
+	if itemBoxId == 0 or receipt.ProductId ~= itemBoxId or type(purchaseId) ~= "string" or purchaseId == "" then
+		return pending
 	end
-
-	local itemBoxId = tonumber(Config.Monetization.ItemBox.ProductId) or 0
-	if itemBoxId == 0 or receipt.ProductId ~= itemBoxId then
-		-- 設定にない商品。付与しない（Roblox が後で再送する）
-		warn(string.format("[Monetization] 未設定の ProductId %s のレシートを受け取りました", tostring(receipt.ProductId)))
-		return Enum.ProductPurchaseDecision.NotProcessedYet
-	end
-
 	local player = Players:GetPlayerByUserId(receipt.PlayerId)
-	if not player then
-		-- このサーバーにいない（退出済みなど）。次に参加したときに Roblox が再送する
-		return Enum.ProductPurchaseDecision.NotProcessedYet
+	local deadline = os.clock() + 30
+	while isInGame(player) and not loaded[player] and os.clock() < deadline do
+		task.wait(0.1)
+	end
+	if not isInGame(player) or not loaded[player] then
+		return pending
 	end
 
-	local ok, granted = pcall(ItemManager.GrantItemBox, player)
-	if not ok or not granted then
-		warn("[Monetization] アイテムボックスの付与に失敗: " .. tostring(granted))
-		return Enum.ProductPurchaseDecision.NotProcessedYet
+	local ok, saved, added = pcall(PlayerDataStore.AddItemBox, player, purchaseId)
+	if not ok or not saved then
+		warn("[Monetization] アイテムボックスの保存に失敗", receipt.PlayerId)
+		return pending
 	end
-
-	if purchaseId ~= nil then
-		processedPurchaseIds[purchaseId] = true
+	if isInGame(player) then
+		if added and (GameState.Phase ~= "Round" or not GameState.IsParticipant(player)) then
+			Remotes.NotifyPlayer(player, "アイテムボックスは次のラウンドで受け取れます")
+		end
+		task.spawn(ItemManager.DeliverSavedItemBoxes, player)
 	end
-	return Enum.ProductPurchaseDecision.PurchaseGranted
+	return granted
 end
 
 ---------------------------------------------------------------------
@@ -192,9 +185,7 @@ end
 local function onPlayerAdded(player)
 	-- 再出現のたびにトレイルを付け直す（部品はキャラクターと一緒に消えるため）
 	player.CharacterAdded:Connect(function(character)
-		if GameState.OwnsPass(player, "SparkleTrail") then
-			SparkleTrail.Attach(character)
-		end
+		SparkleTrail.Refresh(player, character)
 	end)
 	task.spawn(checkAllPasses, player)
 end
@@ -209,6 +200,13 @@ local function onPassStateRequest(player)
 	sendPassUpdate(player)
 end
 
+-- DeckManager の Load 完了後に保存済みの見た目と購入を反映する。
+function Monetization.OnDataLoaded(player)
+	loaded[player] = true
+	task.spawn(SparkleTrail.Refresh, player, player.Character)
+	task.spawn(ItemManager.DeliverSavedItemBoxes, player)
+end
+
 function Monetization.Init()
 	-- ProcessReceipt は1つのゲームで1か所だけ設定できる
 	MarketplaceService.ProcessReceipt = processReceipt
@@ -221,6 +219,7 @@ function Monetization.Init()
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		lastPassRequest[player] = nil
+		loaded[player] = nil
 	end)
 end
 

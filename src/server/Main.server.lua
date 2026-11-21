@@ -18,7 +18,10 @@ AdminManager.Init() -- 入室時の BAN 確認と管理者画面の受付
 Leaderstats.Init()
 RankManager.Init()   -- 段位の読み込み（leaderstats を作ったあと）
 MatchSession.Init()  -- すぐ遊ぶ／友達部屋／ひとり／Studio の判定とロビーへの移動
-DeckManager.Init(ItemManager.SendItemUpdate) -- デッキと召喚獣を読み込み、HUD に送る
+DeckManager.Init(function(player)
+	ItemManager.SendItemUpdate(player)
+	Monetization.OnDataLoaded(player)
+end) -- デッキと召喚獣を読み込み、HUD に送る
 ItemManager.Init()
 RoundManager.Init()
 Monetization.Init()  -- 課金（Game Pass の所有確認・トレイル）

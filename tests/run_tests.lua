@@ -19,6 +19,7 @@ RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.MapBuilder = require("./.build/MapBuilder")
 RT.modules.VoltGimmicks = require("./.build/VoltGimmicks")
 RT.modules.ItemManager = require("./.build/ItemManager")
+RT.modules.TaggerSkills = require("./.build/TaggerSkills")
 RT.modules.TaggerLook = require("./.build/TaggerLook")
 RT.modules.BotManager = require("./.build/BotManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
@@ -58,6 +59,46 @@ local function near(a, b)
 end
 local function point(x, y, z)
 	return { Position = Vector3.new(x, y, z) }
+end
+
+---------------------------------------------------------------------
+-- ロビーメニュー：権限別の表示と項目の並び
+---------------------------------------------------------------------
+
+do
+	local LobbyMenu = require("./.build/LobbyMenu")
+	local function itemIds(items)
+		local ids = {}
+		for _, item in ipairs(items) do
+			table.insert(ids, item.Id)
+		end
+		return ids
+	end
+
+	local expected = "Status,Deck,Shop,Store,Room,Roulette,Beasts,Trade,Solo"
+	check("ロビーメニュー：一般プレイヤーは9項目を定義順に表示",
+		table.concat(itemIds(LobbyMenu.VisibleItems(false)), ",") == expected)
+
+	local adminIds = itemIds(LobbyMenu.VisibleItems(true))
+	check("ロビーメニュー：管理者は管理を含む10項目を定義順に表示",
+		table.concat(adminIds, ",") == expected .. ",Admin")
+
+	local items = LobbyMenu.VisibleItems(false)
+	check("ロビーメニュー：先頭にステータスを表示",
+		items[1].Id == "Status" and items[1].Label == "ステータス")
+	check("ロビーメニュー：アイテム購入とショップのラベル",
+		items[3].Id == "Shop" and items[3].Label == "アイテム購入"
+		and items[4].Id == "Store" and items[4].Label == "ショップ")
+
+	local seen = {}
+	local unique = true
+	for _, id in ipairs(adminIds) do
+		if seen[id] then
+			unique = false
+		end
+		seen[id] = true
+	end
+	check("ロビーメニュー：項目IDに重複がない", unique)
 end
 
 ---------------------------------------------------------------------
@@ -193,7 +234,7 @@ do
 			count = count + 1
 		end
 	end
-	check("アイテムは全部で16種（既存6＋追加10）", count == 16 and #Config.ItemOrder == 16)
+	check("基本アイテムは全部で28種", count == 28 and #Config.ItemOrder == 28)
 	local tierOk = true
 	for _, itemId in ipairs(Config.ItemOrder) do
 		local def = Config.Items[itemId]
@@ -274,6 +315,26 @@ do
 end
 
 ---------------------------------------------------------------------
+-- デッキの組み合わせ
+---------------------------------------------------------------------
+
+do
+	local highJump = Config.FindCombos({ "Grapple", "HighJump" })
+	check("コンボ：2つのアイテムが順不同でそろうと発動する",
+		#highJump == 1 and highJump[1].Id == "HighJumpGrapple")
+	check("コンボ：片方だけや同じアイテムの重複では発動しない",
+		#Config.FindCombos({ "HighJump", "HighJump" }) == 0)
+	local double = Config.FindCombos({ "Reflect", "Grapple", "Shield", "HighJump" })
+	check("コンボ：4枠で2組が同時に発動する",
+		#double == 2 and double[1].Id == "HighJumpGrapple" and double[2].Id == "ShieldReflect")
+	check("コンボ：ダンジョン固有アイテムだけでは発動しない",
+		#Config.FindCombos({ "Phase", "SpikeBoots", "Insulate", "SafetyLine" }) == 0)
+	check("コンボ：表示にはアイテム名と効果説明を使う",
+		Config.ItemComboText(highJump[1]) == Config.Items.HighJump.DisplayName .. " ＋ "
+			.. Config.Items.Grapple.DisplayName .. "\n移動速度 +3%")
+end
+
+---------------------------------------------------------------------
 -- 6. ゾーン開始の結合テスト（予備ポイントのマップを想定）
 ---------------------------------------------------------------------
 
@@ -321,6 +382,17 @@ do
 	ZoneManager.Tick()
 	check("次の判定でスタミナが尽きて強制送還される",
 		data.ZoneReturns == 1 and data.ZoneStamina == Config.ZoneStaminaMax)
+
+	root.Position = ZoneManager.GetCenter()
+	data.ZoneStamina = 10
+	data.ActiveCombos.ShieldReflect = true
+	now += 1
+	ZoneManager.Tick()
+	check("コンボ：エリアに戻ったときのスタミナ回復が1.5倍",
+		near(data.ZoneStamina, 10 + Config.ZoneRegenPerSecond * 1.5))
+	now += 10
+	ZoneManager.Tick()
+	check("コンボ：回復はスタミナの上限を超えない", data.ZoneStamina == Config.ZoneStaminaMax)
 
 	ZoneManager.Stop()
 	GameState.Now = realNow
@@ -1159,6 +1231,24 @@ do
 	check("ボット無効なら人数が足りなくても補充しない", BotManager.CountToSpawn(3) == 0)
 	Config.BotsEnabled = savedEnabled
 
+	local tallyStrength = RoundManager.TallyBotStrengthVotes
+	local choice, strengthCounts = tallyStrength({})
+	check("ボットの強さ投票：無投票はおまかせで全選択肢が0票",
+		choice == "Auto" and strengthCounts.Weak == 0 and strengthCounts.Normal == 0
+		and strengthCounts.Strong == 0 and strengthCounts.Auto == 0)
+	choice, strengthCounts = tallyStrength({ "Weak", "Normal", "Strong", "Strong", "Auto" })
+	check("ボットの強さ投票：単独最多のつよいを採用",
+		choice == "Strong" and strengthCounts.Strong == 2 and strengthCounts.Auto == 1)
+	check("ボットの強さ投票：最多が同数ならおまかせ",
+		tallyStrength({ "Weak", "Weak", "Normal", "Normal", "Strong" }) == "Auto")
+	choice, strengthCounts = tallyStrength({ "Unknown", {}, false, 3, "Weak" })
+	check("ボットの強さ投票：有効な票だけを数える",
+		choice == "Weak" and strengthCounts.Weak == 1 and strengthCounts.Unknown == nil)
+	check("ボットの強さ投票：無効票だけならおまかせ",
+		tallyStrength({ "Unknown", {}, false, 3 }) == "Auto")
+	check("ボットの強さ投票：おまかせも投票できる",
+		tallyStrength({ "Auto", "Auto", "Weak" }) == "Auto")
+
 	check("RP 0 は段位表の1（ブロンズ）", BotManager.TierIndexForRP(0) == 1)
 	check("RP 250 は段位表の3（ゴールド）", BotManager.TierIndexForRP(250) == 3)
 	check("RP 1300 は段位表の6（マスター）", BotManager.TierIndexForRP(1300) == 6)
@@ -1489,11 +1579,21 @@ do
 	end
 	local masterA = makeRanked(91001, 1300)
 	local masterB = makeRanked(91002, 1300)
-	BotManager.Fill({ masterA, masterB })
-	local strong = BotManager.GetActive()
+	BotManager.SetRoundStrengthChoice("Weak")
+	local weak, fixedAverage = BotManager.Fill({ masterA, masterB })
+	local weakSpeed, weakInterval = BotManager.StrengthForTierIndex(1)
+	local weakOk = #weak == 6 and fixedAverage == nil
+	for _, bot in ipairs(weak) do
+		weakOk = weakOk and bot.SpeedMultiplier == weakSpeed and bot.RepathInterval == weakInterval
+	end
+	check("ボットの強さ：補充では参加者の平均段位より投票結果を優先", weakOk)
+
+	BotManager.SetRoundStrengthChoice("Auto")
+	local strong, averageTier = BotManager.Fill({ masterA, masterB })
 	local strongOk = #strong == 6
+	local _, strongInterval = BotManager.StrengthForTierIndex(#Config.RankTiers)
 	for _, spawnedBot in ipairs(strong) do
-		if spawnedBot.SpeedMultiplier ~= Config.BotSpeedMultiplierCap then
+		if spawnedBot.SpeedMultiplier ~= Config.BotSpeedMultiplierCap or spawnedBot.RepathInterval ~= strongInterval then
 			strongOk = false
 		end
 		local botHumanoid = spawnedBot.Character and spawnedBot.Character:FindFirstChildOfClass("Humanoid")
@@ -1501,8 +1601,26 @@ do
 			strongOk = false
 		end
 	end
-	check("人間の平均がマスターなら倍率は上限で、歩く速さに掛かる", strongOk)
-	BotManager.DespawnAll()
+	check("おまかせ：平均がマスターなら速さと経路間隔に最上位の設定を使う",
+		strongOk and averageTier == #Config.RankTiers)
+
+	for _, expected in ipairs({
+		{ Id = "Weak", TierIndex = 1 },
+		{ Id = "Normal", TierIndex = 3 },
+		{ Id = "Strong", TierIndex = #Config.RankTiers },
+	}) do
+		BotManager.SetRoundStrengthChoice(expected.Id)
+		local bot = BotManager.Spawn(1, { SoloCap = true })[1]
+		local speed, interval = BotManager.StrengthForTierIndex(expected.TierIndex)
+		check("ボットの強さ：ソロの段位対応と速度上限 " .. expected.Id,
+			bot.SpeedMultiplier == speed and bot.RepathInterval == interval and bot.SoloCap
+			and near(GameState.GetHumanoid(bot).WalkSpeed, math.min(Config.NormalWalkSpeed * speed, Config.BotRunnerWalkSpeed)))
+	end
+	BotManager.Clear()
+	local defaultBot = BotManager.Spawn(1)[1]
+	check("ボットの強さ：ラウンド終了後のソロは既定の強さに戻る",
+		defaultBot.SpeedMultiplier == 1 and defaultBot.RepathInterval == nil)
+	BotManager.Clear()
 
 	GameState.Phase = "Waiting"
 	GameState.Taggers = {}
@@ -1539,7 +1657,7 @@ do
 		}
 	end
 	RT.workspace._raycast = function(origin, direction)
-		if direction.Y < 0 then
+		if direction.Y < 0 and direction.X == 0 and direction.Z == 0 then
 			local y = math.abs(origin.X) <= 4 and math.abs(origin.Z) <= 4 and 6 or 0
 			if origin.Y >= y then
 				return { Position = Vector3.new(origin.X, y, origin.Z) }
@@ -1636,7 +1754,7 @@ do
 
 	runnerRoot.Position += Vector3.new(0, 30, 0)
 	RT.workspace._raycast = function(origin, direction)
-		if direction.Y < 0 then
+		if direction.Y < 0 and direction.X == 0 and direction.Z == 0 then
 			local y = math.abs(origin.X) <= 4 and math.abs(origin.Z) <= 4 and 36 or 0
 			if origin.Y >= y then
 				return { Position = Vector3.new(origin.X, y, origin.Z) }
@@ -1701,6 +1819,155 @@ do
 	GameState.Now = realNow
 	GameState.Phase, MapBuilder.CurrentMap = oldPhase, oldMap
 	service.CreatePath, RT.workspace._raycast = oldCreatePath, oldRaycast
+end
+
+---------------------------------------------------------------------
+-- 鬼ボットの視界、切り返し、疲れ
+do
+	local cfg = Config.BotChase
+	local start, ramp = cfg.FatigueStartSeconds, cfg.FatigueRampSeconds
+	local fatigue = BotManager.ChaseFatigueMultiplier
+	check("鬼ボットの疲れは20秒まで速度を落とさない", fatigue(0) == 1 and fatigue(20) == 1)
+	check("鬼ボットの疲れは段階的に進み最大5%で止まる",
+		near(fatigue(start + ramp / 2), 0.975) and near(fatigue(start + ramp), 0.95)
+		and near(fatigue(start + 10 * ramp), 0.95))
+
+	local oldHeading, newHeading = Vector3.new(16, 0, 0), Vector3.new(-16, 0, 0)
+	local err = BotManager.ChaseTurnError(oldHeading, newHeading, cfg.TurnWindowSeconds)
+	local position = Vector3.new(10, 4, 0)
+	local predicted = BotManager.PredictPosition(position, newHeading)
+	check("鬼ボットは急な切り返しで前の方向に6スタッド狙いを外す",
+		err and near(BotManager.ChaseAim(position, newHeading, err, cfg.ErrorSeconds, 0).X, predicted.X + 6))
+	check("鬼ボットの狙いの誤差は0.8秒で消える",
+		err and near(BotManager.ChaseAim(position, newHeading, err, cfg.ErrorSeconds, 0.8).X, predicted.X))
+	check("同方向、停止、時間をおいた反転は切り返しとして扱わない",
+		not BotManager.ChaseTurnError(oldHeading, oldHeading, 0)
+		and not BotManager.ChaseTurnError(oldHeading, Vector3.new(0, 20, 0), 0)
+		and not BotManager.ChaseTurnError(oldHeading, newHeading, cfg.TurnWindowSeconds + 0.1))
+	local _, lostReason = BotManager.LostChaseGoal(position, Vector3.new(0, 4, 0), 0, nil, cfg.LastSeenTimeout)
+	check("鬼ボットは最後に見た場所への到達が困難なら打ち切る", lostReason == "idle")
+
+	local now = 100
+	local oldNow, oldRay = GameState.Now, RT.workspace._raycast
+	local oldPhase, oldMap = GameState.Phase, MapBuilder.CurrentMap
+	local oldTimeLeft = GameState.TimeLeft
+	GameState.Now = function() return now end
+	GameState.Phase, MapBuilder.CurrentMap = "Round", "Arena"
+	GameState.TimeLeft = math.huge
+	local bot, runner, other = table.unpack(BotManager.Spawn(3))
+	runner.IsBot = nil -- 人間の逃げ手として速度を計算する
+	local speed, interval = BotManager.StrengthForTierIndex(5) -- ダイヤ
+	bot.SpeedMultiplier, bot.RepathInterval = speed, interval
+	GameState.Taggers[bot] = { NoTagBack = other }
+	local root, humanoid = GameState.GetRootPart(bot), GameState.GetHumanoid(bot)
+	local runnerRoot = GameState.GetRootPart(runner)
+	root.Position, runnerRoot.Position = Vector3.new(0, 4, 0), position
+	local head = bot.Character:FindFirstChild("Head")
+	head.Position = Vector3.new(0, 5.5, 0)
+	local hidden, casts, lastOrigin, lastParams = false, 0
+	local hiddenX
+	RT.workspace._raycast = function(origin, direction, params)
+		if params.IgnoreWater then
+			casts += 1
+			lastOrigin, lastParams = origin, params
+			if hidden or (hiddenX and near(origin.X + direction.X, hiddenX)) then
+				return { Position = origin }
+			end
+		end
+		return nil
+	end
+	local destination
+	humanoid.MoveTo = function(_, goal) destination = goal end
+	GameState.RefreshSpeed(bot)
+	BotManager.Tick()
+	check("鬼ボットの視線は頭から始まりキャラクターを除外する",
+		casts == 1 and lastOrigin == head.Position and lastParams.RespectCanCollide
+		and table.find(lastParams.FilterDescendantsInstances, bot.Character)
+		and table.find(lastParams.FilterDescendantsInstances, runner.Character))
+	hidden = true
+	runnerRoot.Position = Vector3.new(30, 4, 0)
+	now += Config.BotDecisionInterval + 0.01
+	BotManager.Tick()
+	check("再計算間隔の途中は視線を撃たず最後の観測位置を維持する",
+		casts == 1 and destination == position)
+	now += interval
+	BotManager.Tick()
+	check("遮られた逃げ手の現在位置を使わず最後に見た場所へ向かう",
+		bot.GoalReason == "lastSeen" and destination == position)
+
+	root.Position = position
+	now += Config.BotDecisionInterval + 0.01
+	BotManager.Tick()
+	check("最後に見た場所に到着すると鬼ボットはその場で探す",
+		bot.GoalReason == "search" and bot.GoalPlayer == runner)
+	now += cfg.SearchSeconds - 0.1
+	BotManager.Tick()
+	check("捜索時間内は隠れている逃げ手の目標を保持する", bot.GoalReason == "search")
+	now += 0.2
+	BotManager.Tick()
+	check("捜索時間を過ぎると鬼ボットは目標を諦める",
+		bot.GoalReason == "idle" and bot.GoalPlayer == nil and bot.Chase.StartedAt == nil)
+
+	hidden = false
+	now += interval + 0.01
+	BotManager.Tick()
+	now += start + ramp + 0.01
+	BotManager.Tick()
+	check("長く追った鬼ボットの実際の速度に疲れが掛かる",
+		near(humanoid.WalkSpeed, Config.TaggerWalkSpeed * speed * (1 - cfg.FatigueMaxReduction)))
+	root.Position = runnerRoot.Position
+	hiddenX = runnerRoot.Position.X
+	GameState.Taggers[bot].NoTagBack = nil
+	now += interval + 0.01
+	BotManager.Tick()
+	check("捜索時に見えた別の逃げ手に切り替わると鬼ボットの速度が戻る",
+		bot.GoalPlayer == other and near(humanoid.WalkSpeed, Config.TaggerWalkSpeed * speed))
+
+	local otherRoot = GameState.GetRootPart(other)
+	otherRoot.Position = Vector3.new(8, 4, 10)
+	otherRoot.AssemblyLinearVelocity = oldHeading
+	now += interval + 0.01
+	BotManager.Tick()
+	otherRoot.AssemblyLinearVelocity = newHeading
+	now += interval + 0.01
+	BotManager.Tick()
+	check("観測した切り返しの誤差が鬼ボットの移動先に反映される",
+		bot.GoalAimError and near(destination.X, 8 - 16 * Config.BotPredictionTime + cfg.ErrorDistance))
+	now += cfg.ErrorSeconds + 0.01
+	BotManager.Tick()
+	check("誤差の期限が切れると通常の先読みに戻る",
+		not bot.GoalAimError and near(destination.X, 8 - 16 * Config.BotPredictionTime))
+
+	hiddenX = nil
+	GameState.GetData(other).SneakUntil = now + 10
+	now += interval + 0.01
+	BotManager.Tick()
+	check("追跡中の相手がしのび足を使うと視界内の別の逃げ手に切り替える", bot.GoalPlayer == runner)
+	GameState.GetData(runner).SneakUntil = now + 10
+	now += interval + 0.01
+	BotManager.Tick()
+	check("見えている逃げ手全員がしのび足中でも追跡を続ける", bot.GoalPlayer == runner)
+	local castsBeforeInvalidation = casts
+	GameState.Taggers[bot].NoTagBack = runner
+	now += Config.BotDecisionInterval + 0.01
+	BotManager.Tick()
+	check("目標が無効になっても次の経路再計算時刻までは視線レイを追加しない",
+		bot.GoalPlayer == nil and casts == castsBeforeInvalidation)
+	now += interval
+	BotManager.Tick()
+	check("次の視界確認では無効な目標を除き別の相手を追える", bot.GoalPlayer == other)
+
+
+	GameState.TimeLeft = Config.TaggerSkills.LateBoost.FinalSeconds
+	GameState.RefreshSpeed(bot)
+	GameState.GetData(runner).DashUntil = now + Config.Items.Dash.Duration
+	GameState.RefreshSpeed(runner)
+	check("逃げ手のダッシュ速度は終盤でもダイヤの鬼ボットの通常速度を上回る",
+		GameState.GetHumanoid(runner).WalkSpeed > humanoid.WalkSpeed)
+
+	BotManager.DespawnAll()
+	GameState.Now, RT.workspace._raycast = oldNow, oldRay
+	GameState.Phase, MapBuilder.CurrentMap, GameState.TimeLeft = oldPhase, oldMap, oldTimeLeft
 end
 
 ---------------------------------------------------------------------
@@ -1898,7 +2165,19 @@ do
 	heartbeat:_Fire(1 / 60)
 	check("ボットの氷上滑走はスタン中と解除後に再開しない",
 		slid and botStopped and iceRoot.AssemblyLinearVelocity.X == 0)
+	local park = advanceTo("Park")
+	player.Character:SetAttribute("IcePatch", true)
+	iceBot.Character:SetAttribute("IcePatch", true)
+	root.AssemblyLinearVelocity = initialVelocity
+	iceRoot.AssemblyLinearVelocity = initialVelocity
+	postSimulation:_Fire(1 / 60)
+	heartbeat:_Fire(1 / 60)
+	check("氷床以外でも氷パッチ上で人間とボットが滑る", park
+		and root.AssemblyLinearVelocity.X < initialVelocity.X and iceRoot.AssemblyLinearVelocity.X < initialVelocity.X)
+	player.Character:SetAttribute("IcePatch", nil)
+	iceBot.Character:SetAttribute("IcePatch", nil)
 	BotManager.DespawnAll()
+	advanceTo("Ice")
 
 	give("SpikeBoots")
 	ItemManager.TryUse(player, 1)
@@ -2346,17 +2625,34 @@ do
 		assert(ok, debug.traceback(round, tostring(delay)))
 		now += delay
 	end
-	local function startTestRound()
+	local function startTestRound(onIntermission)
+		local voted = false
 		local round = coroutine.create(RoundManager.Run)
 		for _ = 1, Config.IntermissionTime + 2 do
 			stepRound(round)
+			if onIntermission and not voted and GameState.Phase == "Intermission" then
+				onIntermission()
+				voted = true
+			end
 			if GameState.Phase == "Round" then
 				return round
 			end
 		end
 		error("テストのラウンドが始まらなかった")
 	end
+	assert(PlayerDataStore.AddCoins(tagger, Config.Items.Star.Price, false))
+	assert(PlayerDataStore.BuyItem(tagger, "Star"))
+	assert(PlayerDataStore.SetDeck(tagger, { "Dash", "Star", "Banana", "Shield" }))
+	PlayerDataStore.Forget(tagger)
+	PlayerDataStore.Load(tagger)
 	local round = startTestRound()
+	check("ラウンド開始時に読み込んだ保存デッキから参加者本人のコンボを発動する",
+		GameState.GetData(tagger).ActiveCombos.StarDash == true
+		and next(GameState.GetData(runner).ActiveCombos) == nil)
+	table.insert(roster, extraB)
+	check("ラウンド開始後に入室した観戦者にはコンボを付けない",
+		not GameState.IsParticipant(extraB) and next(GameState.GetData(extraB).ActiveCombos) == nil)
+	table.remove(roster)
 	local originalTaggers = GameState.TaggerList()
 	local lastRunner = next(GameState.Uncaught)
 	assert(GameState.Phase == "Round" and #originalTaggers == 2 and lastRunner)
@@ -2383,6 +2679,269 @@ do
 		GameState.Phase == "Results" and #GameState.Winners == 0
 		and GameState.Results[1].UserId == formerTagger.UserId and GameState.Results[1].Status ~= "優勝"
 		and formerTagger:GetAttribute("RoundRP") == 0)
+
+	-- モード投票とサドンデスを、実際のラウンド進行とタッチ判定で確認する。
+	local tally = RoundManager.TallyModeVotes
+	local mode, counts = tally({})
+	check("モード投票：無投票は通常", mode == "Normal" and counts.Normal == 0 and counts.SuddenDeath == 0)
+	mode, counts = tally({ "Normal", "SuddenDeath", "SuddenDeath", {}, false, "Solo" })
+	check("モード投票：多数決でサドンデスを選び、想定外の投票を除外",
+		mode == "SuddenDeath" and counts.Normal == 1 and counts.SuddenDeath == 2 and counts.Solo == nil)
+	check("モード投票：同数は通常", tally({ "Normal", "SuddenDeath" }) == "Normal")
+	check("モード投票：通常の票が多ければ通常", tally({ "Normal", "Normal", "SuddenDeath" }) == "Normal")
+
+	local packet
+	Remotes.StateUpdate.FireAllClients = function(_, payload) packet = payload end
+	Remotes.ModeVote.OnServerEvent:_Fire(tagger, "SuddenDeath")
+	check("モード投票：結果表示中の投票は無効", packet == nil)
+	Remotes.BotStrengthVote.OnServerEvent:_Fire(tagger, "Strong")
+	check("ボットの強さ投票：結果表示中の投票は無効", packet == nil)
+
+	local function voteSuddenDeath()
+		local vote = Remotes.ModeVote.OnServerEvent
+		vote:_Fire({ IsBot = true }, "Normal")
+		vote:_Fire(tagger, "Unknown")
+		check("モード投票：新しい投票で票をリセットし、ボット・無効票を拒否",
+			packet.ModeVoteCounts.Normal == 0 and packet.ModeVoteCounts.SuddenDeath == 0)
+		vote:_Fire(tagger, "Normal")
+		vote:_Fire(tagger, "SuddenDeath")
+		check("モード投票：投票変更で前の票を置き換える",
+			packet.ModeVoteCounts.Normal == 0 and packet.ModeVoteCounts.SuddenDeath == 1)
+	end
+
+	Config.BotsEnabled = true
+	local savedPrepare = MapBuilder.PrepareRound
+	MapBuilder.PrepareRound = function(chosenId)
+		local before = packet
+		Remotes.ModeVote.OnServerEvent:_Fire(tagger, "SuddenDeath")
+		Remotes.BotStrengthVote.OnServerEvent:_Fire(tagger, "Strong")
+		Remotes.MapVote.OnServerEvent:_Fire(tagger, Config.MatchMaps[1].Id)
+		Remotes.DurationVote.OnServerEvent:_Fire(tagger, Config.MatchDurations[1])
+		check("投票：マップ準備中はフェーズ表示がインターバルでも4種類とも受付を終了",
+			GameState.Phase == "Intermission" and packet == before)
+		return savedPrepare(chosenId)
+	end
+	round = startTestRound(function()
+		tagger:SetAttribute("AdminAdmissionPending", true)
+		local before = packet
+		Remotes.ModeVote.OnServerEvent:_Fire(tagger, "SuddenDeath")
+		check("投票：入室照会中のプレイヤーは受付対象外", packet == before)
+		tagger:SetAttribute("AdminAdmissionPending", nil)
+		Remotes.BotStrengthVote.OnServerEvent:_Fire(runner, "Normal")
+	end)
+	MapBuilder.PrepareRound = savedPrepare
+	local normalSpeed, normalRepath = BotManager.StrengthForTierIndex(3)
+	local normalBots = BotManager.GetActive()
+	local normalStrengthOk = #normalBots > 0
+	for _, bot in ipairs(normalBots) do
+		normalStrengthOk = normalStrengthOk and bot.SpeedMultiplier == normalSpeed and bot.RepathInterval == normalRepath
+	end
+	check("通常モード：選んだ強さを表示し、補充した全ボットに適用",
+		packet.GameMode == "Normal" and packet.BotStrengthName == "ふつう" and normalStrengthOk)
+	now += GameState.ChosenDuration
+	stepRound(round)
+
+	-- 人間とボットが混在しても最初の鬼は人間から選ぶ。
+	round = startTestRound(voteSuddenDeath)
+	local hunter = GameState.TaggerList()[1]
+	check("サドンデス：ボット混在時も人間2人以上なら人間の鬼が1人",
+		#BotManager.GetActive() > 0 and #GameState.TaggerList() == 1 and not BotManager.IsBot(hunter)
+		and packet.Mode == RT.modules.MatchSession.Mode and packet.GameMode == "SuddenDeath"
+		and packet.RunnersLeft == GameState.CountParticipants() - 1)
+	check("おまかせ：平均段位でボットを補充したラウンドは段位名を併記",
+		packet.BotStrengthName:sub(1, #"おまかせ（") == "おまかせ（")
+	now += GameState.ChosenDuration
+	stepRound(round)
+
+	Config.BotsEnabled = false
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	local left, last
+	for player in pairs(GameState.Uncaught) do
+		if left then last = player else left = player end
+	end
+	place(GameState.GetRootPart(hunter), CFrame.new(0, 0, 0))
+	place(GameState.GetRootPart(left), CFrame.new(0, 0, -2))
+	place(GameState.GetRootPart(last), CFrame.new(25, 0, 0))
+	now += Config.TagCooldown
+	local leftData = GameState.GetData(left)
+	leftData.StarUntil = now + 1
+	RoundManager.TryTag()
+	check("サドンデス：スターで無効になったタッチでは脱落も加点も起きない",
+		GameState.IsParticipant(left) and GameState.Uncaught[left] and hunter:GetAttribute("RoundRP") == 0)
+	leftData.StarUntil = 0
+	leftData.ActiveCombos.HighJumpGrapple = true
+	GameState.RefreshSpeed(left)
+	local outgoing = { IsBot = true, UserId = math.huge }
+	GameState.Taggers[outgoing] = { Since = 0 }
+	RoundManager.TryTag()
+	check("タッチで鬼一覧が変わっても解除済みの鬼では判定しない", not GameState.IsTagger(outgoing))
+	GameState.ClearData(outgoing)
+	check("脱落して観戦に移ると発動中のコンボと速度効果を解除する",
+		next(leftData.ActiveCombos) == nil and GameState.GetHumanoid(left).WalkSpeed == Config.NormalWalkSpeed)
+	check("サドンデス：タッチで逃げ手だけが脱落し、鬼と残り人数が正しい",
+		#GameState.TaggerList() == 1 and GameState.IsTagger(hunter)
+		and not GameState.IsParticipant(left) and RoundManager.IsEliminated(left)
+		and packet.RunnersLeft == 1 and not GameState.Uncaught[left] and GameState.Uncaught[last])
+	check("サドンデス：タッチで鬼に6RP、脱落者に4RPと試合統計を加算",
+		hunter:GetAttribute("RoundRP") == 6 and left:GetAttribute("RoundRP") == 4
+		and hunter:GetAttribute("RoundTags") == 1 and left:GetAttribute("RoundCaught") == 1
+		and GameState.TagCounts[left] == 1)
+	place(GameState.GetRootPart(last), CFrame.new(0, 0, -2))
+	stepRound(round)
+	check("サドンデス：全員タッチで鬼の勝ち、鬼に全員捕獲14RP",
+		GameState.Phase == "Results" and GameState.Message == "鬼の勝ち！"
+		and #GameState.Winners == 0 and hunter:GetAttribute("RoundRP") == 6 * 2 + 14
+		and last:GetAttribute("RoundRP") == 4 and GameState.Results[1].Status == "最後の鬼"
+		and GameState.Results[2].Status == "脱落")
+
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	left = next(GameState.Uncaught)
+	last = next(GameState.Uncaught, left)
+	ZoneManager.OnEliminate(left)
+	now += GameState.ChosenDuration
+	stepRound(round)
+	check("サドンデス：時間切れで生存者が優勝し20RP、ゾーン脱落者は0RP",
+		GameState.Phase == "Results" and #GameState.Winners == 1 and GameState.Winners[1] == last
+		and GameState.Results[1].Status == "優勝" and GameState.Results[1].Coins == Config.CoinRewards.Champion
+		and last:GetAttribute("RoundRP") == 20 and left:GetAttribute("RoundRP") == 0
+		and hunter:GetAttribute("RoundRP") == 0)
+
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	left = next(GameState.Uncaught)
+	last = next(GameState.Uncaught, left)
+	ZoneManager.OnEliminate(left)
+	RoundManager.ApplyTag(hunter, last)
+	check("サドンデス：ゾーン脱落を全員捕獲に含めない",
+		GameState.Uncaught[left] and not GameState.Uncaught[last]
+		and hunter:GetAttribute("RoundRP") == 6 and left:GetAttribute("RoundRP") == 0)
+	stepRound(round)
+	check("サドンデス：ゾーン脱落とタッチで逃げ手が全滅しても鬼の勝ち",
+		GameState.Phase == "Results" and GameState.Message == "鬼の勝ち！")
+
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	local skillUpdates = {}
+	local skillRemote = Remotes.TaggerSkillUpdate
+	Remotes.TaggerSkillUpdate = { FireClient = function(_, recipient, info) skillUpdates[recipient] = info end }
+	local taggerSkills = RT.modules.TaggerSkills
+	taggerSkills.Use(hunter, "Smell")
+	assert(skillUpdates[hunter].Smell)
+	players.PlayerRemoving:_Fire(hunter)
+	check("鬼が退出すると嗅覚を解除してから試合データを削除する",
+		skillUpdates[hunter].Smell == nil and GameState.AllData()[hunter] == nil)
+	local replacement = GameState.TaggerList()[1]
+	check("サドンデス：鬼の退出時に残った参加者から鬼を1人選ぶ",
+		replacement and replacement ~= hunter and #GameState.TaggerList() == 1
+		and GameState.IsParticipant(replacement) and packet.RunnersLeft == 1)
+	taggerSkills.Use(replacement, "Smell")
+	assert(skillUpdates[replacement].Smell)
+	ZoneManager.OnEliminate(replacement, "落下")
+	check("落下で鬼が観戦に移ると嗅覚を即時解除する",
+		skillUpdates[replacement].Smell == nil and GameState.GetData(replacement).TaggerSmellUntil == 0)
+	local finalTagger = GameState.TaggerList()[1]
+	check("サドンデス：鬼が落下したら残り1人でも新しい鬼を選ぶ",
+		finalTagger and finalTagger ~= replacement and #GameState.TaggerList() == 1 and packet.RunnersLeft == 0)
+	stepRound(round)
+
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	left = next(GameState.Uncaught)
+	check("サドンデス：管理画面の鬼指定で鬼を交代できる",
+		RoundManager.SetAdminTagger(left) and GameState.IsTagger(left)
+		and not GameState.IsTagger(hunter) and #GameState.TaggerList() == 1 and packet.RunnersLeft == 2)
+	now += GameState.ChosenDuration
+	stepRound(round)
+
+	round = startTestRound(voteSuddenDeath)
+	local remainingRunner = next(GameState.Uncaught)
+	local endingTagger = GameState.TaggerList()[1]
+	taggerSkills.Use(endingTagger, "Smell")
+	assert(skillUpdates[endingTagger].Smell)
+	assert(RoundManager.RequestEnd())
+	stepRound(round)
+	check("管理者の強制終了で鬼本人の嗅覚表示を解除する",
+		skillUpdates[endingTagger].Smell == nil and GameState.GetData(endingTagger).TaggerSmellUntil == 0)
+	Remotes.TaggerSkillUpdate = skillRemote
+	check("サドンデス：管理者の途中終了を時間切れの優勝・生存RPとして扱わない",
+		GameState.Phase == "Results" and #GameState.Winners == 0
+		and remainingRunner:GetAttribute("RoundRP") == 0)
+
+	local session = RT.modules.MatchSession
+	local previousSessionMode = session.Mode
+	session.Mode = "Solo"
+	players.GetPlayers = function() return { tagger } end
+	round = startTestRound(voteSuddenDeath)
+	hunter = GameState.TaggerList()[1]
+	local speed, repath = BotManager.StrengthForTierIndex(#Config.BotStrengthByTier)
+	check("サドンデス：ソロでは最上位のボットが鬼で、実際の速度と経路間隔に反映",
+		BotManager.IsBot(hunter) and #GameState.TaggerList() == 1 and not hunter.SoloCap
+		and hunter.SpeedMultiplier == speed and hunter.RepathInterval == repath
+		and near(GameState.GetHumanoid(hunter).WalkSpeed, Config.TaggerWalkSpeed * speed))
+	local soloRunnersCapped = true
+	for _, bot in ipairs(BotManager.GetActive()) do
+		if bot ~= hunter then
+			soloRunnersCapped = soloRunnersCapped and bot.SoloCap and bot.RepathInterval == nil
+		end
+	end
+	check("サドンデス：ソロの逃げ手ボットは従来の強さを使う",
+		soloRunnersCapped and #BotManager.GetActive() == Config.SoloBotCount)
+	now += GameState.ChosenDuration
+	stepRound(round)
+
+	round = startTestRound(function()
+		Remotes.ModeVote.OnServerEvent:_Fire(tagger, "SuddenDeath")
+		local vote = Remotes.BotStrengthVote.OnServerEvent
+		local before = packet
+		vote:_Fire({ IsBot = true }, "Strong")
+		vote:_Fire(tagger, "Unknown")
+		check("ボットの強さ投票：ボットと無効な選択肢を拒否", packet == before)
+		vote:_Fire(tagger, "Strong")
+		vote:_Fire(tagger, "Weak")
+		check("ボットの強さ投票：投票変更は前の票を置き換える",
+			packet.BotStrengthVoteCounts.Strong == 0 and packet.BotStrengthVoteCounts.Weak == 1)
+	end)
+	hunter = GameState.TaggerList()[1]
+	local weakSpeed, weakRepath = BotManager.StrengthForTierIndex(1)
+	local weakRunners = true
+	local nextHunter
+	for _, bot in ipairs(BotManager.GetActive()) do
+		if bot ~= hunter then
+			nextHunter = bot
+			weakRunners = weakRunners and bot.SpeedMultiplier == weakSpeed
+				and bot.RepathInterval == weakRepath and bot.SoloCap
+		end
+	end
+	check("サドンデス：よわいを選んでも鬼ボットだけ最上位",
+		GameState.ChosenBotStrength == "Weak" and packet.BotStrengthName == "よわい"
+		and BotManager.IsBot(hunter) and hunter.SpeedMultiplier == speed and hunter.RepathInterval == repath
+		and not hunter.SoloCap and near(GameState.GetHumanoid(hunter).WalkSpeed, Config.TaggerWalkSpeed * speed)
+		and nextHunter ~= nil and weakRunners)
+	check("サドンデス：鬼を交代すると新しい鬼だけ最上位",
+		RoundManager.SetAdminTagger(nextHunter)
+		and nextHunter.SpeedMultiplier == speed and nextHunter.RepathInterval == repath and not nextHunter.SoloCap
+		and hunter.SpeedMultiplier == weakSpeed and hunter.RepathInterval == weakRepath and hunter.SoloCap)
+	now += GameState.ChosenDuration
+	stepRound(round)
+
+	local soloBotCount = Config.SoloBotCount
+	Config.SoloBotCount = 0
+	round = startTestRound(voteSuddenDeath)
+	Config.SoloBotCount = soloBotCount
+	hunter = GameState.TaggerList()[1]
+	check("サドンデス：通常の補充で候補がいないソロでも最上位の鬼ボットを追加",
+		BotManager.IsBot(hunter) and hunter.RepathInterval == repath and #BotManager.GetActive() == 1
+		and GameState.CountParticipants() == 2 and packet.RunnersLeft == 1)
+	check("ボットの強さ投票：次のラウンドで票をリセットし無投票ならおまかせ",
+		packet.BotStrengthVoteCounts.Weak == 0 and packet.BotStrengthVoteCounts.Strong == 0
+		and GameState.ChosenBotStrength == "Auto" and packet.BotStrengthName == "おまかせ")
+	now += GameState.ChosenDuration
+	stepRound(round)
+	session.Mode = previousSessionMode
+	Remotes.StateUpdate.FireAllClients = nil
+	GameState.ChosenMode = Config.SuddenDeath.NormalId
 
 	players.GetPlayers, RT.task.wait = getPlayers, wait
 	Config.BotsEnabled = botsEnabled
@@ -2605,7 +3164,9 @@ do
 	PlayerDataStore.AddCoins(player, 101, false)
 	result, _, data = PlayerDataStore.DrawBeast(player)
 	check("ガチャ1回で100コイン減り、召喚獣を獲得する", result and not result.Duplicate and data.Coins == 100 and data.Beasts[result.Id])
-	check("所持している召喚獣を装備できる", PlayerDataStore.SetEquippedBeast(player, result.Id))
+	local equipped = PlayerDataStore.SetEquippedBeast(player, result.Id)
+	check("所持している召喚獣を装備し、Getで確認できる",
+		equipped and PlayerDataStore.Get(player).EquippedBeast == result.Id)
 	local returningPlayer = { UserId = player.UserId }
 	local loaded = PlayerDataStore.Load(returningPlayer)
 	check("獲得と装備の両方が再読み込みで復元される",
@@ -2693,6 +3254,8 @@ do
 	local now = 100
 	GameState.Now = function() return now end
 	GameState.Phase = "Round"
+	local previousTimeLeft = GameState.TimeLeft
+	GameState.TimeLeft = GameState.ChosenDuration
 	local player, root, humanoid = entrant(19001, 0)
 	local enemy, enemyRoot, enemyHumanoid = entrant(19002, 4)
 	local ally = entrant(19003, 2)
@@ -2740,6 +3303,25 @@ do
 	ZoneManager.Stop()
 
 	root.Position = Vector3.new(0, 4, 0)
+	equip("Khepri")
+	local khepriData = GameState.GetData(player)
+	khepriData.ActiveCombos.StarDash = true
+	check("コンボ：ケプリのダッシュには持続ボーナスが付かない",
+		ItemManager.UseBeast(player) and near(khepriData.DashUntil, now + Config.Beasts.Khepri.Duration))
+
+	local originalFireClient = Remotes.ItemUpdate.FireClient
+	local comboUpdates = {}
+	Remotes.ItemUpdate.FireClient = function(_, recipient, info)
+		comboUpdates[recipient] = info.ActiveCombos
+	end
+	ItemManager.DeliverPendingItems()
+	local playerCombos = comboUpdates[player]
+	local enemyCombos = comboUpdates[enemy]
+	check("コンボ：試合開始時の ItemUpdate は本人の発動中の組み合わせだけを送る",
+		playerCombos and #playerCombos == 1 and playerCombos[1] == Config.ItemComboText(Config.ItemCombos[4])
+		and enemyCombos and #enemyCombos == 0)
+	Remotes.ItemUpdate.FireClient = originalFireClient
+
 	equip("Sobek")
 	check("次の試合は召喚でき、セベクは範囲内の相手を転倒させる",
 		ItemManager.UseBeast(player) and GameState.IsDowned(enemy) and enemyHumanoid.WalkSpeed == 0
@@ -3135,6 +3717,7 @@ do
 		entrantPlayer:Destroy()
 	end
 	GameState.Phase = "Waiting"
+	GameState.TimeLeft = previousTimeLeft
 	GameState.Now = realNow
 end
 
@@ -3237,6 +3820,8 @@ do
 
 	local cleared, unequipped = PlayerDataStore.SetEquippedBeast(player, "")
 	BeastFollower.SetEquipped(player, unequipped.EquippedBeast)
+	check("召喚獣の装備解除をGetで確認できる",
+		cleared and PlayerDataStore.Get(player).EquippedBeast == nil)
 	local reloaded = PlayerDataStore.Load(player)
 	check("装備解除を保存するとモデルだけ消え、所持は残る",
 		cleared and #folder:GetChildren() == 0 and not respawned.Parent
@@ -3480,6 +4065,744 @@ end
 
 require("./beast_trade")(check)
 
+---------------------------------------------------------------------
+-- ロビーショップ：設定、購入と装備、アイテムボックスの引き継ぎ
+---------------------------------------------------------------------
+
+do
+	local CharacterTrail = require("./.build/CharacterTrail")
+	check("トレイル：3種の表示順", table.concat(Config.TrailOrder, ",") == "PurpleGlow,GoldStar,RedFlame")
+	for _, entry in ipairs({ { "PurpleGlow", 300 }, { "GoldStar", 800 }, { "RedFlame", 2000 } }) do
+		local id, price = entry[1], entry[2]
+		local def = Config.Trails[id]
+		check("トレイル：価格と見た目の設定 " .. id, def and def.Price == price
+			and type(def.DisplayName) == "string" and def.Lifetime > 0
+			and def.ColorStart and def.ColorEnd and def.TransparencyStart >= 0
+			and def.LightEmission >= 0 and def.AttachmentHeight > 0)
+	end
+	local ready = true
+	for _, key in ipairs(Config.ShopProductOrder) do
+		ready = ready and Config.ShopProductId(key) == 0
+	end
+	check("Robux：商品 ID がすべて未設定なので準備中", ready and #Config.ShopProductOrder == 3)
+	check("Robux：対象外のキーからは購入 ID を取得できない", Config.ShopProductId("PurpleGlow") == 0)
+	local product = Config.Monetization.ItemBox
+	local originalId = product.ProductId
+	product.ProductId = 12345
+	check("Robux：設定済みの製品 ID は購入に使える", Config.ShopProductId("ItemBox") == 12345)
+	product.ProductId = originalId
+
+	local player = { UserId = 887401 }
+	local original = PlayerDataStore.Load(player)
+	check("ショップ：旧データでは未所持、装備未設定、未受領なし",
+		next(original.Trails) == nil and original.EquippedTrail == nil and original.ItemBoxes == 0)
+	PlayerDataStore.AddCoins(player, 400, false)
+	local ok, reason, data = PlayerDataStore.BuyTrail(player, "GoldStar")
+	check("トレイル：残高不足では所持も残高も変わらない", not ok and reason
+		and data.Coins == 400 and next(data.Trails) == nil)
+	ok, reason, data = PlayerDataStore.BuyTrail(player, "Unknown")
+	check("トレイル：未定義の ID は理由つきで拒否", not ok and reason and data.Coins == 400)
+	ok, _, data = PlayerDataStore.BuyTrail(player, "PurpleGlow")
+	check("トレイル：購入すると残高が減って所持に入る", ok and data.Coins == 100 and data.Trails.PurpleGlow)
+	ok, reason, data = PlayerDataStore.BuyTrail(player, "PurpleGlow")
+	check("トレイル：二重購入では理由を返し残高も維持", not ok and reason == "もう持っています" and data.Coins == 100)
+	check("トレイル：未所持の装備を拒否", not PlayerDataStore.SetEquippedTrail(player, "RedFlame"))
+	ok, data = PlayerDataStore.SetEquippedTrail(player, "PurpleGlow")
+	check("トレイル：装備したコイントレイルがパスより優先", ok and data.EquippedTrail == "PurpleGlow"
+		and CharacterTrail.Resolve(data, true) == Config.Trails.PurpleGlow)
+	ok, data = PlayerDataStore.SetEquippedTrail(player, "Sparkle")
+	check("トレイル：Sparkle の見た目はパス所持時だけ適用", ok and data.EquippedTrail == "Sparkle"
+		and CharacterTrail.Resolve(data, true) == Config.Monetization.SparkleTrail
+		and CharacterTrail.Resolve(data, false) == nil)
+	ok, data = PlayerDataStore.SetEquippedTrail(player, "")
+	check("トレイル：明示的に外すとパス所持者もトレイルなし", ok and data.EquippedTrail == ""
+		and CharacterTrail.Resolve(data, true) == nil)
+	local normalized = PlayerDataStore.Normalize({ Trails = { Unknown = true }, EquippedTrail = "PurpleGlow" })
+	check("トレイル：Normalize が不明な所持 ID と未所持の装備を落とす",
+		next(normalized.Trails) == nil and normalized.EquippedTrail == nil)
+	check("トレイル：装備未設定のパス所持者には従来の見た目を適用",
+		CharacterTrail.Resolve(normalized, true) == Config.Monetization.SparkleTrail)
+
+	local added = PlayerDataStore.AddItemBox(player)
+	local addedAgain = PlayerDataStore.AddItemBox(player)
+	check("アイテムボックス：購入回数を永続保存", added and addedAgain and PlayerDataStore.Load(player).ItemBoxes == 2)
+	local count, taken = PlayerDataStore.TakeItemBoxes(player)
+	check("アイテムボックス：全数を取り出して保存上の残数をゼロにする",
+		taken and count == 2 and PlayerDataStore.Load(player).ItemBoxes == 0)
+	PlayerDataStore.AddItemBox(player)
+	PlayerDataStore.AddItemBox(player)
+	count, taken = PlayerDataStore.TakeItemBoxes(player, 1)
+	check("アイテムボックス：付与中に買い足した分は残る",
+		taken and count == 1 and PlayerDataStore.Load(player).ItemBoxes == 1)
+	RT.DataStoreShouldFail = true
+	added = PlayerDataStore.AddItemBox(player)
+	count, taken = PlayerDataStore.TakeItemBoxes(player)
+	RT.DataStoreShouldFail = false
+	check("アイテムボックス：保存失敗時は成功扱いにせず残数を保つ",
+		not added and count == 0 and not taken and PlayerDataStore.Load(player).ItemBoxes == 1)
+	PlayerDataStore.Forget(player)
+end
+
+do
+	local buyer = RT.Instance.new("Player")
+	buyer.UserId = 887402
+	buyer.Parent = RT.game:GetService("Players")
+	local other = { UserId = 887403 }
+	PlayerDataStore.Load(buyer)
+	PlayerDataStore.Load(other)
+	local saved, added = PlayerDataStore.AddItemBox(buyer, "review-receipt")
+	PlayerDataStore.Forget(buyer)
+	PlayerDataStore.Load(buyer)
+	local duplicateSaved, duplicateAdded = PlayerDataStore.AddItemBox(buyer, "review-receipt")
+	check("アイテムボックス：同じレシートを再入室後に処理しても1個だけ保存し他人の残数は変えない",
+		saved and added and duplicateSaved and not duplicateAdded
+		and PlayerDataStore.Get(buyer).ItemBoxes == 1 and PlayerDataStore.Get(other).ItemBoxes == 0)
+
+	local previousPhase = GameState.Phase
+	GameState.Phase = "Round"
+	ItemManager.Start()
+	ItemManager.DeliverSavedItemBoxes(buyer)
+	check("アイテムボックス：観戦中は受け取らず保存に残す",
+		PlayerDataStore.Get(buyer).ItemBoxes == 1 and #GameState.GetData(buyer).HeldItems == 0)
+	GameState.Participants[buyer] = true
+
+	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
+	local updateAsync = store.UpdateAsync
+	local interrupted = false
+	store.UpdateAsync = function(self, key, transform)
+		local data = updateAsync(self, key, transform)
+		if not interrupted then
+			interrupted = true
+			GameState.Participants[buyer] = nil
+		end
+		return data
+	end
+	ItemManager.DeliverSavedItemBoxes(buyer)
+	store.UpdateAsync = updateAsync
+	check("アイテムボックス：保存中に参加資格を失った場合は未受領数へ戻す",
+		interrupted and PlayerDataStore.Load(buyer).ItemBoxes == 1 and #GameState.GetData(buyer).HeldItems == 0)
+
+	GameState.Participants[buyer] = true
+	RT.DataStoreShouldFail = true
+	ItemManager.DeliverSavedItemBoxes(buyer)
+	RT.DataStoreShouldFail = false
+	check("アイテムボックス：保存に失敗したら試合内で付与せず再試行できる",
+		PlayerDataStore.Load(buyer).ItemBoxes == 1 and #GameState.GetData(buyer).HeldItems == 0)
+
+	local responseLost = false
+	store.UpdateAsync = function(self, key, transform)
+		local data = updateAsync(self, key, transform)
+		if not responseLost then
+			responseLost = true
+			assert(PlayerDataStore.AddItemBox(buyer, "second-review-receipt"))
+			error("saved before response was lost")
+		end
+		return data
+	end
+	ItemManager.DeliverSavedItemBoxes(buyer)
+	store.UpdateAsync = updateAsync
+	local data = PlayerDataStore.Load(buyer)
+	check("アイテムボックス：保存後の応答消失と買い足しが重なっても両方を受領できる",
+		responseLost and data.ItemBoxes == 0 and next(data.ItemBoxClaims) == nil
+		and #GameState.GetData(buyer).HeldItems == 2
+		and PlayerDataStore.AddItemBox(buyer, "second-review-receipt")
+		and PlayerDataStore.Get(buyer).ItemBoxes == 0)
+
+	GameState.ClearData(buyer)
+	GameState.Participants[buyer] = nil
+	GameState.Phase = previousPhase
+	ItemManager.Stop()
+	PlayerDataStore.Forget(buyer)
+	PlayerDataStore.Forget(other)
+end
+
+-- アイテム追加と鬼ボットのしのび足判定
+do
+	local bomb, boomerang = Config.Items.SlowBomb, Config.Items.Boomerang
+	check("スロウボムの定義はB・150コイン、半径10・減速3秒・寿命20秒",
+		bomb.Id == "SlowBomb" and bomb.Tier == "B" and bomb.Price == 150
+		and bomb.SpawnWeight == 1 and bomb.CanTaggerUse and bomb.Radius == 10
+		and bomb.SlowTime == 3 and bomb.Duration == 20 and bomb.SlowSpeed > 0
+		and bomb.SlowSpeed < Config.NormalWalkSpeed)
+	check("ブーメランの定義はA・400コイン、スタン1.5秒・射程30",
+		boomerang.Id == "Boomerang" and boomerang.Tier == "A" and boomerang.Price == 400
+		and boomerang.SpawnWeight == 1 and boomerang.CanTaggerUse == false
+		and boomerang.StunTime == 1.5 and boomerang.Range == 30
+		and boomerang.Speed > 0 and boomerang.HitRadius > 0)
+	local seen, unique = {}, true
+	for _, id in ipairs(Config.ItemOrder) do
+		unique = unique and not seen[id]
+		seen[id] = true
+	end
+	check("アイテム一覧には新規2種を重複なく含む", unique and seen.SlowBomb and seen.Boomerang)
+	local exclusives = {}
+	for id, def in pairs(Config.Items) do
+		if def.ExclusiveMap then
+			exclusives[id] = def.ExclusiveMap
+		end
+	end
+	local expected = { Phase = "Cave", SpikeBoots = "Ice", Insulate = "Volt", SafetyLine = "Sky" }
+	local sameMaps = true
+	for id, map in pairs(expected) do
+		sameMaps = sameMaps and exclusives[id] == map and not seen[id]
+		exclusives[id] = nil
+	end
+	check("ダンジョン固有アイテムは従来の4種", sameMaps and next(exclusives) == nil)
+
+	local buyer = { UserId = 887403 }
+	PlayerDataStore.Load(buyer)
+	PlayerDataStore.AddCoins(buyer, 550, false)
+	local bombBought = PlayerDataStore.BuyItem(buyer, bomb.Id)
+	local boomerangBought = PlayerDataStore.BuyItem(buyer, boomerang.Id)
+	local deck = { bomb.Id, boomerang.Id, "Dash", "Banana" }
+	local saved = PlayerDataStore.SetDeck(buyer, deck)
+	local reloaded = PlayerDataStore.Load(buyer)
+	check("購入した新規2種をデッキに保存して再読込できる", bombBought and boomerangBought and saved
+		and reloaded.Coins == 0 and reloaded.Deck[1] == bomb.Id and reloaded.Deck[2] == boomerang.Id)
+	local pool = ItemManager.GetFieldPool(reloaded.Deck, "Cave")
+	local defaultPool = ItemManager.GetFieldPool(Config.DefaultDeck, "Cave")
+	check("フィールドの箱はデッキ入りの新規アイテムを抽選する", table.find(pool, bomb.Id)
+		and table.find(pool, boomerang.Id) and table.find(pool, "Phase")
+		and not table.find(defaultPool, bomb.Id) and not table.find(defaultPool, boomerang.Id))
+
+	local slowDistance, throwDistance = Config.BotSlowBombDistance, Config.BotBoomerangDistance
+	check("鬼と逃げ手のボットは相手が近ければボムを使う",
+		BotManager.ShouldUseItem(bomb.Id, true, slowDistance)
+		and BotManager.ShouldUseItem(bomb.Id, false, slowDistance)
+		and not BotManager.ShouldUseItem(bomb.Id, false, slowDistance + 1))
+	check("ブーメランは鬼が近い逃げ手ボットだけが使う",
+		BotManager.ShouldUseItem(boomerang.Id, false, throwDistance)
+		and not BotManager.ShouldUseItem(boomerang.Id, false, throwDistance + 1)
+		and not BotManager.ShouldUseItem(boomerang.Id, true, throwDistance))
+	local closeRunner = { X = 2, Sneaking = true }
+	local farRunner = { X = 5 }
+	local ctx = { Role = "Tagger", Runners = { closeRunner, farRunner } }
+	local _, _, _, target = BotManager.ChooseGoal(ctx)
+	check("鬼ボットは近くのしのび足より遠くの見える逃げ手を狙う", target == farRunner)
+	farRunner.Sneaking = true
+	_, _, _, target = BotManager.ChooseGoal(ctx)
+	check("全員がしのび足中なら鬼ボットは最も近い逃げ手を狙う", target == closeRunner)
+
+	local function makeParticipant(position)
+		local player = { IsBot = true, Character = RT.Instance.new("Model") }
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = position
+		root.CFrame = RT.CFrame.new(position)
+		root.Parent = player.Character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.Parent = player.Character
+		GameState.Participants[player] = true
+		return player, root, humanoid
+	end
+
+	local oldClock, oldPhase = GameState.Now, GameState.Phase
+	local oldParticipants, oldTaggers = GameState.Participants, GameState.Taggers
+	local now = 400
+	GameState.Now = function() return now end
+	GameState.Phase = "Round"
+	GameState.Participants, GameState.Taggers = {}, {}
+	local origin = Vector3.new(0, 4, 0)
+	local thrower, _, throwerHumanoid = makeParticipant(origin)
+	local victim, victimRoot, victimHumanoid = makeParticipant(Vector3.new(11, 4, 0))
+	local other, otherRoot, otherHumanoid = makeParticipant(Vector3.new(0, 4, 11))
+	local throwerData = GameState.GetData(thrower)
+	local victimData = GameState.GetData(victim)
+	local function use(id)
+		now += Config.UseItemCooldown + 0.01
+		throwerData.HeldItems, throwerData.HeldExpireAt = { id }, { 0 }
+		ItemManager.TryUse(thrower, 1)
+	end
+	local function findPart(name)
+		return RT.workspace:FindFirstChild("SpawnedItems"):FindFirstChild(name)
+	end
+
+	ItemManager.Start()
+	GameState.Taggers[thrower] = { Since = now }
+	use(bomb.Id)
+	local placed = findPart(bomb.Id)
+	check("鬼も足元にボムを設置できる", placed and placed.Position.Y < origin.Y and #throwerData.HeldItems == 0)
+	check("ボムの判定は設置者を除く",
+		not ItemManager.IsSlowBombTarget(thrower, thrower, placed.Position, bomb.Radius))
+	ItemManager.Tick()
+	check("ボムは本人と範囲外の参加者では起爆しない", placed.Parent ~= nil and victimData.SlowUntil == 0)
+	victimRoot.Position = Vector3.new(4, 4, 0)
+	otherRoot.Position = Vector3.new(0, 4, 4)
+	GameState.ApplySlow(victim, "Glue")
+	now += 0.5
+	ItemManager.Tick()
+	check("範囲内の全員を減速させて消え、本人は減速しない", placed.Parent == nil
+		and near(victimData.SlowUntil, now + 3) and near(GameState.GetData(other).SlowUntil, now + 3)
+		and otherHumanoid.WalkSpeed == bomb.SlowSpeed and throwerData.SlowUntil == 0)
+	check("減速が重なると有効な設定のうち最も遅い速度が適用される",
+		victimHumanoid.WalkSpeed == Config.Items.Glue.SlowSpeed)
+	now = victimData.SlowEffects.Glue
+	ItemManager.Tick()
+	check("ねばねば罠が先に切れてもボムの減速は残る", victimHumanoid.WalkSpeed == bomb.SlowSpeed)
+	now = victimData.SlowUntil
+	ItemManager.Tick()
+	check("ボムの減速が切れると通常速度に戻る",
+		victimData.SlowUntil == 0 and victimHumanoid.WalkSpeed == Config.NormalWalkSpeed)
+	victimRoot.Position = Vector3.new(11, 4, 0)
+	otherRoot.Position = Vector3.new(0, 4, 11)
+	use(bomb.Id)
+	placed = findPart(bomb.Id)
+	now += bomb.Duration
+	ItemManager.Tick()
+	check("起爆しなかったボムは寿命で消える", placed.Parent == nil)
+
+	use(boomerang.Id)
+	check("鬼はブーメランを投げられない", not findPart(boomerang.Id) and #throwerData.HeldItems == 1)
+	GameState.Taggers[thrower] = nil
+	use(boomerang.Id)
+	local projectile = findPart(boomerang.Id)
+	local direction = Vector3.new(0, 0, -1)
+	check("ブーメランの当たり判定は投擲者を除く",
+		ItemManager.GetBoomerangHitDistance(thrower, thrower, origin, direction, 5, boomerang.HitRadius) == nil)
+	now += 0.1
+	ItemManager.Tick()
+	check("ブーメランはTickで前方に進む", near(projectile.Position.Z, -boomerang.Speed * 0.1))
+	victimRoot.Position = Vector3.new(0, 4, -12)
+	otherRoot.Position = Vector3.new(0, 4, -20)
+	now += boomerang.Range / boomerang.Speed
+	ItemManager.Tick()
+	check("ブーメランは移動区間で最初に当たった相手だけを1.5秒スタンさせて消える",
+		projectile.Parent == nil and near(victimData.StunUntil, now + 1.5)
+		and victimHumanoid.WalkSpeed == 0 and GameState.GetData(other).StunUntil == 0
+		and throwerData.StunUntil == 0 and throwerHumanoid.WalkSpeed ~= 0)
+	victimRoot.Position = Vector3.new(0, 4, -boomerang.Range - boomerang.HitRadius - 1)
+	otherRoot.Position = Vector3.new(0, 4, 11)
+	use(boomerang.Id)
+	projectile = findPart(boomerang.Id)
+	now += 2
+	ItemManager.Tick()
+	check("射程外の相手には届かず、射程でブーメランが消える",
+		projectile.Parent == nil and victimData.StunUntil == 0)
+	use(bomb.Id)
+	placed = findPart(bomb.Id)
+	use(boomerang.Id)
+	projectile = findPart(boomerang.Id)
+	ItemManager.Stop()
+	check("ラウンド終了でボムと飛行中のブーメランが消える", placed.Parent == nil and projectile.Parent == nil)
+
+	for _, player in ipairs({ thrower, victim, other }) do
+		GameState.ClearData(player)
+		player.Character:Destroy()
+	end
+	GameState.Now, GameState.Phase = oldClock, oldPhase
+	GameState.Participants, GameState.Taggers = oldParticipants, oldTaggers
+end
+
+-- 段階Gのアイテム定義と実際の使用経路
+do
+	local definitions = {
+		RecoveryDrink = { "B", true },
+		Teleporter = { "A", true, HeightOffset = 3 },
+		Giant = { "A", true, Duration = 6, Scale = 1.5, ReachMultiplier = 1.5, KnockbackMultiplier = 0.5 },
+		Shrink = { "B", true, Duration = 6, Scale = 0.6 },
+		Grapple = { "A", true, Range = 40, Speed = 90, ArrivalDistance = 1, SurfaceOffset = 2,
+			TopNormalMinY = 0.65, PlatformAimDrop = 0.2, MinPlatformRise = 1, Timeout = 0.8 },
+		Swap = { "S", true, HeightOffset = 1 },
+		FakeBox = { "B", true, Duration = 20, StunTime = 2 },
+		IceBomb = { "B", true, Duration = 5, Radius = 8, Thickness = 0.12, HeightTolerance = 1.5 },
+		Thunder = { "S", false, Range = 30, StunTime = 2, FlashDuration = 0.2, FlashHeight = 18, FlashWidth = 0.6 },
+		Reflect = { "A", false, Duration = 4, PushSpeed = 44, LiftSpeed = 9, GraceTime = 1.5 },
+	}
+	local prices = { B = 150, A = 400, S = 900 }
+	for id, expected in pairs(definitions) do
+		local def = Config.Items[id]
+		local valid = def and def.Id == id and def.Tier == expected[1] and def.Price == prices[expected[1]]
+			and def.SpawnWeight == 1 and def.CanTaggerUse == expected[2]
+		for key, value in pairs(expected) do
+			if type(key) == "string" then
+				valid = valid and def[key] == value
+			end
+		end
+		check(id .. " のレア度・価格・効果の定義", valid)
+	end
+
+	local counts, seen, complete = { B = 0, A = 0, S = 0 }, {}, true
+	for _, id in ipairs(Config.ItemOrder) do
+		local def = Config.Items[id]
+		complete = complete and def ~= nil and not def.ExclusiveMap and not seen[id]
+		seen[id] = true
+		if def and counts[def.Tier] then
+			counts[def.Tier] += 1
+		end
+	end
+	for id, def in pairs(Config.Items) do
+		complete = complete and (def.ExclusiveMap ~= nil or seen[id])
+	end
+	check("基本アイテム28種を重複なく表示し、内訳はB11・A12・S5", complete and #Config.ItemOrder == 28
+		and counts.B == 11 and counts.A == 12 and counts.S == 5)
+
+	local buyer = { UserId = 887404 }
+	PlayerDataStore.Load(buyer)
+	PlayerDataStore.AddCoins(buyer, 1450, false)
+	local deck = { "RecoveryDrink", "Giant", "Swap", "Dash" }
+	local bought = PlayerDataStore.BuyItem(buyer, deck[1]) and PlayerDataStore.BuyItem(buyer, deck[2])
+		and PlayerDataStore.BuyItem(buyer, deck[3])
+	local saved = PlayerDataStore.SetDeck(buyer, deck)
+	local reloaded = PlayerDataStore.Load(buyer)
+	check("新規3種を4枠デッキに保存して再読込できる", bought and saved and Config.DeckSize == 4
+		and table.concat(reloaded.Deck, ",") == table.concat(deck, ","))
+	PlayerDataStore.Forget(buyer)
+
+	for _, rule in ipairs({
+		{ "Giant", true, Config.BotGiantDistance },
+		{ "Shrink", false, Config.BotShrinkDistance },
+		{ "Swap", false, Config.BotSwapDistance },
+		{ "FakeBox", true, Config.BotBananaDistance },
+		{ "IceBomb", true, Config.BotIceBombDistance },
+		{ "Thunder", false, Config.Items.Thunder.Range },
+		{ "Reflect", false, Config.BotShieldDistance },
+	}) do
+		local id, taggerAllowed, distance = table.unpack(rule)
+		check(id .. " のボット使用距離と役割", BotManager.ShouldUseItem(id, false, distance)
+			and BotManager.ShouldUseItem(id, true, distance) == taggerAllowed
+			and not BotManager.ShouldUseItem(id, false, distance + 1))
+	end
+	check("距離だけで判断できない3種をボットは使用しない",
+		not BotManager.ShouldUseItem("RecoveryDrink", false, 0)
+		and not BotManager.ShouldUseItem("Teleporter", false, 0)
+		and not BotManager.ShouldUseItem("Grapple", true, 0))
+
+	local oldClock, oldPhase = GameState.Now, GameState.Phase
+	local oldParticipants, oldTaggers = GameState.Participants, GameState.Taggers
+	local oldRaycast = RT.workspace._raycast
+	local now = 700
+	GameState.Now = function() return now end
+	GameState.Phase = "Round"
+	GameState.Participants, GameState.Taggers = {}, {}
+	local function makeParticipant(id, position)
+		local player = { IsBot = true, UserId = id, DisplayName = tostring(id), Character = RT.Instance.new("Model") }
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Size = Vector3.new(2, 2, 1)
+		root.Position = position
+		root.CFrame = RT.CFrame.new(position)
+		root.Parent = player.Character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = 100
+		humanoid.HipHeight = 2
+		humanoid.FloorMaterial = RT.Enum.Material.Concrete
+		humanoid.Parent = player.Character
+		GameState.Participants[player] = true
+		GameState.RegisterCharacter(player, player.Character)
+		return player, root, humanoid
+	end
+	local origin = Vector3.new(0, 3, 0)
+	local player, root, humanoid = makeParticipant(-701, origin)
+	local target, targetRoot, targetHumanoid = makeParticipant(-702, Vector3.new(5, 3, 0))
+	local other, otherRoot, otherHumanoid = makeParticipant(-703, Vector3.new(40, 3, 0))
+	local data = GameState.GetData(player)
+	local targetData = GameState.GetData(target)
+	local function use(id, inventory)
+		now += Config.UseItemCooldown + 0.01
+		if inventory then
+			data.HeldItems, data.HeldExpireAt = inventory, {}
+		elseif id then
+			data.HeldItems, data.HeldExpireAt = { id }, { 0 }
+		end
+		ItemManager.TryUse(player, 1)
+	end
+
+	local map = RT.workspace:FindFirstChild(MapBuilder.MapFolderName)
+	local temporaryMap
+	if not map then
+		temporaryMap = RT.Instance.new("Folder")
+		temporaryMap.Name = MapBuilder.MapFolderName
+		temporaryMap.Parent = RT.workspace
+		map = temporaryMap
+	end
+	local function safeFloor(position, direction, params)
+		if direction.Y < 0 and params.FilterDescendantsInstances[1] == map then
+			return { Position = Vector3.new(position.X, 0, position.Z) }
+		end
+	end
+	RT.workspace._raycast = safeFloor
+	ItemManager.Start()
+	humanoid.FloorMaterial = RT.Enum.Material.Air
+	use("Teleporter")
+	check("テレポーターは空中では記録せず、アイテムを保持する",
+		data.TeleporterMarker == nil and data.HeldItems[1] == "Teleporter")
+	humanoid.FloorMaterial = RT.Enum.Material.Concrete
+	data.ZoneStamina = 1
+	GameState.Taggers[player] = { Since = now }
+	use(nil, { "Teleporter", "RecoveryDrink" })
+	check("テレポーターの1回目は現在のCFrameを記録して消費しない",
+		data.TeleporterMarker == root.CFrame and #data.HeldItems == 2)
+	now += Config.UseItemCooldown + 0.01
+	ItemManager.TryUse(player, 2)
+	check("鬼も回復ドリンクで全回復しテレポーターの記録は残る", data.ZoneStamina == Config.ZoneStaminaMax
+		and #data.HeldItems == 1 and data.TeleporterMarker == root.CFrame)
+	player.Character:PivotTo(RT.CFrame.new(12, 5, 6))
+	use()
+	check("テレポーターの2回目で高さを足して戻り消費する", #data.HeldItems == 0 and not data.TeleporterMarker
+		and (root.Position - (origin + Vector3.new(0, Config.Items.Teleporter.HeightOffset, 0))).Magnitude == 0)
+	player.Character:PivotTo(RT.CFrame.new(origin))
+	use("Teleporter")
+	local oldInside = ZoneManager.IsInside
+	ZoneManager.IsInside = function(position) return position.X > 0 end
+	local away = Vector3.new(12, 5, 6)
+	player.Character:PivotTo(RT.CFrame.new(away))
+	use()
+	check("ゾーン縮小後はテレポーターでゾーン外に戻らず、記録だけを消す",
+		data.HeldItems[1] == "Teleporter" and data.TeleporterMarker == nil and (root.Position - away).Magnitude == 0)
+	ZoneManager.IsInside = oldInside
+	player.Character:PivotTo(RT.CFrame.new(origin))
+	use()
+	local oldBounds = RT.workspace._bounds
+	RT.workspace._bounds = function() return { map } end
+	use()
+	check("テレポーターは着地点が塞がれていたら消費しない", data.HeldItems[1] == "Teleporter"
+		and data.TeleporterMarker == nil and (root.Position - origin).Magnitude == 0)
+	RT.workspace._bounds = oldBounds
+	use("Teleporter")
+	data = GameState.ResetData(player)
+	check("ラウンドのデータ初期化でテレポーターの記録が消える", data.TeleporterMarker == nil)
+	GameState.Taggers[player] = nil
+
+	player.Character:PivotTo(RT.CFrame.new(origin))
+	GameState.Taggers[target] = { Since = now }
+	local initialTarget = targetRoot.Position
+	use("Swap")
+	check("スワップは鬼も候補に含め、最も近い参加者と位置を交換する", #data.HeldItems == 0
+		and root.Position.X == initialTarget.X and targetRoot.Position.X == origin.X
+		and root.Position.Y == initialTarget.Y + Config.Items.Swap.HeightOffset and otherRoot.Position.X == 40)
+	player.Character:PivotTo(RT.CFrame.new(origin))
+	target.Character:PivotTo(RT.CFrame.new(initialTarget))
+	targetHumanoid.FloorMaterial = RT.Enum.Material.Air
+	use("Swap")
+	check("スワップは空中の最寄り候補を飛ばして足場上の相手を選ぶ",
+		#data.HeldItems == 0 and root.Position.X == 40 and (targetRoot.Position - initialTarget).Magnitude == 0)
+	otherHumanoid.FloorMaterial = RT.Enum.Material.Air  -- 次の確認では交換先がない
+	use("Swap")
+	check("スワップは足場上の相手がいないと位置を変えず消費しない",
+		data.HeldItems[1] == "Swap" and root.Position.X == 40)
+	targetHumanoid.FloorMaterial, otherHumanoid.FloorMaterial = RT.Enum.Material.Concrete, RT.Enum.Material.Concrete
+	player.Character:PivotTo(RT.CFrame.new(initialTarget))
+	GameState.Participants[target], GameState.Participants[other] = nil, nil
+	use("Swap")
+	check("相手がいなければスワップを消費しない", data.HeldItems[1] == "Swap")
+	GameState.Participants[target], GameState.Participants[other] = true, true
+
+	RT.workspace._raycast = function() return nil end
+	use("Grapple")
+	check("着弾がなければグラップルを消費しない", data.HeldItems[1] == "Grapple")
+	RT.workspace._raycast = function(position, direction)
+		if direction.Y < 0 then
+			return { Position = Vector3.new(position.X, position.Y - 3, position.Z - 15), Normal = Vector3.new(0, 1, 0) }
+		end
+	end
+	use()
+	check("視線の下に同じ高さの床しかなければグラップルを消費しない", data.HeldItems[1] == "Grapple")
+	local aim = root.Position + Vector3.new(0, 0, -20)
+	local excludesCharacters = false
+	RT.workspace._raycast = function(_, direction, params)
+		excludesCharacters = params.RespectCanCollide and near(direction.Magnitude, Config.Items.Grapple.Range)
+			and table.find(params.FilterDescendantsInstances, player.Character)
+			and table.find(params.FilterDescendantsInstances, target.Character)
+		return { Position = aim, Normal = Vector3.new(0, 0, 1) }
+	end
+	ItemManager.TryUse(player, 1)
+	check("グラップルは不発直後も使用クールダウンが効く",
+		data.HeldItems[1] == "Grapple" and not data.GrapplePull and not excludesCharacters)
+	use()
+	local grapple = Config.Items.Grapple
+	local destination = aim + Vector3.new(0, 0, grapple.SurfaceOffset)
+	check("グラップルは参加者を除外して射程内に当たると引き寄せる", excludesCharacters
+		and #data.HeldItems == 0 and root.AssemblyLinearVelocity.Z == -grapple.Speed)
+	player.Character:PivotTo(RT.CFrame.new(destination))
+	RT.game:GetService("RunService").Heartbeat:_Fire(1 / 60)
+	check("グラップルは到着時に速度と引き寄せ状態を解除する", not data.GrapplePull
+		and root.AssemblyLinearVelocity.Magnitude == 0 and not player.Character:GetAttribute("Grappling"))
+	local top = ItemManager.GrappleDestination({ Position = aim, Normal = Vector3.new(0, 1, 0) }, 3)
+	check("グラップルが上面に当たると立てる高さが移動先になる", near(top.Y, aim.Y + 3))
+	player.IsBot = nil
+	local restoredBeforeFreeze = false
+	root.CanSetNetworkOwnership = function(self) return not self.Anchored end
+	root.SetNetworkOwner = function() end
+	root.SetNetworkOwnershipAuto = function(self) restoredBeforeFreeze = not self.Anchored end
+	player.Character:PivotTo(RT.CFrame.new(initialTarget))
+	GameState.Taggers[player] = { Since = now }
+	use("Grapple")
+	assert(data.GrapplePull)
+	GameState.Taggers[target] = nil
+	targetData.HeldItems, targetData.HeldExpireAt = { "TimeStop" }, { 0 }
+	ItemManager.TryUse(target, 1)
+	check("移動中の鬼を凍結すると引き寄せを解除し、固定前に自動所有権へ戻す",
+		root.Anchored and restoredBeforeFreeze and not data.GrapplePull
+		and not player.Character:GetAttribute("Grappling"))
+	GameState.ClearFreeze(player)
+	GameState.Taggers[player] = nil
+	player.IsBot = true
+	RT.workspace._raycast = oldRaycast
+
+	player.Character:PivotTo(RT.CFrame.new(origin))
+	target.Character:PivotTo(RT.CFrame.new(0, 3, -2))
+	other.Character:PivotTo(RT.CFrame.new(40, 3, 0))
+	GameState.Taggers[target] = { Since = now - Config.TagCooldown - 1 }
+	use("Reflect")
+	targetRoot.CFrame = RT.CFrame.new(targetRoot.Position) * RT.CFrame.Angles(0, math.pi, 0)
+	data.ShieldUntil = now + 1
+	RoundManager.TryTag()
+	check("タッチはシールドを先に消費し、リフレクトの構えは残る", data.ShieldUntil == 0 and data.ReflectUntil > now)
+	now = data.InvulnerableUntil
+	RoundManager.TryTag()
+	check("構え中のタッチを無効化して鬼を押し戻し、猶予を付ける", GameState.IsTagger(target)
+		and data.ReflectUntil == 0 and near(data.InvulnerableUntil, now + Config.Items.Reflect.GraceTime)
+		and near(targetRoot.AssemblyLinearVelocity.Z, -Config.Items.Reflect.PushSpeed))
+	check("同じ構えで二度目のリフレクトは発動しない", not ItemManager.TryReflect(player, target))
+	use("Reflect")
+	now += Config.Items.Reflect.Duration
+	ItemManager.Tick()
+	check("リフレクトは未発動でも4秒で終了する", data.ReflectUntil == 0
+		and not ItemManager.TryReflect(player, target))
+
+	GameState.Taggers[target] = nil
+	GameState.Taggers[other] = { Since = now }
+	use("Thunder")
+	check("鬼が射程外ならサンダーを消費しない", data.HeldItems[1] == "Thunder")
+	GameState.Taggers[target] = { Since = now }
+	ItemManager.TryUse(player, 1)
+	check("サンダーは不発直後も使用クールダウンが効く", data.HeldItems[1] == "Thunder"
+		and not GameState.IsStunned(target))
+	use()
+	check("サンダーは最寄りの鬼だけを2秒スタンさせる", #data.HeldItems == 0
+		and near(targetData.StunUntil, now + Config.Items.Thunder.StunTime) and not GameState.IsStunned(other))
+
+	use("FakeBox")
+	local container = RT.workspace:FindFirstChild("SpawnedItems")
+	local fake = container:FindFirstChild("ItemBox")
+	check("フェイクボックスは同じ外見で本物の出現一覧に含まれない", fake
+		and fake:FindFirstChild("Lid") and fake:FindFirstChild("LabelGui") and #ItemManager.GetActiveBoxPositions() == 0)
+	fake.Touched:_Fire(root)
+	check("フェイクボックスは設置者が触れても残る", fake.Parent == container and not GameState.IsStunned(player))
+	fake:FindFirstChild("Lid").Touched:_Fire(targetRoot)
+	check("フェイクボックスは相手を2秒スタンさせて消える", not fake.Parent
+		and near(targetData.StunUntil, now + Config.Items.FakeBox.StunTime))
+
+	use("FakeBox")
+	fake = container:FindFirstChild("ItemBox")
+	now += Config.Items.FakeBox.Duration
+	ItemManager.Tick()
+	check("起動しなかったフェイクボックスは20秒で消える", not fake.Parent)
+
+	GameState.ClearStun(target)
+	data.ActiveCombos.BananaFakeBox = true
+	use("FakeBox")
+	fake = container:FindFirstChild("ItemBox")
+	fake.Touched:_Fire(targetRoot)
+	check("コンボ：設置者のフェイクボックスのスタンが0.5秒延びる",
+		near(targetData.StunUntil, now + Config.Items.FakeBox.StunTime + 0.5))
+	GameState.ClearStun(target)
+
+	use("Banana")
+	local banana = container:FindFirstChild("BananaTrap")
+	banana.Touched:_Fire(targetRoot)
+	check("コンボ：設置者のバナナの転倒が0.5秒延びる",
+		near(targetData.DownUntil, now + Config.Items.Banana.DownTime + 0.5))
+	GameState.ClearDown(target)
+
+	data.ActiveCombos.BananaFakeBox = nil
+	targetData.ActiveCombos.BananaFakeBox = true
+	use("Banana")
+	banana = container:FindFirstChild("BananaTrap")
+	banana.Touched:_Fire(targetRoot)
+	check("コンボ：踏んだ側のコンボでは罠の効果時間は変わらない",
+		near(targetData.DownUntil, now + Config.Items.Banana.DownTime))
+	GameState.ClearDown(target)
+	targetData.ActiveCombos.BananaFakeBox = nil
+
+	data.ActiveCombos.HighJumpGrapple = true
+	GameState.RefreshSpeed(player)
+	check("コンボ：移動速度が3%上がる", near(humanoid.WalkSpeed, Config.NormalWalkSpeed * 1.03))
+	data.ActiveCombos.StarDash = true
+	use("Dash")
+	check("コンボ：アイテムのダッシュが0.5秒延びる",
+		near(data.DashUntil, now + Config.Items.Dash.Duration + 0.5))
+	check("コンボ：ダッシュ中の移動速度にも3%が適用される",
+		near(humanoid.WalkSpeed, Config.Items.Dash.WalkSpeed * 1.03))
+
+	data = GameState.ResetData(player)
+	GameState.RefreshSpeed(player)
+	check("コンボ：ラウンドデータの初期化で発動状態と速度効果が消える",
+		next(data.ActiveCombos) == nil and near(humanoid.WalkSpeed, Config.NormalWalkSpeed))
+
+	use("IceBomb")
+	local patch = container:FindFirstChild("IcePatch")
+	ItemManager.Tick()
+	check("氷パッチは床に置かれ範囲内の参加者に属性を付ける", patch and not patch.CanCollide
+		and player.Character:GetAttribute("IcePatch") and target.Character:GetAttribute("IcePatch")
+		and not other.Character:GetAttribute("IcePatch"))
+	local floor = Vector3.new(0, 0, 0)
+	local radius = Config.Items.IceBomb.Radius
+	check("氷パッチ判定は半径の境界を含み、範囲外と高い階を除外する",
+		ItemManager.IsOnIcePatch(floor, Vector3.new(radius, 0, 0))
+		and not ItemManager.IsOnIcePatch(floor, Vector3.new(radius, 0, radius))
+		and not ItemManager.IsOnIcePatch(floor, Vector3.new(0, Config.Items.IceBomb.HeightTolerance + 1, 0)))
+	now += Config.Items.IceBomb.Duration
+	ItemManager.Tick()
+	check("氷パッチが消えると参加者の滑り属性も消える", not patch.Parent
+		and not player.Character:GetAttribute("IcePatch") and not target.Character:GetAttribute("IcePatch"))
+
+	local scale = RT.Instance.new("NumberValue")
+	scale.Name = "BodyWidthScale"
+	scale.Value = 1.2
+	scale.Parent = humanoid
+	use("Giant")
+	check("巨大化は元のスケールを基準に体とタッチ距離を広げる",
+		near(scale.Value, 1.2 * Config.Items.Giant.Scale) and near(data.GiantUntil, now + 6)
+		and ItemManager.TagReachMultiplier(player, now) == Config.Items.Giant.ReachMultiplier)
+	targetData.HeldItems, targetData.HeldExpireAt = { "AirBurst" }, { 0 }
+	ItemManager.TryUse(target, 1)
+	check("巨大化中はエアバーストの水平と上向きの勢いが弱まる",
+		near(root.AssemblyLinearVelocity.Z, Config.Items.AirBurst.PushSpeed * Config.Items.Giant.KnockbackMultiplier)
+		and near(root.AssemblyLinearVelocity.Y, Config.Items.AirBurst.LiftSpeed * Config.Items.Giant.KnockbackMultiplier))
+	use("Shrink")
+	check("縮小は巨大化と重ならず、元のスケールに倍率を掛ける", near(scale.Value, 1.2 * Config.Items.Shrink.Scale)
+		and data.GiantUntil == 0 and near(data.ShrinkUntil, now + 6) and ItemManager.TagReachMultiplier(player, now) == 1)
+	now += Config.Items.Shrink.Duration
+	ItemManager.Tick()
+	check("効果が切れると元のスケールに戻る", near(scale.Value, 1.2) and data.ShrinkUntil == 0)
+	use("Giant")
+	ItemManager.OnCharacterAdded(player)
+	check("キャラクター再出現処理で元のスケールに戻る", near(scale.Value, 1.2) and data.GiantUntil == 0)
+	use("Shrink")
+	use("FakeBox")
+	fake = container:FindFirstChild("ItemBox")
+	use("IceBomb")
+	patch = container:FindFirstChild("IcePatch")
+	ItemManager.Tick()
+	ItemManager.Stop()
+	check("ラウンド終了で大きさが戻り、罠・パッチ・滑り属性が消える", near(scale.Value, 1.2)
+		and not fake.Parent and not patch.Parent and not player.Character:GetAttribute("IcePatch"))
+
+	ItemManager.Start()
+	local bot = BotManager.Spawn(1)[1]
+	local botRoot = GameState.GetRootPart(bot)
+	local botData = GameState.GetData(bot)
+	botData.HeldItems, botData.HeldExpireAt = { "Reflect" }, { 0 }
+	target.Character:PivotTo(RT.CFrame.new(botRoot.Position + Vector3.new(2, 0, 0)))
+	BotManager.Tick()
+	check("ボットの通常の行動更新で近い鬼に備えてリフレクトを使う",
+		#botData.HeldItems == 0 and near(botData.ReflectUntil, now + Config.Items.Reflect.Duration))
+	BotManager.DespawnAll()
+	ItemManager.Stop()
+
+	for _, participant in ipairs({ player, target, other }) do
+		GameState.UnregisterCharacter(participant.Character)
+		GameState.ClearData(participant)
+		participant.Character:Destroy()
+	end
+	GameState.Now, GameState.Phase = oldClock, oldPhase
+	GameState.Participants, GameState.Taggers = oldParticipants, oldTaggers
+	RT.workspace._raycast = oldRaycast
+	if temporaryMap then temporaryMap:Destroy() end
+end
+
 -- Studio のメモリ動作に切り替えるので、DataStore を使うテストの最後に実行する。
 do
 	local store = RT.game:GetService("DataStoreService"):GetDataStore("PlayerData_v1")
@@ -3504,6 +4827,8 @@ do
 	store.GetAsync = getAsync
 	RT.game.GetService = getService
 
+	check("アイテムボックス：永続ストアなしでは購入を確定しない",
+		not PlayerDataStore.AddItemBox(player) and PlayerDataStore.Get(player).ItemBoxes == 0)
 	check("Studio：API 無効時もメモリ上でガチャ・装備・ルーレットを使える",
 		result and equipped and spun and data.EquippedBeast == result.Id
 			and data.Coins == Config.Roulette.Prizes[1].Coins and store:GetAsync("u_19007") == nil)
@@ -3592,6 +4917,142 @@ do
 	tick()
 	check("参加パッド：猶予中の退場で即座に外れる", update.Count == 1 and not update.Ready)
 
+end
+
+do
+	local skills = RT.modules.TaggerSkills
+	local config = Config.TaggerSkills
+	local readyAt = 100 + config.Dash.Cooldown
+	check("鬼スキル：使用直後とクールダウン終了直前は再使用不可",
+		not skills.IsReady(readyAt, 100) and not skills.IsReady(readyAt, readyAt - 0.01))
+	check("鬼スキル：クールダウン終了時点から再使用可",
+		skills.IsReady(readyAt, readyAt) and skills.IsReady(nil, 100))
+
+	for _, case in ipairs({ { 90.01, 1, 0 }, { 90, 1.05, 1 }, { 30.01, 1.05, 1 }, { 30, 1.10, 2 }, { 29.99, 1.10, 2 } }) do
+		local multiplier, stage = GameState.TaggerLateBoost(case[1], 180)
+		check("鬼の後半強化：残り " .. case[1] .. " 秒", near(multiplier, case[2]) and stage == case[3])
+	end
+	local multiplier, stage = GameState.TaggerLateBoost(30, 60)
+	check("鬼の後半強化：60秒戦で半分と残り30秒が重なると第2段階", near(multiplier, 1.10) and stage == 2)
+
+	local window = config.CatchStreak.Window
+	check("連続捕獲：初回の捕獲では加速しない", skills.CatchBoostEnd(nil, 100, window) == nil)
+	check("連続捕獲：ちょうど10秒で3秒間加速", skills.CatchBoostEnd(100, 110, window) == 113)
+	check("連続捕獲：10秒を超えると加速しない", skills.CatchBoostEnd(100, 110.01, window) == nil)
+
+	local oldPhase, oldTime, oldMode = GameState.Phase, GameState.TimeLeft, GameState.ChosenMode
+	local oldTaggers, oldParticipants, oldNow = GameState.Taggers, GameState.Participants, GameState.Now
+	local now = 100
+	GameState.Phase, GameState.ChosenMode = "Round", Config.SuddenDeath.NormalId
+	GameState.TimeLeft = GameState.ChosenDuration
+	GameState.Taggers, GameState.Participants = {}, {}
+	GameState.Now = function() return now end
+	local function entrant(id, x, health)
+		local player = RT.Instance.new("Player")
+		player.UserId = id
+		player.Parent = RT.game:GetService("Players")
+		local character = RT.Instance.new("Model")
+		player.Character = character
+		local root = RT.Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Position = Vector3.new(x, 0, 0)
+		root.Parent = character
+		local humanoid = RT.Instance.new("Humanoid")
+		humanoid.Health = health or 100
+		humanoid.Parent = character
+		GameState.Participants[player] = true
+		return player, humanoid
+	end
+	local tagger, taggerHumanoid = entrant(29901, 0)
+	local otherTagger = entrant(29902, 2)
+	local nearby, nearbyHumanoid = entrant(29903, 12)
+	local far = entrant(29904, 12.1)
+	local star = entrant(29905, 4)
+	local dead = entrant(29906, 6, 0)
+	GameState.Taggers[tagger], GameState.Taggers[otherTagger] = { Since = 0 }, { Since = 0 }
+	GameState.GetData(star).StarUntil = now + 10
+	local data = GameState.GetData(tagger)
+	local nearbyData = GameState.GetData(nearby)
+	nearbyData.ShieldUntil, nearbyData.InvulnerableUntil, nearbyData.InsulateUntil = now + 10, now + 10, now + 10
+	local targets = skills.RoarTargets(Vector3.new())
+	check("咆哮：半径の境界にいる逃げ手だけを選ぶ", #targets == 1 and targets[1] == nearby)
+	ItemManager.Start()
+	skills.Use(tagger, "Roar")
+	check("咆哮：シールド・無敵・絶縁中でも設定速度に減速し、シールドを消費しない",
+		nearbyHumanoid.WalkSpeed == config.Roar.SlowSpeed and nearbyData.ShieldUntil == now + 10)
+	now += config.Roar.SlowTime
+	ItemManager.Tick()
+	check("咆哮：既存の減速管理で効果終了時に速度を戻す", nearbyHumanoid.WalkSpeed == Config.NormalWalkSpeed)
+	ItemManager.Stop()
+
+	skills.Use(nearby, "Dash")
+	check("鬼スキル：逃げ手の要求は無効", next(nearbyData.TaggerSkillReadyAt) == nil)
+	data.StunUntil = now + 1
+	skills.Use(tagger, "Dash")
+	check("鬼スキル：スタン中の要求は無効", data.TaggerSkillReadyAt.Dash == nil)
+	data.StunUntil = 0
+	skills.Use(tagger, "Dash")
+	local dashEnd = data.TaggerDashUntil
+	now += 1
+	skills.Use(tagger, "Dash")
+	check("鬼ダッシュ：発動時に速度が上がり、クールダウン中は延長されない",
+		taggerHumanoid.WalkSpeed == config.Dash.WalkSpeed and data.TaggerDashUntil == dashEnd)
+	now = dashEnd
+	skills.Tick(now)
+	check("鬼ダッシュ：効果終了時に基本速度へ戻る", taggerHumanoid.WalkSpeed == Config.TaggerWalkSpeed)
+
+	local skillRemote = Remotes.TaggerSkillUpdate
+	local updates = {}
+	Remotes.TaggerSkillUpdate = { FireClient = function(_, recipient, info)
+		table.insert(updates, { Recipient = recipient, Smell = info.Smell })
+	end }
+	skills.Use(tagger, "Smell")
+	check("嗅覚：発動者だけに生存中で最も近い逃げ手の情報を送る",
+		#updates == 1 and updates[1].Recipient == tagger and updates[1].Smell.Distance == 4
+			and near(updates[1].Smell.Position.X, 4))
+	now += config.Smell.UpdateInterval
+	GameState.GetRootPart(nearby).Position = Vector3.new(3, 0, 0)
+	skills.Tick(now)
+	check("嗅覚：0.25秒ごとに最も近い逃げ手を選び直す",
+		#updates == 2 and updates[2].Recipient == tagger and updates[2].Smell.Distance == 3)
+	now = data.TaggerSmellUntil
+	skills.Tick(now)
+	check("嗅覚：終了時に表示情報を消す", #updates == 3 and updates[3].Smell == nil)
+	Remotes.TaggerSkillUpdate = skillRemote
+
+	skills.RecordCatch(tagger, now - 2)
+	skills.RecordCatch(tagger, now)
+	check("連続捕獲：まだ鬼であれば加速する",
+		near(taggerHumanoid.WalkSpeed, Config.TaggerWalkSpeed * config.CatchStreak.Multiplier))
+	data.TaggerDashUntil = now + 2
+	nearbyData.TaggerSkillReadyAt.Dash = math.huge
+	nearbyData.TaggerSkillReadyAt.Smell = math.huge
+	data.TaggerSkillReadyAt.Smell = nil
+	Remotes.TaggerSkillUpdate = { FireClient = function(_, recipient, info)
+		table.insert(updates, { Recipient = recipient, Smell = info.Smell })
+	end }
+	skills.Use(tagger, "Smell")
+	local changed = RoundManager.SetAdminTagger(nearby)
+	check("鬼交代：新しい鬼の全クールダウンをリセット", changed and next(nearbyData.TaggerSkillReadyAt) == nil)
+	check("鬼交代：前の鬼にダッシュや連続捕獲が残っていても逃げ手速度に戻る",
+		not GameState.IsTagger(tagger) and taggerHumanoid.WalkSpeed == Config.NormalWalkSpeed)
+
+	check("鬼交代：前の鬼の嗅覚表示を消し、次の更新でも位置を送らない",
+		updates[#updates - 1].Recipient == tagger and updates[#updates - 1].Smell == nil
+		and data.TaggerDashUntil == 0 and data.TaggerSmellUntil == 0 and data.CatchBoostUntil == 0)
+	local updateCount = #updates
+	skills.Tick(now + config.Smell.UpdateInterval)
+	check("鬼交代後の Tick では解除済みの嗅覚を再送しない", #updates == updateCount)
+	Remotes.TaggerSkillUpdate = skillRemote
+
+	for _, player in ipairs({ tagger, otherTagger, nearby, far, star, dead }) do
+		TaggerLook.Clear(player)
+		GameState.ClearData(player)
+		player.Character:Destroy()
+		player:Destroy()
+	end
+	GameState.Phase, GameState.TimeLeft, GameState.ChosenMode = oldPhase, oldTime, oldMode
+	GameState.Taggers, GameState.Participants, GameState.Now = oldTaggers, oldParticipants, oldNow
 end
 
 print(string.format("== 結果: 成功 %d / 失敗 %d ==", passed, failed))

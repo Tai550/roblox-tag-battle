@@ -17,6 +17,8 @@ BUILD = os.path.join(ROOT, "tests", ".build")
 MODULES = [
     ("src/shared/Config.lua", "Config"),
     ("src/shared/UILayout.lua", "UILayout"),
+    ("src/shared/LobbyMenu.lua", "LobbyMenu"),
+    ("src/shared/CharacterTrail.lua", "CharacterTrail"),
     ("src/shared/BeastModels.lua", "BeastModels"),
     ("src/lobby/server/BeastFollower.lua", "BeastFollower"),
     ("src/shared/RouletteVisual.lua", "RouletteVisual"),
@@ -31,6 +33,7 @@ MODULES = [
     ("src/server/ItemManager.lua", "ItemManager"),
     ("src/server/MapBuilder.lua", "MapBuilder"),
     ("src/server/VoltGimmicks.lua", "VoltGimmicks"),
+    ("src/server/TaggerSkills.lua", "TaggerSkills"),
     ("src/server/TaggerLook.lua", "TaggerLook"),
     ("src/server/BotManager.lua", "BotManager"),
     ("src/server/RoundManager.lua", "RoundManager"),

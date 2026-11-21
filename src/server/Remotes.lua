@@ -3,6 +3,8 @@
 --
 --   StateUpdate  (サーバー → 全員)  ラウンドの状態（フェーズ、残り時間、鬼など）
 --   ItemUpdate   (サーバー → 本人)  持っているアイテムのリスト、枠数、効果時間（スパイクブーツは Workspace のサーバー時刻での終了時刻）
+--   UseTaggerSkill (クライアント → サーバー) 鬼スキルを使う（引数はスキル Id）
+--   TaggerSkillUpdate (サーバー → 本人) クールダウン終了時刻と嗅覚の情報
 --   UseItem      (クライアント → サーバー) 「何枠目を使いたい」というお願い。判定はサーバー
 --   IsisJump     (クライアント → サーバー) イシスの空中ジャンプを要求する（引数なし）
 --   UseBeast     (クライアント → サーバー) 装備中の召喚獣を使う（引数なし）
@@ -16,14 +18,16 @@
 --   HostStart    (クライアント → サーバー) 友達部屋のホストが「開始」を押した
 --   LeaveToLobby (クライアント → サーバー) 「ロビーへ戻る」を押した
 --   MapVote      (クライアント → サーバー) 開始前のマップ投票（引数はマップ Id）
+--   ModeVote     (クライアント → サーバー) 開始前のモード投票（引数はモード Id）
+--   BotStrengthVote (クライアント → サーバー) 開始前のボットの強さ投票（引数は選択肢 Id）
 --   AdminRequest (クライアント ⇔ サーバー) 管理者画面の操作（権限はサーバーが毎回確認）
 --   RankUp       (サーバー → 本人)  段位が上がった瞬間だけ。引数は新しい段位名
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
-	"StateUpdate", "ItemUpdate", "UseItem", "UseBeast", "IsisJump", "SmokeEffect", "Notify", "PassUpdate",
-	"DurationVote", "MapVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby", "RankUp", "AdminRequest",
+	"StateUpdate", "UseTaggerSkill", "TaggerSkillUpdate", "ItemUpdate", "UseItem", "UseBeast", "IsisJump", "SmokeEffect", "Notify", "PassUpdate",
+	"DurationVote", "MapVote", "ModeVote", "BotStrengthVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby", "RankUp", "AdminRequest",
 }
 
 local folder = ReplicatedStorage:FindFirstChild("Remotes")

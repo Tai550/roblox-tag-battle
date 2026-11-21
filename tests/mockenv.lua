@@ -116,6 +116,11 @@ CFrameMT.__mul = function(a, b)
 		Position = position,
 	}, CFrameMT)
 end
+function CFrameMT:ToObjectSpace(frame)
+	local relative = RT.CFrame.Angles(frame.RotX - self.RotX, frame.RotY - self.RotY, frame.RotZ - self.RotZ)
+	return relative + self:PointToObjectSpace(frame.Position)
+end
+
 RT.CFrame = {
 	new = function(x, y, z)
 		if getmetatable(x) == Vector3MT then
@@ -629,8 +634,13 @@ RT.workspace.Raycast = function(self, origin, direction, params)
 	if params and params.FilterType == RT.Enum.RaycastFilterType.Include then
 		return nil
 	end
+	-- 水平・斜めの視線が床を横切らない場合は何にも当たらない。
+	if direction.Y >= 0 or origin.Y < 0 or origin.Y + direction.Y > 0 then
+		return nil
+	end
+	local floorHit = origin + direction * (-origin.Y / direction.Y)
 	return {
-		Position = RT.Vector3.new(origin.X, 0, origin.Z),
+		Position = floorHit,
 		Normal = RT.Vector3.new(0, 1, 0),
 		Instance = { CanCollide = true },
 	}

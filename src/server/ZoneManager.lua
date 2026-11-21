@@ -377,6 +377,7 @@ local function checkPlayers(step)
 				data.ZoneStamina = math.min(
 					Config.ZoneStaminaMax,
 					data.ZoneStamina + Config.ZoneRegenPerSecond * step
+						* Config.ComboMultiplier(data.ActiveCombos, "StaminaRegenMultiplier")
 				)
 			end
 

@@ -9,6 +9,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -17,6 +18,8 @@ local BrandColors = Config.BrandColors
 local Music = require(Shared:WaitForChild("Music"))
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
+local UseTaggerSkill = Remotes:WaitForChild("UseTaggerSkill")
+local TaggerSkillUpdate = Remotes:WaitForChild("TaggerSkillUpdate")
 local StateUpdate = Remotes:WaitForChild("StateUpdate")
 local ItemUpdate = Remotes:WaitForChild("ItemUpdate")
 local ZoneUpdate = Remotes:WaitForChild("ZoneUpdate")
@@ -27,6 +30,8 @@ local UseBeast = Remotes:WaitForChild("UseBeast")
 local IsisJump = Remotes:WaitForChild("IsisJump")
 local DurationVote = Remotes:WaitForChild("DurationVote")
 local MapVote = Remotes:WaitForChild("MapVote")
+local ModeVote = Remotes:WaitForChild("ModeVote")
+local BotStrengthVote = Remotes:WaitForChild("BotStrengthVote")
 local HostStart = Remotes:WaitForChild("HostStart")
 local LeaveToLobby = Remotes:WaitForChild("LeaveToLobby")
 local RankUp = Remotes:WaitForChild("RankUp")
@@ -113,6 +118,23 @@ topStroke.Thickness = 2
 topStroke.Color = RED
 topStroke.Enabled = false
 topStroke.Parent = topPill
+local suddenDeathPill = frame("SuddenDeath", UDim2.fromOffset(200, 26), UDim2.new(0.5, 0, 0, 44))
+suddenDeathPill.AnchorPoint = Vector2.new(0.5, 0)
+suddenDeathPill.Visible = false
+local suddenDeathLabel = label(suddenDeathPill, "", UDim2.fromScale(1, 1), UDim2.new(), 14, WHITE, true)
+suddenDeathLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+local boostPill = frame("TaggerBoost", UDim2.fromOffset(220, 26), UDim2.new())
+boostPill.AnchorPoint = Vector2.new(0.5, 0)
+boostPill.Visible = false
+local boostLabel = label(boostPill, "", UDim2.fromScale(1, 1), UDim2.new(), 14, GOLD, true)
+boostLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+local botStrengthPill = frame("BotStrength", UDim2.fromOffset(220, 26), UDim2.new(0.5, 0, 0, 44))
+botStrengthPill.AnchorPoint = Vector2.new(0.5, 0)
+botStrengthPill.Visible = false
+local botStrengthLabel = label(botStrengthPill, "", UDim2.fromScale(1, 1), UDim2.new(), 14, WHITE, true)
+botStrengthLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 ---------------------------------------------------------------------
 -- 左上：エリアの状態と効果
@@ -138,6 +160,9 @@ local returnsLabel = label(zonePanel, "送還 0/2", UDim2.new(1, -16, 0, 16), UD
 local effectsLabel = label(gui, "", UDim2.new(0, 200, 0, 120), UDim2.new(0, 10, 0, 72), 12, GOLD, true)
 effectsLabel.TextYAlignment = Enum.TextYAlignment.Top
 effectsLabel.TextStrokeTransparency = 0.5
+effectsLabel.TextWrapped = true
+effectsLabel.Size = UDim2.fromOffset(200, 0)
+effectsLabel.AutomaticSize = Enum.AutomaticSize.Y
 
 ---------------------------------------------------------------------
 -- 下の中央：アイテムの枠
@@ -186,6 +211,61 @@ beastButton.Activated:Connect(function()
 	UseBeast:FireServer()
 end)
 
+local skillBar = Instance.new("Frame")
+skillBar.Name = "TaggerSkills"
+skillBar.BackgroundTransparency = 1
+skillBar.AnchorPoint = Vector2.new(0.5, 1)
+skillBar.Position = UDim2.new(0.5, 0, 1, -80)
+skillBar.Size = UDim2.fromOffset(264, 52)
+skillBar.Visible = false
+skillBar.Parent = gui
+
+local skillNames = { Dash = "鬼ダッシュ", Roar = "咆哮", Smell = "嗅覚" }
+local skillButtons = {}
+local skillInfo = { ReadyAt = {} }
+for index, id in ipairs({ "Dash", "Roar", "Smell" }) do
+	local b = button(skillBar, "", UDim2.fromOffset(84, 52), UDim2.fromOffset((index - 1) * 90, 0))
+	b.Name = id
+	b.TextSize = 14
+	b.Activated:Connect(function()
+		if (skillInfo.ReadyAt[id] or 0) <= workspace:GetServerTimeNow() then
+			UseTaggerSkill:FireServer(id)
+		end
+	end)
+	skillButtons[id] = b
+end
+
+local smellPanel = frame("Smell", UDim2.fromOffset(264, 34), UDim2.fromOffset(0, -40), skillBar)
+smellPanel.Visible = false
+local smellArrow = label(smellPanel, "↑", UDim2.fromOffset(34, 34), UDim2.new(), 22, GOLD, true)
+smellArrow.TextXAlignment = Enum.TextXAlignment.Center
+local smellDistance = label(smellPanel, "", UDim2.new(1, -44, 1, 0), UDim2.fromOffset(38, 0), 14, WHITE, true)
+
+local function renderTaggerSkills()
+	if not skillBar.Visible then
+		return
+	end
+	local now = workspace:GetServerTimeNow()
+	for id, b in pairs(skillButtons) do
+		local left = math.ceil((skillInfo.ReadyAt[id] or 0) - now)
+		b.Text = left > 0 and (skillNames[id] .. "\n" .. left .. "秒") or skillNames[id]
+		b.BackgroundColor3 = left > 0 and DARK or BrandColors.Primary
+	end
+	local smell = skillInfo.Smell
+	local camera = workspace.CurrentCamera
+	local character = localPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	smellPanel.Visible = smell ~= nil and smell.ExpiresAt > now and camera ~= nil and root ~= nil
+	if smellPanel.Visible then
+		smellDistance.Text = string.format("もっとも近い逃げ手: %dスタッド", math.round(smell.Distance))
+		local offset = smell.Position - root.Position
+		local right = camera.CFrame.RightVector
+		local horizontal = offset.X * right.X + offset.Z * right.Z
+		local forward = offset.X * right.Z - offset.Z * right.X
+		smellArrow.Rotation = math.deg(math.atan2(horizontal, forward))
+	end
+end
+
 ---------------------------------------------------------------------
 -- お知らせ（上の中央、少しだけ出て消える）
 ---------------------------------------------------------------------
@@ -215,9 +295,12 @@ end
 -- 中央パネル（試合の前後だけ）
 ---------------------------------------------------------------------
 
-local center = frame("CenterPanel", UDim2.new(0, 440, 0, 120), UDim2.new(0.5, 0, 0, 50), gui, 0.2)
+local center = frame("CenterPanel", UDim2.new(1, -16, 0, 120), UDim2.new(0.5, 0, 0, 50), gui, 0.2)
 center.AnchorPoint = Vector2.new(0.5, 0)
 center.AutomaticSize = Enum.AutomaticSize.Y
+local centerSize = Instance.new("UISizeConstraint")
+centerSize.MaxSize = Vector2.new(440, math.huge)
+centerSize.Parent = center
 local centerPad = Instance.new("UIPadding")
 centerPad.PaddingTop = UDim.new(0, 12)
 centerPad.PaddingBottom = UDim.new(0, 12)
@@ -282,11 +365,58 @@ for index, map in ipairs(Config.MatchMaps) do
 end
 voteRow.LayoutOrder = 4
 
+local modeRow = Instance.new("Frame")
+modeRow.BackgroundTransparency = 1
+modeRow.Size = UDim2.new(1, 0, 0, 40)
+modeRow.LayoutOrder = 5
+modeRow.Visible = false
+modeRow.Parent = center
+local modeOptions = {
+	{ Id = Config.SuddenDeath.NormalId, Name = "通常" },
+	{ Id = Config.SuddenDeath.Id, Name = "サドンデス" },
+}
+local myModeVote
+for index, option in ipairs(modeOptions) do
+	local b = button(modeRow, "", UDim2.new(0.5, -4, 1, 0), UDim2.new((index - 1) * 0.5, (index - 1) * 4, 0, 0))
+	b.MouseButton1Click:Connect(function()
+		myModeVote = option.Id
+		ModeVote:FireServer(option.Id)
+	end)
+	option.Button = b
+end
+
+local botStrengthRow = Instance.new("Frame")
+botStrengthRow.BackgroundTransparency = 1
+botStrengthRow.Size = UDim2.new(1, 0, 0, 40)
+botStrengthRow.LayoutOrder = 6
+botStrengthRow.Visible = false
+botStrengthRow.Parent = center
+local myBotStrengthVote
+local botStrengthButtons = {}
+local strengthWidth = 1 / #Config.BotStrengthVote
+for index, option in ipairs(Config.BotStrengthVote) do
+	local b = button(botStrengthRow, "", UDim2.new(strengthWidth, -6, 1, 0),
+		UDim2.new((index - 1) * strengthWidth, index - 1, 0, 0))
+	b.TextSize = 13
+	b.TextWrapped = true
+	b.MouseButton1Click:Connect(function()
+		myBotStrengthVote = option.Id
+		BotStrengthVote:FireServer(option.Id)
+	end)
+	botStrengthButtons[option.Id] = b
+end
+
+local function renderVoteButton(b, name, count, selected)
+	b.Text = string.format("%s（%d票）", name, count)
+	b.BackgroundColor3 = selected and GOLD or BrandColors.Primary
+	b.TextColor3 = selected and DARK or WHITE
+end
+
 local resultsList = Instance.new("Frame")
 resultsList.BackgroundTransparency = 1
 resultsList.Size = UDim2.new(1, 0, 0, 0)
 resultsList.AutomaticSize = Enum.AutomaticSize.Y
-resultsList.LayoutOrder = 5
+resultsList.LayoutOrder = 7
 resultsList.Parent = center
 local resultsLayout = Instance.new("UIListLayout")
 resultsLayout.Padding = UDim.new(0, 2)
@@ -296,7 +426,7 @@ resultsLayout.Parent = resultsList
 local actionRow = Instance.new("Frame")
 actionRow.BackgroundTransparency = 1
 actionRow.Size = UDim2.new(1, 0, 0, 40)
-actionRow.LayoutOrder = 5
+actionRow.LayoutOrder = 8
 actionRow.Parent = center
 local startButton = button(actionRow, "開始！", UDim2.new(0.5, -4, 1, 0), UDim2.new(0, 0, 0, 0), BrandColors.Accent)
 local lobbyButton = button(actionRow, "ロビーへ戻る", UDim2.new(0.5, -4, 1, 0), UDim2.new(0.5, 4, 0, 0), BrandColors.Secondary)
@@ -439,6 +569,29 @@ local function renderState()
 
 	-- ふちの表示は試合中だけ
 	topPill.Visible = inRound
+	suddenDeathPill.Visible = inRound and state.GameMode == Config.SuddenDeath.Id
+	botStrengthPill.Visible = inRound and state.BotStrengthName ~= nil
+	local detailsY = suddenDeathPill.Visible and 74 or 44
+	botStrengthPill.Position = UDim2.new(0.5, 0, 0, detailsY)
+	if botStrengthPill.Visible then
+		detailsY += 30
+	end
+	local boostStage = state.TaggerBoostStage or 0
+	boostPill.Visible = inRound and boostStage > 0
+	if boostPill.Visible then
+		local boost = Config.TaggerSkills.LateBoost
+		local multiplier = boostStage == 2 and boost.FinalMultiplier or boost.FirstMultiplier
+		boostPill.Position = UDim2.new(0.5, 0, 0, detailsY)
+		boostLabel.Text = string.format("鬼が強化中　基本速度 +%d%%", math.round((multiplier - 1) * 100))
+		detailsY += 30
+	end
+	toast.Position = UDim2.new(0.5, 0, 0, math.max(46, detailsY))
+	if botStrengthPill.Visible then
+		botStrengthLabel.Text = "ボットの強さ　" .. state.BotStrengthName
+	end
+	if suddenDeathPill.Visible then
+		suddenDeathLabel.Text = string.format("サドンデス　残り%d人", state.RunnersLeft or 0)
+	end
 	zonePanel.Visible = inRound and contains(state.Participants, localPlayer.UserId)
 	effectsLabel.Visible = inRound
 	itemBar.Visible = inRound and contains(state.Participants, localPlayer.UserId)
@@ -446,10 +599,17 @@ local function renderState()
 		clearBeastHighlights()
 	end
 
+	local amTagger = inRound and table.find(state.TaggerUserIds or {}, localPlayer.UserId) ~= nil
+	if skillBar.Visible and not amTagger then
+		skillInfo = { ReadyAt = {} }
+		smellPanel.Visible = false
+	end
+	skillBar.Visible = amTagger
+	renderTaggerSkills()
+
 	if inRound then
 		timeLabel.Text = formatTime(state.TimeLeft)
 		timeLabel.TextColor3 = (state.TimeLeft or math.huge) <= Config.Music.FinalTime and RED or WHITE
-		local amTagger = table.find(state.TaggerUserIds or {}, localPlayer.UserId) ~= nil
 		taggerLabel.Text = amTagger and "あなたが鬼！" or ("鬼: " .. table.concat(state.TaggerNames or {}, "、"))
 		topStroke.Enabled = amTagger
 	end
@@ -461,8 +621,12 @@ local function renderState()
 	center.Visible = not inRound
 	voteRow.Visible = phase == "Intermission"
 	mapGrid.Visible = phase == "Intermission"
+	modeRow.Visible = phase == "Intermission"
+	botStrengthRow.Visible = phase == "Intermission"
 	if phase ~= "Intermission" then
 		myMapVote = nil
+		myModeVote = nil
+		myBotStrengthVote = nil
 	end
 	resultsList.Visible = phase == "Results"
 	local isFriends = state.Mode == "Friends"
@@ -487,6 +651,15 @@ local function renderState()
 	messageLabel.Text = state.Message or ""
 
 	if phase == "Intermission" then
+		local modeCounts = state.ModeVoteCounts or {}
+		for _, option in ipairs(modeOptions) do
+			renderVoteButton(option.Button, option.Name, modeCounts[option.Id] or 0, option.Id == myModeVote)
+		end
+		local strengthCounts = state.BotStrengthVoteCounts or {}
+		for _, option in ipairs(Config.BotStrengthVote) do
+			renderVoteButton(botStrengthButtons[option.Id], option.Name, strengthCounts[option.Id] or 0,
+				option.Id == myBotStrengthVote)
+		end
 		local counts = state.MapVoteCounts or {}
 		for id, entry in pairs(mapButtons) do
 			local name = entry.Map.VoteLabel or entry.Map.Name
@@ -544,7 +717,7 @@ local function renderItems()
 			b.BackgroundTransparency = 0.6
 		end
 	end
-	local lines = {}
+	local lines = table.clone(myItems.ActiveCombos or {})
 	for _, effect in ipairs(myItems.Effects or {}) do
 		if effect.Left and effect.Left > 0 then
 			table.insert(lines, string.format("%s %d秒", effect.Name, math.ceil(effect.Left)))
@@ -561,6 +734,12 @@ StateUpdate.OnClientEvent:Connect(function(info)
 	state = info
 	renderState()
 end)
+
+TaggerSkillUpdate.OnClientEvent:Connect(function(info)
+	skillInfo = info
+	renderTaggerSkills()
+end)
+RunService.RenderStepped:Connect(renderTaggerSkills)
 
 ItemUpdate.OnClientEvent:Connect(function(info)
 	myItems = info
