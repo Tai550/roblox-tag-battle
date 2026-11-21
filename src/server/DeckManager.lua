@@ -34,7 +34,10 @@ end
 
 -- そのプレイヤーのデッキ（コピー）を返す
 function DeckManager.GetDeck(player)
-	local deck = PlayerDataStore.Get(player).Deck
+	local deck = nil
+	if not (type(player) == "table" and player.IsBot == true) then -- ボットは保存データを持たないので最初のデッキ
+		deck = PlayerDataStore.Get(player).Deck
+	end
 	local ok, copy = DeckManager.ValidateDeck(deck)
 	if ok then
 		return copy
@@ -50,6 +53,9 @@ end
 function DeckManager.PickFromDeck(player)
 	return DeckManager.PickRandomFromDeck(DeckManager.GetDeck(player))
 end
+
+-- ボットを消すときに呼ばれる。試合サーバーではデッキを覚えていないので何もしない
+function DeckManager.Release(_player) end
 
 function DeckManager.Init()
 	Players.PlayerAdded:Connect(function(player)

@@ -44,17 +44,57 @@ RT.Color3 = {
 	end,
 }
 
-local CFrameMT = {
-	__mul = function(a, _)
-		return a
+RT.UDim2 = {
+	new = function(xs, xo, ys, yo)
+		return { XScale = xs or 0, XOffset = xo or 0, YScale = ys or 0, YOffset = yo or 0 }
+	end,
+	fromScale = function(xs, ys)
+		return { XScale = xs or 0, XOffset = 0, YScale = ys or 0, YOffset = 0 }
+	end,
+	fromOffset = function(xo, yo)
+		return { XScale = 0, XOffset = xo or 0, YScale = 0, YOffset = yo or 0 }
 	end,
 }
+
+local CFrameMT = {}
+CFrameMT.__index = CFrameMT
+-- 位置は左、回転は右を足す（テストが上下とヨーを読めるようにする）
+CFrameMT.__mul = function(a, b)
+	return setmetatable({
+		X = a.X or 0,
+		Y = a.Y or 0,
+		Z = a.Z or 0,
+		RotX = (b and b.RotX) or 0,
+		RotY = (b and b.RotY) or 0,
+		RotZ = (b and b.RotZ) or 0,
+		LookVector = RT.Vector3.new(0, 0, -1),
+		Position = RT.Vector3.new(a.X or 0, a.Y or 0, a.Z or 0),
+	}, CFrameMT)
+end
 RT.CFrame = {
-	new = function(...)
-		return setmetatable({ LookVector = RT.Vector3.new(0, 0, -1) }, CFrameMT)
+	new = function(x, y, z)
+		return setmetatable({
+			X = x or 0,
+			Y = y or 0,
+			Z = z or 0,
+			RotX = 0,
+			RotY = 0,
+			RotZ = 0,
+			LookVector = RT.Vector3.new(0, 0, -1),
+			Position = RT.Vector3.new(x or 0, y or 0, z or 0),
+		}, CFrameMT)
 	end,
-	Angles = function(...)
-		return setmetatable({}, CFrameMT)
+	Angles = function(rx, ry, rz)
+		return setmetatable({
+			X = 0,
+			Y = 0,
+			Z = 0,
+			RotX = rx or 0,
+			RotY = ry or 0,
+			RotZ = rz or 0,
+			LookVector = RT.Vector3.new(0, 0, -1),
+			Position = RT.Vector3.new(0, 0, 0),
+		}, CFrameMT)
 	end,
 }
 
@@ -82,6 +122,39 @@ local fakeEvent = {
 	end,
 }
 
+-- Touched / Heartbeat / DescendantAdded 用。Connect した関数は _Fire で呼べる。
+local function makeSignal()
+	local callbacks = {}
+	local signal = {}
+	function signal:Connect(fn)
+		table.insert(callbacks, fn)
+		local connected = true
+		return {
+			Disconnect = function()
+				if not connected then
+					return
+				end
+				connected = false
+				for index = #callbacks, 1, -1 do
+					if callbacks[index] == fn then
+						table.remove(callbacks, index)
+					end
+				end
+			end,
+		}
+	end
+	function signal:_Fire(...)
+		local snapshot = {}
+		for index, fn in ipairs(callbacks) do
+			snapshot[index] = fn
+		end
+		for _, fn in ipairs(snapshot) do
+			fn(...)
+		end
+	end
+	return signal
+end
+
 local instanceMethods = {}
 function instanceMethods.FindFirstChild(self, name)
 	for _, child in ipairs(rawget(self, "_children")) do
@@ -99,19 +172,82 @@ function instanceMethods.WaitForChild(self, name)
 	-- 子がなければ「モジュール名の目印」を返す（fakeRequire が解決する）
 	return { __moduleName = name }
 end
-function instanceMethods.FindFirstChildOfClass(_, _)
+function instanceMethods.SetAttribute(self, name, value)
+	local attrs = rawget(self, "_attributes")
+	if not attrs then
+		attrs = {}
+		rawset(self, "_attributes", attrs)
+	end
+	attrs[name] = value
+end
+function instanceMethods.GetAttribute(self, name)
+	local attrs = rawget(self, "_attributes")
+	return attrs and attrs[name]
+end
+function instanceMethods.FindFirstChildOfClass(self, className)
+	for _, child in ipairs(rawget(self, "_children") or {}) do
+		if instanceMethods.IsA(child, className) then
+			return child
+		end
+	end
 	return nil
 end
-function instanceMethods.GetDescendants(_)
-	return {}
+function instanceMethods.FindFirstAncestorOfClass(self, className)
+	local current = rawget(self, "Parent")
+	while type(current) == "table" and rawget(current, "ClassName") do
+		if instanceMethods.IsA(current, className) then
+			return current
+		end
+		current = rawget(current, "Parent")
+	end
+	return nil
 end
+function instanceMethods.GetChildren(self)
+	local list = {}
+	for _, child in ipairs(rawget(self, "_children") or {}) do
+		table.insert(list, child)
+	end
+	return list
+end
+function instanceMethods.GetDescendants(self)
+	local list = {}
+	local function walk(node)
+		for _, child in ipairs(rawget(node, "_children") or {}) do
+			table.insert(list, child)
+			walk(child)
+		end
+	end
+	walk(self)
+	return list
+end
+-- BasePart として扱うクラス（Part の仲間）
+local BASE_PART_CLASSES = {
+	Part = true,
+	WedgePart = true,
+	SpawnLocation = true,
+	TrussPart = true,
+	MeshPart = true,
+}
 function instanceMethods.IsA(self, className)
 	if className == "BasePart" then
-		return rawget(self, "ClassName") == "Part"
+		return BASE_PART_CLASSES[rawget(self, "ClassName")] == true
 	end
 	return rawget(self, "ClassName") == className
 end
+-- 親の子リストから外す（Destroy と親の付け替えで使う）
+local function detachFromParent(self)
+	local parent = rawget(self, "Parent")
+	if type(parent) == "table" and rawget(parent, "_children") then
+		local children = rawget(parent, "_children")
+		for index = #children, 1, -1 do
+			if children[index] == self then
+				table.remove(children, index)
+			end
+		end
+	end
+end
 function instanceMethods.Destroy(self)
+	detachFromParent(self)
 	rawset(self, "Parent", nil)
 end
 function instanceMethods.FireClient(_, ...)
@@ -128,11 +264,25 @@ local instanceMT = {
 		if key == "OnServerEvent" or key == "OnClientEvent" then
 			return fakeEvent
 		end
+		if key == "Touched" or key == "Heartbeat" or key == "DescendantAdded" then
+			local signals = rawget(self, "_signals")
+			if not signals then
+				signals = {}
+				rawset(self, "_signals", signals)
+			end
+			if not signals[key] then
+				signals[key] = makeSignal()
+			end
+			return signals[key]
+		end
 		return nil
 	end,
 	__newindex = function(self, key, value)
-		if key == "Parent" and type(value) == "table" and rawget(value, "_children") then
-			table.insert(rawget(value, "_children"), self)
+		if key == "Parent" then
+			detachFromParent(self)
+			if type(value) == "table" and rawget(value, "_children") then
+				table.insert(rawget(value, "_children"), self)
+			end
 		end
 		rawset(self, key, value)
 	end,
@@ -165,16 +315,97 @@ local sharedFolder = RT.Instance.new("Folder")
 sharedFolder.Name = "Shared"
 sharedFolder.Parent = replicatedStorage
 
+---------------------------------------------------------------------
+-- DataStore（メモリ上の表）
+-- RT.DataStoreShouldFail が true のあいだ、GetAsync / SetAsync / UpdateAsync は失敗する。
+---------------------------------------------------------------------
+
+RT.DataStoreShouldFail = false
+
+local function cloneData(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	local copy = {}
+	for key, child in pairs(value) do
+		copy[key] = cloneData(child)
+	end
+	return copy
+end
+
+local dataStores = {}
+
+local function makeDataStore()
+	local records = {}
+	local store = {}
+	function store:GetAsync(key)
+		if RT.DataStoreShouldFail then
+			error("DataStore の取得に失敗しました")
+		end
+		return cloneData(records[tostring(key)])
+	end
+	function store:SetAsync(key, value)
+		if RT.DataStoreShouldFail then
+			error("DataStore への保存に失敗しました")
+		end
+		records[tostring(key)] = cloneData(value)
+	end
+	function store:UpdateAsync(key, transform)
+		if RT.DataStoreShouldFail then
+			error("DataStore の更新に失敗しました")
+		end
+		local newValue = transform(cloneData(records[tostring(key)]))
+		if newValue == nil then
+			return nil
+		end
+		records[tostring(key)] = cloneData(newValue)
+		return cloneData(records[tostring(key)])
+	end
+	return store
+end
+
+local dataStoreService = {
+	GetDataStore = function(_, storeName)
+		local name = tostring(storeName)
+		local store = dataStores[name]
+		if not store then
+			store = makeDataStore()
+			dataStores[name] = store
+		end
+		return store
+	end,
+}
+
+local services = {
+	Players = playersService,
+	ReplicatedStorage = replicatedStorage,
+	DataStoreService = dataStoreService,
+}
+
 RT.workspace = RT.Instance.new("Workspace")
+
+-- 光線：どこに落としても高さ 0 の平らな地面に当たる（ボックスの空き地探し用）
+RT.RaycastParams = {
+	new = function()
+		return {}
+	end,
+}
+RT.workspace.Raycast = function(_, origin, _direction, _params)
+	return { Position = RT.Vector3.new(origin.X, 0, origin.Z) }
+end
 
 RT.game = {
 	GetService = function(_, name)
-		if name == "Players" then
-			return playersService
-		elseif name == "ReplicatedStorage" then
-			return replicatedStorage
+		local service = services[name]
+		if not service then
+			service = RT.Instance.new("Service")
+			service.Name = name
+			services[name] = service
 		end
-		return RT.Instance.new("Service")
+		return service
+	end,
+	BindToClose = function(_, callback)
+		RT._bindToClose = callback
 	end,
 }
 

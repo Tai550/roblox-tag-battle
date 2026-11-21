@@ -1,15 +1,21 @@
 -- Main: 試合サーバーの起動スクリプト（ServerScriptService.Server.Main）
 -- 各モジュールを初期化して、試合のループを開始する。
 
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
 local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
+local RankManager = require(script.Parent:WaitForChild("RankManager"))
 local MatchSession = require(script.Parent:WaitForChild("MatchSession"))
 local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local RoundManager = require(script.Parent:WaitForChild("RoundManager"))
 local Monetization = require(script.Parent:WaitForChild("Monetization"))
 
+-- マップと Workspace.ItemSpawns を、どの Init よりも先に用意する（アリーナ・渋谷・パークのどれか）
+MapBuilder.Init()
+
 Leaderstats.Init()
-MatchSession.Init()  -- すぐ遊ぶ／友達部屋／Studio の判定とロビーへの移動
+RankManager.Init()   -- 段位の読み込み（leaderstats を作ったあと）
+MatchSession.Init()  -- すぐ遊ぶ／友達部屋／ひとり／Studio の判定とロビーへの移動
 DeckManager.Init()   -- 保存データ（デッキ）の読み込み
 ItemManager.Init()
 RoundManager.Init()

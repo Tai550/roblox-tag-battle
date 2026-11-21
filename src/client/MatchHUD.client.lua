@@ -25,6 +25,7 @@ local UseItem = Remotes:WaitForChild("UseItem")
 local DurationVote = Remotes:WaitForChild("DurationVote")
 local HostStart = Remotes:WaitForChild("HostStart")
 local LeaveToLobby = Remotes:WaitForChild("LeaveToLobby")
+local RankUp = Remotes:WaitForChild("RankUp")
 
 local localPlayer = Players.LocalPlayer
 
@@ -491,6 +492,11 @@ ZoneUpdate.OnClientEvent:Connect(function(info)
 end)
 
 Notify.OnClientEvent:Connect(showToast)
+RankUp.OnClientEvent:Connect(function(rankName)
+	if type(rankName) == "string" and rankName ~= "" then
+		showToast("ランクアップ！ " .. rankName .. " に昇格")
+	end
+end)
 
 -- レーダー：相手を壁ごしに光らせる（自分の画面だけ）
 RadarEffect.OnClientEvent:Connect(function(characters, duration)

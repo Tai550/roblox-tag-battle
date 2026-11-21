@@ -280,6 +280,12 @@ function ZoneManager.Start(duration)
 	local points, isFallback = ItemManager.GetSpawnPoints()
 
 	local cx, cy, cz, radius = ZoneManager.ComputeGeometry(points, isFallback)
+	-- マップごとの上限（MapBuilder が Workspace.Map の属性に書く）。外周の壁より外に円を出さない
+	local map = workspace:FindFirstChild("Map")
+	local mapMax = map and map:GetAttribute("ZoneMaxRadius")
+	if type(mapMax) == "number" and mapMax > 0 then
+		radius = math.min(radius, mapMax)
+	end
 	center = Vector3.new(cx, cy, cz)
 	startRadius = radius
 	currentRadius = radius

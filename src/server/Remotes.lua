@@ -13,12 +13,13 @@
 --   RadarEffect  (サーバー → 本人)  レーダー：光らせる相手の UserId リストと秒数
 --   HostStart    (クライアント → サーバー) 友達部屋のホストが「開始」を押した
 --   LeaveToLobby (クライアント → サーバー) 「ロビーへ戻る」を押した
+--   RankUp       (サーバー → 本人)  段位が上がった瞬間だけ。引数は新しい段位名
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EVENT_NAMES = {
 	"StateUpdate", "ItemUpdate", "UseItem", "SmokeEffect", "Notify", "PassUpdate",
-	"DurationVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby",
+	"DurationVote", "ZoneUpdate", "RadarEffect", "HostStart", "LeaveToLobby", "RankUp",
 }
 
 local folder = ReplicatedStorage:FindFirstChild("Remotes")
@@ -44,7 +45,10 @@ folder.Parent = ReplicatedStorage
 -- 本人の画面にメッセージを出す
 -- 本物のプレイヤーか（ひとりモードのボットは表なので false）
 function Remotes.IsRealPlayer(player)
-	return typeof(player) == "Instance" and player:IsA("Player") and player.Parent ~= nil
+	if player == nil or (type(player) == "table" and player.IsBot == true) then
+		return false
+	end
+	return player.Parent ~= nil
 end
 
 function Remotes.NotifyPlayer(player, text)

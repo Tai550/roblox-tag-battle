@@ -30,7 +30,10 @@ local processedPurchaseIds = {}   -- [PurchaseId] = true  このサーバーで�
 local lastPassRequest = {}        -- [Player] = 時刻
 
 local function isInGame(player)
-	return player ~= nil and player.Parent == Players
+	if player == nil or (type(player) == "table" and player.IsBot == true) then
+		return false
+	end
+	return player.Parent == Players
 end
 
 ---------------------------------------------------------------------

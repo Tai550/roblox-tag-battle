@@ -16,10 +16,11 @@ GameState.Message = ""
 GameState.Tagger = nil            -- 今の鬼（Player）
 GameState.TaggerSince = 0         -- 鬼になった時刻（クールダウン判定用）
 GameState.ChosenDuration = Config.DefaultDuration -- 投票で決まった今ラウンドの試合時間（秒）
-GameState.Participants = {}       -- [Player] = true  このラウンドの参加者
+GameState.Participants = {}       -- [Player またはボット] = true  このラウンドの参加者
 GameState.BeenTagger = {}         -- [Player] = true  このラウンドで一度でも鬼になった人
 GameState.Winners = {}            -- 結果表示用の勝者リスト（Player の配列）
 GameState.TagCounts = {}          -- [Player] = この試合で鬼にタッチされた回数（順位に使う）
+GameState.NoTagBack = nil         -- タッチ返しできない相手（いまの鬼に最後にタッチした人）
 GameState.Eliminated = {}         -- 脱落した人（脱落した順の Player 配列）
 GameState.Results = {}            -- 結果表示用の順位表（RoundManager が作る）
 
@@ -176,10 +177,17 @@ function GameState.RefreshSpeed(player)
 	if GameState.IsDashing(player) then
 		speed = math.max(speed, Config.Items.Dash.WalkSpeed)
 	end
-	if type(player) == "table" and player.IsBot then
-		-- ボットは人より少し遅くして、ひとりでも勝ち目があるようにする
-		local cap = GameState.IsTagger(player) and Config.BotTaggerWalkSpeed or Config.BotRunnerWalkSpeed
-		speed = math.min(speed, cap)
+	if type(player) == "table" and player.IsBot == true then
+		-- ボットは段位に合わせた倍率を掛ける。上限は Config（最大 1.15）
+		if type(player.SpeedMultiplier) == "number" then
+			local multiplier = math.clamp(player.SpeedMultiplier, 0, Config.BotSpeedMultiplierCap or 1.15)
+			speed = speed * multiplier
+		end
+		-- ひとりモードのボットは人より少し遅くして、ひとりでも勝ち目があるようにする
+		if player.SoloCap then
+			local cap = GameState.IsTagger(player) and Config.BotTaggerWalkSpeed or Config.BotRunnerWalkSpeed
+			speed = math.min(speed, cap)
+		end
 	end
 	if data.SlowUntil > now then
 		speed = math.min(speed, Config.Items.Glue.SlowSpeed)
@@ -210,6 +218,11 @@ function GameState.RefreshAllSpeeds()
 	for _, player in ipairs(Players:GetPlayers()) do
 		GameState.RefreshSpeed(player)
 	end
+	for _, participant in ipairs(GameState.ParticipantList()) do
+		if type(participant) == "table" and participant.IsBot == true then
+			GameState.RefreshSpeed(participant)
+		end
+	end
 end
 
 function GameState.CountParticipants()
@@ -226,6 +239,43 @@ function GameState.ParticipantList()
 		table.insert(list, player)
 	end
 	return list
+end
+
+---------------------------------------------------------------------
+-- キャラクターから参加者を引く（人間は Players、ボットはこの対応表）
+---------------------------------------------------------------------
+
+local characterOwners = {} -- [Model] = 参加者（Player またはボット）
+
+function GameState.RegisterCharacter(entity, character)
+	if character ~= nil then
+		characterOwners[character] = entity
+	end
+end
+
+function GameState.UnregisterCharacter(character)
+	if character ~= nil then
+		characterOwners[character] = nil
+	end
+end
+
+-- 触れた Part から、そのキャラクターの参加者を返す。人間を優先し、いなければボット。
+function GameState.ParticipantFromHit(hit)
+	if type(hit) ~= "table" and type(hit) ~= "userdata" then
+		return nil
+	end
+	if type(hit.FindFirstAncestorOfClass) ~= "function" then
+		return nil
+	end
+	local character = hit:FindFirstAncestorOfClass("Model")
+	if not character then
+		return nil
+	end
+	local player = Players:GetPlayerFromCharacter(character)
+	if player then
+		return player
+	end
+	return characterOwners[character]
 end
 
 return GameState
