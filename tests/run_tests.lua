@@ -753,20 +753,15 @@ do
 	local parkMap = workspace:FindFirstChild("Map")
 	local parkSpawns = baseParts(spawnFolder())
 	local parkParts = baseParts(parkMap)
-	local inPark, spreadsBeyond, hasPos, hasNeg = true, false, false, false
+	local inPark = true
+	local quadrants = {}
 	for _, part in ipairs(parkSpawns) do
-		if math.abs(part.Position.X) > MapBuilder.ParkHalf or math.abs(part.Position.Z) > MapBuilder.ParkHalf then
+		if math.abs(part.Position.X) + part.Size.X / 2 > 110
+			or math.abs(part.Position.Z) + part.Size.Z / 2 > 110 then
 			inPark = false
 		end
-		if math.abs(part.Position.X) > 115 or math.abs(part.Position.Z) > 115 then
-			spreadsBeyond = true
-		end
-		if part.Position.X > 0 or part.Position.Z > 0 then
-			hasPos = true
-		end
-		if part.Position.X < 0 or part.Position.Z < 0 then
-			hasNeg = true
-		end
+		local quadrant = (part.Position.X > 0 and 1 or 0) + (part.Position.Z > 0 and 2 or 0)
+		quadrants[quadrant] = true
 	end
 	local spawnLocations = 0
 	local spawnAtCenter = false
@@ -783,7 +778,7 @@ do
 		if part.Name == "InvisibleWall" and part.Transparency == 1 then
 			wallCount = wallCount + 1
 		end
-		if part.Name == "Grass" and part.Size.X >= 340 and part.Size.Z >= 340 then
+		if part.Name == "Grass" and near(part.Size.X, 220) and near(part.Size.Z, 220) then
 			grassOk = true
 		end
 		local color = part.Color
@@ -793,7 +788,8 @@ do
 	end
 	check("入れ替え2回目はパーク（14点）", second.MapId == "Park" and MapBuilder.CurrentMap == "Park"
 		and second.ItemSpawns == 14 and #parkSpawns == 14 and #MapBuilder.ParkSpawnPositions() == 14)
-	check("パークの出現ポイントは 340×340 の内側で、渋谷より外側まで散らばる", inPark and spreadsBeyond and hasPos and hasNeg)
+	check("パークの出現ポイントは ±110 の内側で、四つの象限に分布する",
+		inPark and quadrants[0] and quadrants[1] and quadrants[2] and quadrants[3])
 	check("パークの Part 数は 500 以下", second.PartCount <= 500 and second.PartCount == #parkParts + #parkSpawns)
 	print(string.format("    （パークの BasePart %d ＋ 出現ポイント %d ＝ %d）", #parkParts, #parkSpawns, second.PartCount))
 	check("パークは中央広場にスポーンが1つ、外周の透明な壁が4枚、芝生の地面", spawnLocations == 1
@@ -804,7 +800,7 @@ do
 	local _, _, _, parkRadius = ZoneManager.ComputeGeometry(parkPoints, false)
 	check("パークの出現ポイントでもゾーンの開始半径が計算できる", #parkPoints == 14 and parkFallback == false
 		and parkRadius >= Config.ZoneStartRadiusMin and parkRadius <= Config.ZoneStartRadiusMax)
-	check("広いパークの開始半径は上限 120 に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
+	check("縮小後のパークの開始半径は上限 120 に丸まる", near(parkRadius, Config.ZoneStartRadiusMax))
 
 	-- 明示的な Build() は表示中のマップだけを作り直す。
 	local rebuilt = MapBuilder.Build()
@@ -830,6 +826,48 @@ do
 			local count = #baseParts(RT.workspace:FindFirstChild(MapBuilder.MapFolderName)) + #baseParts(spawnFolder())
 			check(id .. " の Part 数は集計と上限に合う（実測 " .. count .. "）",
 				count == summary.PartCount and count <= dungeonLimits[id])
+		end
+		local dungeonMap = RT.workspace:FindFirstChild(MapBuilder.MapFolderName)
+		local floorName = ({ Ice = "IceFloor", Volt = "MetalFloor" })[id]
+		if floorName then
+			local floor = dungeonMap:FindFirstChild(floorName)
+			local fits = floor and near(floor.Size.X, 220) and near(floor.Size.Z, 220)
+			for _, part in ipairs(baseParts(dungeonMap)) do
+				if part ~= floor and part.Name ~= "OuterWall" then
+					fits = fits and math.abs(part.Position.X) + part.Size.X / 2 <= 110
+						and math.abs(part.Position.Z) + part.Size.Z / 2 <= 110
+				end
+			end
+			for _, part in ipairs(baseParts(spawnFolder())) do
+				fits = fits and math.abs(part.Position.X) + part.Size.X / 2 <= 110
+					and math.abs(part.Position.Z) + part.Size.Z / 2 <= 110
+			end
+			check(id .. " の床は220×220で、障害物と出現ポイントは内側に収まる", fits)
+		elseif id == "Sky" then
+			local platforms = baseParts(dungeonMap:FindFirstChild("SkyPlatforms"))
+			local bridges = baseParts(dungeonMap:FindFirstChild("SkyBridges"))
+			local halfX, halfZ = 0, 0
+			for _, platform in ipairs(platforms) do
+				halfX = math.max(halfX, math.abs(platform.Position.X) + platform.Size.X / 2)
+				halfZ = math.max(halfZ, math.abs(platform.Position.Z) + platform.Size.Z / 2)
+			end
+			check("落下の足場外端間は220×220になる", near(halfX * 2, 220)
+				and near(halfZ * 2, 220))
+			local bridgesConnected = #bridges == 12
+			for _, bridge in ipairs(bridges) do
+				local connections = 0
+				for _, platform in ipairs(platforms) do
+					local dx = math.abs(bridge.Position.X - platform.Position.X)
+					local dz = math.abs(bridge.Position.Z - platform.Position.Z)
+					if dx < (bridge.Size.X + platform.Size.X) / 2
+						and dz < (bridge.Size.Z + platform.Size.Z) / 2 then
+						connections = connections + 1
+					end
+				end
+				bridgesConnected = bridgesConnected and math.min(bridge.Size.X, bridge.Size.Z) >= 4
+					and connections == 2
+			end
+			check("落下の橋は幅4以上で、両端が足場に接続する", bridgesConnected)
 		end
 		if id == "Cave" then
 			check("洞窟では暗くなる", lighting.Brightness < originalBrightness)
