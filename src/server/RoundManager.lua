@@ -9,8 +9,87 @@ local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
 local Leaderstats = require(script.Parent:WaitForChild("Leaderstats"))
 local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
+local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
 
 local RoundManager = {}
+
+local broadcastState -- 下の「状態の送信」で定義する（投票ハンドラからも使うため先に宣言）
+
+---------------------------------------------------------------------
+-- 試合時間の投票
+---------------------------------------------------------------------
+
+local votes = {}          -- [Player] = 投票した秒数
+local voteCounts = {}     -- [秒数] = 票数（表示用）
+local displayDuration = Config.DefaultDuration -- 表示用の「今の決定時間」
+
+for _, duration in ipairs(Config.MatchDurations) do
+	voteCounts[duration] = 0
+end
+
+-- 投票を集計する（計算だけの関数。テストからも呼べる）。
+-- 戻り値: 決まった秒数, { [秒数] = 票数 }
+-- 最多票を採用する。同数が複数あるときと、投票がゼロのときは DefaultDuration。
+function RoundManager.TallyVotes(voteMap)
+	local counts = {}
+	for _, duration in ipairs(Config.MatchDurations) do
+		counts[duration] = 0
+	end
+	for _, duration in pairs(voteMap) do
+		if counts[duration] ~= nil then
+			counts[duration] = counts[duration] + 1
+		end
+	end
+
+	local maxCount = 0
+	for _, duration in ipairs(Config.MatchDurations) do
+		if counts[duration] > maxCount then
+			maxCount = counts[duration]
+		end
+	end
+
+	local chosen = Config.DefaultDuration
+	if maxCount > 0 then
+		local leaders = {}
+		for _, duration in ipairs(Config.MatchDurations) do
+			if counts[duration] == maxCount then
+				table.insert(leaders, duration)
+			end
+		end
+		if #leaders == 1 then
+			chosen = leaders[1]
+		end
+	end
+	return chosen, counts
+end
+
+local function refreshVoteDisplay()
+	displayDuration, voteCounts = RoundManager.TallyVotes(votes)
+end
+
+local function onDurationVote(player, durationArg)
+	-- 投票できるのはインターミッション中だけ。値も Config の候補にあるものだけ
+	if GameState.Phase ~= "Intermission" then
+		return
+	end
+	local duration = tonumber(durationArg)
+	if not duration then
+		return
+	end
+	local valid = false
+	for _, candidate in ipairs(Config.MatchDurations) do
+		if candidate == duration then
+			valid = true
+			break
+		end
+	end
+	if not valid then
+		return
+	end
+	votes[player] = duration -- 投票し直したら上書き
+	refreshVoteDisplay()
+	broadcastState()
+end
 
 ---------------------------------------------------------------------
 -- 状態の送信
@@ -24,8 +103,13 @@ local function userIdList(players)
 	return ids
 end
 
-local function broadcastState()
+broadcastState = function()
 	local tagger = GameState.Tagger
+	-- VoteCounts のキーは文字列にする（RemoteEvent で数値キーの辞書が化けるのを避ける）
+	local countsForClient = {}
+	for _, duration in ipairs(Config.MatchDurations) do
+		countsForClient[tostring(duration)] = voteCounts[duration] or 0
+	end
 	Remotes.StateUpdate:FireAllClients({
 		Phase = GameState.Phase,
 		TimeLeft = math.max(0, math.ceil(GameState.TimeLeft)),
@@ -36,6 +120,8 @@ local function broadcastState()
 		Participants = userIdList(GameState.ParticipantList()),
 		Winners = userIdList(GameState.Winners),
 		Message = GameState.Message,
+		ChosenDuration = displayDuration,
+		VoteCounts = countsForClient,
 	})
 end
 
@@ -94,6 +180,8 @@ local function tryTag()
 				local data = GameState.GetData(runner)
 				if data.InvulnerableUntil > now then
 					-- シールドで防いだ直後なのでタッチ無効
+				elseif GameState.HasStar(runner) then
+					-- スターの効果中なのでタッチ無効（シールドは消費しない）
 				elseif ItemManager.ConsumeShield(runner) then
 					Remotes.NotifyPlayer(runner, "シールドがタッチを防いだ！ 今のうちに逃げよう")
 					Remotes.NotifyPlayer(tagger, runner.DisplayName .. " のシールドに防がれた！")
@@ -133,11 +221,13 @@ local function runIntermission()
 	GameState.Phase = "Intermission"
 	GameState.PlayersNeeded = 0
 	GameState.Message = "まもなく鬼ごっこが始まります"
+	votes = {} -- 投票はインターミッションごとにリセット
+	refreshVoteDisplay()
 	local endTime = GameState.Now() + Config.IntermissionTime
 	while true do
 		local left = endTime - GameState.Now()
 		if left <= 0 then
-			return true
+			break
 		end
 		if #Players:GetPlayers() < Config.MinPlayers then
 			return false
@@ -146,6 +236,10 @@ local function runIntermission()
 		broadcastState()
 		task.wait(math.min(1, left))
 	end
+	-- 投票を確定する
+	GameState.ChosenDuration = RoundManager.TallyVotes(votes)
+	displayDuration = GameState.ChosenDuration
+	return true
 end
 
 -- ラウンド本体。戻り値: 最後まで終わったら true、人数不足で中止したら false
@@ -164,17 +258,20 @@ local function runRound()
 		return nil -- そもそも始められない（キャラクター未読み込みなど）
 	end
 
+	local duration = GameState.ChosenDuration
+
 	GameState.Phase = "Round"
 	GameState.Message = ""
-	GameState.TimeLeft = Config.RoundTime
+	GameState.TimeLeft = duration
 	ItemManager.Start()
+	ZoneManager.Start(duration) -- 縮小エリアを開始（中心・開始半径は出現ポイントから決まる）
 
 	local firstTagger = pickRandomParticipant()
 	setTagger(firstTagger)
 	Remotes.NotifyPlayer(firstTagger, "あなたが最初の鬼です！ 3秒後からタッチできます")
 	ItemManager.DeliverPendingItems() -- ラウンド外に買ったアイテムボックスをここで渡す
 
-	local endTime = GameState.Now() + Config.RoundTime
+	local endTime = GameState.Now() + duration
 	local nextBroadcast = 0
 	local completed = true
 
@@ -207,6 +304,7 @@ local function runRound()
 
 		tryTag()
 		ItemManager.Tick()
+		ZoneManager.Tick()
 
 		if now >= nextBroadcast then
 			GameState.TimeLeft = left
@@ -222,6 +320,7 @@ end
 
 local function runResults(completed)
 	ItemManager.Stop()
+	ZoneManager.Stop()
 
 	local winners = {}
 	if completed then
@@ -288,6 +387,7 @@ local function watchPlayer(player)
 end
 
 function RoundManager.Init()
+	Remotes.DurationVote.OnServerEvent:Connect(onDurationVote)
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in ipairs(Players:GetPlayers()) do
 		watchPlayer(player)
@@ -296,6 +396,8 @@ function RoundManager.Init()
 		GameState.Participants[player] = nil
 		GameState.BeenTagger[player] = nil
 		GameState.ClearData(player)
+		votes[player] = nil
+		refreshVoteDisplay()
 		-- 鬼が抜けた場合の交代はラウンドのループ側で行う
 	end)
 end

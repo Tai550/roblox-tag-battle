@@ -10,15 +10,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local GameState = require(script.Parent:WaitForChild("GameState"))
 local Remotes = require(script.Parent:WaitForChild("Remotes"))
+local ZoneManager = require(script.Parent:WaitForChild("ZoneManager"))
+local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
 
 local ItemManager = {}
 
 local SHIELD_EFFECT_NAME = "TagShieldEffect"
+local STAR_EFFECT_NAME = "TagStarEffect"
 
 local active = false
 local spawnLoopToken = 0
-local spawnedItems = {}     -- [Part] = { ItemId = ..., PointKey = ... }
+local spawnedItems = {}     -- [Part] = { IsBox = true, PointKey = ... } フィールドのボックス
 local occupiedPoints = {}   -- [PointKey] = Part
+local placedBananas = {}    -- [Part] = { PlacedBy = Player, ExpireAt = 時刻 }
 local warnedNoSpawns = false
 local itemContainer = nil
 
@@ -28,6 +32,7 @@ local itemContainer = nil
 
 -- 出現ポイントの一覧を返す。各要素は { Key = 識別用, Position = Vector3 }
 -- ItemSpawns フォルダがなければ、原点付近の予備ポイントを使う（エラーにはしない）
+-- 戻り値: ポイントの配列, 予備ポイントかどうか
 local function getSpawnPoints()
 	local points = {}
 	local folder = workspace:FindFirstChild(Config.ItemSpawnFolderName)
@@ -53,9 +58,27 @@ local function getSpawnPoints()
 				Position = Config.FallbackSpawnCenter + offset,
 			})
 		end
+		return points, true
 	end
 
-	return points
+	return points, false
+end
+
+-- ZoneManager からも使うため公開する
+function ItemManager.GetSpawnPoints()
+	return getSpawnPoints()
+end
+
+-- ポイントのうち、エリア（中心 cx, cz・半径 radius）の内側にあるものだけを返す
+-- （計算だけの関数。テストからも呼べる）
+function ItemManager.FilterPointsInZone(points, cx, cz, radius)
+	local inside = {}
+	for _, point in ipairs(points) do
+		if ZoneManager.IsInsideXZ(cx, cz, radius, point.Position) then
+			table.insert(inside, point)
+		end
+	end
+	return inside
 end
 
 local function getItemContainer()
@@ -79,14 +102,19 @@ local function sendItemUpdate(player)
 	local data = GameState.GetData(player)
 	local now = GameState.Now()
 	local held = {}
+	local expireLeft = {}
 	for index, itemId in ipairs(data.HeldItems) do
 		held[index] = itemId
+		local expireAt = data.HeldExpireAt[index] or 0
+		expireLeft[index] = expireAt > 0 and math.max(0, expireAt - now) or 0
 	end
 	Remotes.ItemUpdate:FireClient(player, {
 		HeldItems = held,
+		HeldExpireLeft = expireLeft, -- 枠ごとの使用期限の残り秒（0 は期限なし）
 		MaxSlots = GameState.GetItemSlots(player),
 		DashTimeLeft = math.max(0, data.DashUntil - now),
 		ShieldTimeLeft = math.max(0, data.ShieldUntil - now),
+		StarTimeLeft = math.max(0, data.StarUntil - now),
 	})
 end
 ItemManager.SendItemUpdate = sendItemUpdate
@@ -110,6 +138,32 @@ local function removeShieldVisual(player)
 	local field = character and character:FindFirstChild(SHIELD_EFFECT_NAME)
 	if field then
 		field:Destroy()
+	end
+end
+
+---------------------------------------------------------------------
+-- スターの見た目（キラキラの粒子）
+---------------------------------------------------------------------
+
+local function addStarVisual(player)
+	local character = player.Character
+	if character and not character:FindFirstChild(STAR_EFFECT_NAME) then
+		local sparkles = Instance.new("Sparkles")
+		sparkles.Name = STAR_EFFECT_NAME
+		sparkles.SparkleColor = Color3.fromRGB(255, 220, 60)
+		local root = character:FindFirstChild("HumanoidRootPart")
+		sparkles.Parent = root or character
+	end
+end
+
+local function removeStarVisual(player)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local effect = character:FindFirstChild(STAR_EFFECT_NAME, true)
+	if effect then
+		effect:Destroy()
 	end
 end
 
@@ -158,7 +212,9 @@ local function removeItem(part)
 	part:Destroy()
 end
 
-local function onItemTouched(part, hit)
+-- フィールドのボックスに触れたとき：自分のデッキからランダムで1つ手に入る。
+-- 手に入れたアイテムには使用期限（Config.BoxExpireTime）が付く。
+local function onBoxTouched(part, hit)
 	local info = spawnedItems[part]
 	if not info or not active then
 		return
@@ -176,34 +232,36 @@ local function onItemTouched(part, hit)
 		return -- 枠がいっぱいなら拾えない
 	end
 
-	local itemId = info.ItemId
+	local itemId = DeckManager.PickFromDeck(player)
+	if not itemId then
+		return
+	end
+
 	removeItem(part)
 	table.insert(data.HeldItems, itemId)
+	table.insert(data.HeldExpireAt, GameState.Now() + Config.BoxExpireTime)
 	sendItemUpdate(player)
 
 	local def = Config.Items[itemId]
 	Remotes.NotifyPlayer(player, string.format(
-		"%s を拾った！ ［%s］で使う：%s",
-		def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems), def.Description
+		"ボックスから %s が出た！ ［%s］で使う（%d秒以内に使おう）",
+		def.DisplayName, Config.GetSlotKeyLabel(#data.HeldItems), Config.BoxExpireTime
 	))
 end
 
-local function createItemPart(itemId, position)
-	local def = Config.Items[itemId]
-
+local function createBoxPart(position)
 	local part = Instance.new("Part")
-	part.Name = "Item_" .. itemId
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.new(2.5, 2.5, 2.5)
+	part.Name = "ItemBox"
+	part.Size = Vector3.new(3, 3, 3)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = def.Color
+	part.Color = Color3.fromRGB(255, 160, 30)
 	part.Position = position
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.new(0, 120, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	billboard.Size = UDim2.new(0, 140, 0, 30)
+	billboard.StudsOffset = Vector3.new(0, 2.8, 0)
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = 80
 	billboard.Parent = part
@@ -211,7 +269,7 @@ local function createItemPart(itemId, position)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.BackgroundTransparency = 1
-	label.Text = def.DisplayName
+	label.Text = "アイテムボックス"
 	label.TextColor3 = Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0.3
 	label.TextScaled = true
@@ -221,34 +279,55 @@ local function createItemPart(itemId, position)
 	return part
 end
 
+local zoneBoxCounter = 0
+
 local function spawnOne()
-	if countItems() >= Config.MaxItemsOnMap then
+	if countItems() >= Config.BoxMaxOnMap then
 		return
 	end
 
+	local points = getSpawnPoints()
+	-- ボックスは縮小エリアの内側にだけ出す
+	if ZoneManager.IsActive() then
+		local centerPos = ZoneManager.GetCenter()
+		points = ItemManager.FilterPointsInZone(points, centerPos.X, centerPos.Z, ZoneManager.GetRadius())
+	end
+
 	local freePoints = {}
-	for _, point in ipairs(getSpawnPoints()) do
+	for _, point in ipairs(points) do
 		if not occupiedPoints[point.Key] then
 			table.insert(freePoints, point)
 		end
 	end
 	if #freePoints == 0 then
-		return
-	end
-
-	local itemId = pickRandomItemId()
-	if not itemId then
-		return
+		-- エリア内に空きポイントがない（終盤にエリアが小さくなった）ときは、
+		-- エリア内のランダムな位置に直接出す
+		if not ZoneManager.IsActive() then
+			return
+		end
+		local centerPos = ZoneManager.GetCenter()
+		local radius = ZoneManager.GetRadius() * 0.85
+		local angle = math.random() * math.pi * 2
+		local dist = math.random() * radius
+		zoneBoxCounter = zoneBoxCounter + 1
+		freePoints = { {
+			Key = "ZoneBox" .. zoneBoxCounter,
+			Position = Vector3.new(
+				centerPos.X + math.cos(angle) * dist,
+				centerPos.Y,
+				centerPos.Z + math.sin(angle) * dist
+			),
+		} }
 	end
 
 	local point = freePoints[math.random(1, #freePoints)]
-	local part = createItemPart(itemId, point.Position + Vector3.new(0, Config.ItemHeightOffset, 0))
+	local part = createBoxPart(point.Position + Vector3.new(0, Config.ItemHeightOffset, 0))
 
-	spawnedItems[part] = { ItemId = itemId, PointKey = point.Key }
+	spawnedItems[part] = { IsBox = true, PointKey = point.Key }
 	occupiedPoints[point.Key] = part
 
 	part.Touched:Connect(function(hit)
-		onItemTouched(part, hit)
+		onBoxTouched(part, hit)
 	end)
 	part.Parent = getItemContainer()
 end
@@ -302,6 +381,85 @@ handlers.Warp = function(player, def, data)
 	return true
 end
 
+handlers.Star = function(player, def, data)
+	data.StarUntil = GameState.Now() + def.Duration
+	addStarVisual(player)
+	Remotes.NotifyPlayer(player, string.format("スター！ %d秒間、鬼にタッチされない", def.Duration))
+	return true
+end
+
+---------------------------------------------------------------------
+-- バナナ（置くアイテム。踏んだ人がすべる）
+---------------------------------------------------------------------
+
+local function removeBanana(part)
+	placedBananas[part] = nil
+	part:Destroy()
+end
+
+local function onBananaTouched(part, hit)
+	local info = placedBananas[part]
+	if not info or not active then
+		return
+	end
+	local character = hit:FindFirstAncestorOfClass("Model")
+	local player = character and Players:GetPlayerFromCharacter(character)
+	if not player or player == info.PlacedBy then
+		return -- 置いた本人はすべらない
+	end
+	if not GameState.IsParticipant(player) or not GameState.IsAlive(player) then
+		return
+	end
+	local data = GameState.GetData(player)
+	if GameState.IsSlipping(player) then
+		return
+	end
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return
+	end
+
+	-- 進んでいる向き（止まっているときは体の向き）にすべる
+	local direction = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+	if direction.Magnitude < 1 then
+		direction = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	end
+	if direction.Magnitude < 0.01 then
+		return
+	end
+	data.SlipDirection = direction.Unit
+	data.SlipUntil = GameState.Now() + Config.Items.Banana.SlipTime
+
+	removeBanana(part)
+	Remotes.NotifyPlayer(player, "バナナですべった！")
+	sendItemUpdate(player)
+end
+
+handlers.Banana = function(player, def, data)
+	local root = GameState.GetRootPart(player)
+	if not root then
+		return false, nil
+	end
+
+	local part = Instance.new("Part")
+	part.Name = "BananaTrap"
+	part.Size = Vector3.new(2.2, 0.6, 2.2)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.SmoothPlastic
+	part.Color = def.Color
+	part.Position = Vector3.new(root.Position.X, root.Position.Y - 2.5, root.Position.Z)
+
+	placedBananas[part] = { PlacedBy = player, ExpireAt = GameState.Now() + def.Duration }
+	part.Touched:Connect(function(hit)
+		onBananaTouched(part, hit)
+	end)
+	part.Parent = getItemContainer()
+
+	Remotes.NotifyPlayer(player, "バナナを置いた！")
+	return true
+end
+
 local function onUseItem(player, slotArg)
 	-- クライアントから来るのは枠番号だけ。整数で、実際に持っている枠のときだけ受け付ける
 	local slot = 1
@@ -333,6 +491,7 @@ local function onUseItem(player, slotArg)
 	local handler = handlers[itemId]
 	if not def or not handler then
 		table.remove(data.HeldItems, slot)
+		table.remove(data.HeldExpireAt, slot)
 		sendItemUpdate(player)
 		return
 	end
@@ -345,6 +504,7 @@ local function onUseItem(player, slotArg)
 	local ok, reason = handler(player, def, data)
 	if ok then
 		table.remove(data.HeldItems, slot) -- 後ろの枠のアイテムは前に詰める
+		table.remove(data.HeldExpireAt, slot)
 	elseif reason then
 		Remotes.NotifyPlayer(player, reason)
 	end
@@ -383,13 +543,68 @@ function ItemManager.Tick()
 			sendItemUpdate(player)
 			Remotes.NotifyPlayer(player, "シールドが消えた")
 		end
+		if data.StarUntil > 0 and data.StarUntil <= now then
+			data.StarUntil = 0
+			removeStarVisual(player)
+			sendItemUpdate(player)
+			Remotes.NotifyPlayer(player, "スターが消えた")
+		end
+
+		-- バナナですべっている最中は、決まった向きへ進み続ける
+		if data.SlipUntil > 0 then
+			local root = GameState.GetRootPart(player)
+			if data.SlipUntil <= now then
+				data.SlipUntil = 0
+				data.SlipDirection = nil
+				if root then
+					local velocity = root.AssemblyLinearVelocity
+					root.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
+				end
+			elseif root and data.SlipDirection then
+				local velocity = root.AssemblyLinearVelocity
+				root.AssemblyLinearVelocity = Vector3.new(
+					data.SlipDirection.X * Config.Items.Banana.SlipSpeed,
+					velocity.Y,
+					data.SlipDirection.Z * Config.Items.Banana.SlipSpeed
+				)
+			end
+		end
+
+		-- ボックスで手に入れたアイテムの使用期限切れ（後ろの枠から消す）
+		for index = #data.HeldItems, 1, -1 do
+			local expireAt = data.HeldExpireAt[index] or 0
+			if expireAt > 0 and expireAt <= now then
+				local expiredId = data.HeldItems[index]
+				table.remove(data.HeldItems, index)
+				table.remove(data.HeldExpireAt, index)
+				local def = Config.Items[expiredId]
+				if def then
+					Remotes.NotifyPlayer(player, def.DisplayName .. " の使用期限が切れた")
+				end
+				sendItemUpdate(player)
+			end
+		end
+	end
+
+	-- 置いたまま時間が過ぎたバナナを消す
+	local expiredBananas = {}
+	for part, info in pairs(placedBananas) do
+		if info.ExpireAt <= now then
+			table.insert(expiredBananas, part)
+		end
+	end
+	for _, part in ipairs(expiredBananas) do
+		removeBanana(part)
 	end
 end
 
--- 復活したときにシールドの見た目を付け直す
+-- 復活したときにシールド・スターの見た目を付け直す
 function ItemManager.OnCharacterAdded(player)
 	if GameState.HasShield(player) then
 		addShieldVisual(player)
+	end
+	if GameState.HasStar(player) then
+		addStarVisual(player)
 	end
 end
 
@@ -398,14 +613,17 @@ end
 ---------------------------------------------------------------------
 
 -- 持ち物に1つ加える。枠がいっぱいなら、いちばん古いもの（1枠目）を捨てて入れ替える。
+-- 購入アイテムに使用期限はないので、期限は常に 0（期限なし）で入れる。
 -- 戻り値: 入れ替えで捨てたアイテムの Id（入れ替えなしなら nil）
 local function addToInventory(player, itemId)
 	local data = GameState.GetData(player)
 	local replaced = nil
 	while #data.HeldItems >= GameState.GetItemSlots(player) do
 		replaced = table.remove(data.HeldItems, 1)
+		table.remove(data.HeldExpireAt, 1)
 	end
 	table.insert(data.HeldItems, itemId)
+	table.insert(data.HeldExpireAt, 0)
 	return replaced
 end
 
@@ -488,6 +706,7 @@ function ItemManager.OnSlotsChanged(player)
 	local data = GameState.GetData(player)
 	while #data.HeldItems > GameState.GetItemSlots(player) do
 		table.remove(data.HeldItems, 1)
+		table.remove(data.HeldExpireAt, 1)
 	end
 	sendItemUpdate(player)
 end
@@ -499,7 +718,7 @@ function ItemManager.Start()
 	local myToken = spawnLoopToken
 	task.spawn(function()
 		while active and spawnLoopToken == myToken do
-			task.wait(Config.ItemSpawnInterval)
+			task.wait(Config.BoxSpawnInterval)
 			if active and spawnLoopToken == myToken then
 				spawnOne()
 			end
@@ -520,9 +739,18 @@ function ItemManager.Stop()
 		removeItem(part)
 	end
 
+	local bananas = {}
+	for part in pairs(placedBananas) do
+		table.insert(bananas, part)
+	end
+	for _, part in ipairs(bananas) do
+		removeBanana(part)
+	end
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		GameState.ResetData(player)
 		removeShieldVisual(player)
+		removeStarVisual(player)
 		sendItemUpdate(player)
 	end
 end
