@@ -637,7 +637,7 @@ end
 function BotManager.LostChaseGoal(lastSeen, position, lostAt, searchStartedAt, now)
 	if searchStartedAt then
 		if now - searchStartedAt >= chaseConfig.SearchSeconds then
-			return nil, "idle"
+			return nil, "patrol"
 		end
 		return lastSeen, "search"
 	end
@@ -645,7 +645,7 @@ function BotManager.LostChaseGoal(lastSeen, position, lostAt, searchStartedAt, n
 		return lastSeen, "search"
 	end
 	if now - lostAt >= chaseConfig.LastSeenTimeout then
-		return nil, "idle"
+		return nil, "patrol"
 	end
 	return lastSeen, "lastSeen"
 end
@@ -1075,7 +1075,39 @@ local function clearChaseTarget(chase)
 	chase.ErrorUntil = nil
 end
 
-local function updateChase(bot, root, role, now)
+local function patrolGoal(chase, position, now, center, radius)
+	local goal = chase.PatrolGoal
+	if goal and now < chase.PatrolUntil and ZoneManager.IsInside(goal)
+		and horizontal(goal - position).Magnitude > chaseConfig.PatrolReach then
+		return goal
+	end
+
+	local points = ItemManager.GetActiveBoxPositions()
+	local platforms = MapBuilder.CurrentMap == "Sky" and MapBuilder.GetSkyPlatforms()
+	local spawnPart = platforms and platforms:FindFirstChild("ArenaStart") or findSpawnPart()
+	if spawnPart then
+		table.insert(points, spawnPart.Position)
+	end
+	local nearest = math.huge
+	local nextGoal
+	for _, point in ipairs(points) do
+		local distance = horizontal(point - position).Magnitude
+		if point ~= goal and distance > chaseConfig.PatrolReach and distance < nearest and ZoneManager.IsInside(point) then
+			nextGoal, nearest = point, distance
+		end
+	end
+	if not nextGoal then
+		chase.PatrolAngle = ((chase.PatrolAngle or 0) + math.pi / 2) % (math.pi * 2)
+		local distance = ZoneManager.IsActive() and math.min(radius * 0.7, chaseConfig.PatrolRadius)
+			or chaseConfig.PatrolRadius
+		local angle = chase.PatrolAngle
+		nextGoal = (center or Config.FallbackSpawnCenter) + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+	end
+	chase.PatrolGoal, chase.PatrolUntil = nextGoal, now + chaseConfig.PatrolLegSeconds
+	return nextGoal
+end
+
+local function updateChase(bot, root, role, now, center, radius)
 	local chase = bot.Chase
 	if not chase or chase.Role ~= role then
 		chase = { Role = role, SpeedMultiplier = 1 }
@@ -1088,7 +1120,7 @@ local function updateChase(bot, root, role, now)
 	local pos = root.Position
 	if chase.LostAt then
 		local _, reason = BotManager.LostChaseGoal(target.Position, pos, chase.LostAt, chase.SearchStartedAt, now)
-		if reason == "idle" then
+		if reason == "patrol" then
 			clearChaseTarget(chase)
 		elseif reason == "search" then
 			chase.SearchStartedAt = chase.SearchStartedAt or now
@@ -1143,20 +1175,22 @@ local function updateChase(bot, root, role, now)
 				chase.HeadingVelocity, chase.HeadingAt = visible.Velocity, now
 			end
 			chase.Target = visible
+			chase.PatrolGoal = nil
 			chase.LostAt, chase.SearchStartedAt = nil, nil
 		elseif chase.SearchStartedAt then
 			root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(chaseConfig.SearchTurnDegrees), 0)
 		end
 	end
 
-	local multiplier = BotManager.ChaseFatigueMultiplier(chase.StartedAt and now - chase.StartedAt or 0)
+	local multiplier = chase.Target and BotManager.ChaseFatigueMultiplier(now - chase.StartedAt)
+		or chaseConfig.PatrolSpeedMultiplier
 	if multiplier ~= chase.SpeedMultiplier then
 		chase.SpeedMultiplier = multiplier
 		GameState.RefreshSpeed(bot)
 	end
 	target = chase.Target
 	if not target then
-		return pos, "idle"
+		return patrolGoal(chase, pos, now, center, radius), "patrol"
 	elseif chase.LostAt then
 		local goal, reason = BotManager.LostChaseGoal(target.Position, pos, chase.LostAt, chase.SearchStartedAt, now)
 		return goal, reason, target
@@ -1252,7 +1286,7 @@ local function think(bot, now)
 	local radius = ZoneManager.GetRadius()
 	local actualGoal, reason, subject
 	if role and not blind then
-		actualGoal, reason, subject = updateChase(bot, root, role, now)
+		actualGoal, reason, subject = updateChase(bot, root, role, now, center, radius)
 	else
 		if bot.Chase then
 			bot.Chase = nil
@@ -1334,6 +1368,38 @@ end
 ---------------------------------------------------------------------
 -- ラウンドからの呼び出し
 ---------------------------------------------------------------------
+
+function BotManager.RespawnTagger(bot)
+	local oldCharacter = bot.Character
+	TaggerLook.Clear(bot)
+	ItemManager.ClearExpansionEffects(bot)
+	ItemManager.ClearBeastEffects(bot)
+	GameState.ClearFreeze(bot)
+	GameState.ClearStun(bot)
+	GameState.ClearDown(bot)
+
+	local platforms = MapBuilder.CurrentMap == "Sky" and MapBuilder.GetSkyPlatforms()
+	local spawnPart = platforms and platforms:FindFirstChild("ArenaStart") or findSpawnPart()
+	local index = -bot.UserId
+	local x, y, z = standPosition(index, #activeBots, spawnPart)
+	local character = buildStandardCharacter(index, bot.DisplayName, x, y, z)
+		or buildCharacter(bot.DisplayName, x, y, z)
+	GameState.UnregisterCharacter(oldCharacter)
+	bot.Character = character
+	GameState.RegisterCharacter(bot, character)
+	if oldCharacter then
+		oldCharacter:Destroy()
+	end
+	cancelPath(bot)
+	clearProgress(bot)
+	bot.Chase, bot.Recovery, bot.ApproachAttempts = nil, nil, nil
+	bot.LastThink, bot.NextRepathAt, bot.NextOwnAt = nil, nil, nil
+	bot.LastX, bot.StuckTime, bot.IceVelocity = nil, 0, nil
+	ItemManager.OnCharacterAdded(bot)
+	GameState.RefreshSpeed(bot)
+	TaggerLook.Apply(bot)
+	ZoneManager.ReturnTaggerToCenter(bot)
+end
 
 function BotManager.GetActive()
 	local copy = {}

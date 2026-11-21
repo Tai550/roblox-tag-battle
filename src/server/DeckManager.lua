@@ -33,9 +33,9 @@ end
 ---------------------------------------------------------------------
 
 -- そのプレイヤーのデッキ（コピー）を返す
-function DeckManager.GetDeck(player)
+function DeckManager.GetDeck(player, useDefault)
 	local deck = nil
-	if not (type(player) == "table" and player.IsBot == true) then -- ボットは保存データを持たないので最初のデッキ
+	if not useDefault and not (type(player) == "table" and player.IsBot == true) then -- ボットは保存データを持たないので最初のデッキ
 		deck = PlayerDataStore.Get(player).Deck
 	end
 	local ok, copy = DeckManager.ValidateDeck(deck)

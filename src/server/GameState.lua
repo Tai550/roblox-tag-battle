@@ -359,6 +359,7 @@ function GameState.RefreshSpeed(player)
 	local now = GameState.Now()
 	local speed = Config.NormalWalkSpeed
 	local isRoundTagger = GameState.Phase == "Round" and GameState.IsTagger(player)
+	local isBot = type(player) == "table" and player.IsBot == true
 	local lateMultiplier = 1
 	if isRoundTagger then
 		lateMultiplier = GameState.TaggerLateBoost(GameState.TimeLeft, GameState.ChosenDuration)
@@ -370,7 +371,7 @@ function GameState.RefreshSpeed(player)
 	if GameState.IsDashing(player) then
 		speed = math.max(speed, Config.Items.Dash.WalkSpeed)
 	end
-	if type(player) == "table" and player.IsBot == true then
+	if isBot then
 		-- ボットは段位に合わせた倍率を掛ける。上限は Config（最大 1.15）
 		if type(player.SpeedMultiplier) == "number" then
 			local multiplier = math.clamp(player.SpeedMultiplier, 0, Config.BotSpeedMultiplierCap or 1.15)
@@ -390,7 +391,7 @@ function GameState.RefreshSpeed(player)
 	if isRoundTagger and data.CatchBoostUntil > now then
 		speed *= Config.TaggerSkills.CatchStreak.Multiplier
 	end
-	if isRoundTagger and type(player) == "table" and player.IsBot == true then
+	if isRoundTagger and isBot then
 		local chase = player.Chase
 		if chase and chase.Role == GameState.Taggers[player] then
 			speed *= chase.SpeedMultiplier
@@ -427,7 +428,11 @@ function GameState.RefreshSpeed(player)
 		humanoid.Jump = false
 		speed = 0
 	end
-	humanoid.WalkSpeed = speed * Config.ComboMultiplier(data.ActiveCombos, "SpeedMultiplier")
+	speed *= Config.ComboMultiplier(data.ActiveCombos, "SpeedMultiplier")
+	if isRoundTagger and isBot then
+		speed = math.min(speed, Config.Items.Dash.WalkSpeed)
+	end
+	humanoid.WalkSpeed = speed
 
 	-- ジャンプの高さ（ハイジャンプで高く、タイムストップ中は跳べない）
 	humanoid.UseJumpPower = false

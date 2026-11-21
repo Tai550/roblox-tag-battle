@@ -183,25 +183,32 @@ end
 -- 中央への強制送還（スタミナが 0 になったとき）
 ---------------------------------------------------------------------
 
-local function respawnInside(player)
+local function respawnInside(player, nearCenter)
 	local character = player.Character
 	if not character then
 		return
 	end
 	local angle = math.random() * math.pi * 2
-	local dist = math.min(Config.ZoneReturnRadius, currentRadius * 0.7) -- 中央のまわりに戻す
+	local dist = nearCenter and 0 or math.min(Config.ZoneReturnRadius, currentRadius * 0.7) -- 中央のまわりに戻す
 	local x = center.X + math.cos(angle) * dist
 	local z = center.Z + math.sin(angle) * dist
 	local y = center.Y + Config.ItemHeightOffset
 	if skySpawnPoints then
 		-- 空中マップでは、ランダムな座標が空中にならないよう、エリア内の出現ポイントに戻す
 		local points = {}
+		local nearest, nearestDistance
 		for _, point in ipairs(skySpawnPoints) do
-			if ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, point.Position) then
+			if nearCenter then
+				local offset = point.Position - center
+				local distance = offset.X * offset.X + offset.Z * offset.Z
+				if not nearestDistance or distance < nearestDistance then
+					nearest, nearestDistance = point, distance
+				end
+			elseif ZoneManager.IsInsideXZ(center.X, center.Z, currentRadius, point.Position) then
 				table.insert(points, point)
 			end
 		end
-		local point = points[math.random(1, math.max(1, #points))]
+		local point = nearest or points[math.random(1, math.max(1, #points))]
 		if not point then
 			return
 		end
@@ -220,6 +227,12 @@ local function respawnInside(player)
 	local hit = workspace:Raycast(from, Vector3.new(0, -Config.RespawnRayHeight * 2, 0), params)
 	if hit then
 		y = hit.Position.Y + Config.ItemHeightOffset
+	end
+	if nearCenter then
+		local root = GameState.GetRootPart(player)
+		if root then
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
 	end
 	character:PivotTo(CFrame.new(x, y, z))
 end
@@ -306,6 +319,12 @@ function ZoneManager.WarpToCenter(player)
 		end
 	end
 	return false
+end
+
+function ZoneManager.ReturnTaggerToCenter(player)
+	if active and not ZoneManager.WarpToCenter(player) then
+		respawnInside(player, true)
+	end
 end
 
 ---------------------------------------------------------------------

@@ -25,6 +25,7 @@ local SAVE_FAILED = "データを保存できませんでした。もう一度�
 
 local store = nil        -- DataStore（初めて使うときに取得する）
 local storeFailed = false
+local loadStates = {} -- [Player] = "Loading", "Loaded", "Failed"
 local cache = {}         -- [Player] = データ
 local activeWrites = {}  -- [UserId] = 通常の保存件数
 local trading = {}       -- [UserId] = 交換の保存中
@@ -441,6 +442,7 @@ end
 
 -- 参加したときに読み込む
 function PlayerDataStore.Load(player)
+	loadStates[player] = "Loading"
 	while trading[player.UserId] do
 		task.wait()
 	end
@@ -463,8 +465,16 @@ function PlayerDataStore.Load(player)
 			task.wait(attempt)
 		end
 	end
-	cache[player] = data or PlayerDataStore.Normalize(nil)
-	return cache[player]
+	local loaded = data or PlayerDataStore.Normalize(nil)
+	if loadStates[player] == "Loading" then
+		cache[player] = loaded
+		loadStates[player] = data and "Loaded" or "Failed"
+	end
+	return loaded
+end
+
+function PlayerDataStore.GetLoadState(player)
+	return loadStates[player] or "Loading"
 end
 
 -- 今のデータ（読み込み前なら既定値）
@@ -478,6 +488,7 @@ function PlayerDataStore.Get(player)
 end
 
 function PlayerDataStore.Forget(player)
+	loadStates[player] = nil
 	cache[player] = nil
 end
 

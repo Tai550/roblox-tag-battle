@@ -36,6 +36,7 @@ local function isSuddenDeath()
 end
 
 local broadcastState -- 下の「状態の送信」で定義する
+local departedSuddenTagger
 local soloRound = false -- このラウンドをボットと遊ぶか
 local moveHumansToSpawn -- 下で定義する
 
@@ -361,6 +362,9 @@ local function setTagger(oldTagger, newTagger, tagBackFrom)
 end
 
 local function removeParticipant(player, notify)
+	if GameState.Phase == "Round" and isSuddenDeath() and GameState.IsTagger(player) then
+		departedSuddenTagger = player
+	end
 	ItemManager.ClearExpansionEffects(player)
 	ItemManager.ClearBeastEffects(player)
 	GameState.ClearFreeze(player)
@@ -445,14 +449,21 @@ local function reconcileTaggers()
 			setTagger(tagger, nil)
 		end
 	end
+	if isSuddenDeath() then
+		for _, tagger in ipairs(GameState.TaggerList()) do
+			if BotManager.IsBot(tagger) and not GameState.IsAlive(tagger) then
+				BotManager.RespawnTagger(tagger)
+			end
+		end
+		return
+	end
 	local count = GameState.CountParticipants()
-	local sudden = isSuddenDeath()
 	-- 通常モードでは開始時の逃げ役がいなくなれば補充せずに終わる。
-	if not sudden and (count <= 1 or not hasInitialRunner()) then
+	if count <= 1 or not hasInitialRunner() then
 		return
 	end
 	local taggers = GameState.TaggerList()
-	local wanted = sudden and suddenDeath.TaggerCount or targetTaggerCount(count)
+	local wanted = targetTaggerCount(count)
 	for index = wanted + 1, #taggers do
 		setTagger(taggers[index], nil)
 	end
@@ -491,6 +502,10 @@ end
 local function eliminate(player, reason)
 	if not GameState.IsParticipant(player) then
 		return
+	end
+	if isSuddenDeath() and GameState.IsTagger(player) then
+		ZoneManager.ReturnTaggerToCenter(player)
+		return false
 	end
 	removeParticipant(player, true)
 	table.insert(GameState.Eliminated, player)
@@ -837,6 +852,7 @@ local function isChampionEligible(player)
 end
 
 local function runRound()
+	departedSuddenTagger = nil
 	GameState.Participants = {}
 	GameState.Winners = {}
 	GameState.TagCounts = {}
@@ -885,8 +901,23 @@ local function runRound()
 		end
 		task.wait(0.5) -- ボットの体が落ち着くのを待つ
 	end
+	-- 保存デッキの読み込み中はインターバルのまま待つ。
+	while true do
+		local pending = false
+		for _, player in ipairs(entrants) do
+			if not BotManager.IsBot(player) and player.Parent == Players
+				and PlayerDataStore.GetLoadState(player) == "Loading" then
+				pending = true
+				break
+			end
+		end
+		if not pending then
+			break
+		end
+		task.wait(Config.TagCheckInterval)
+	end
 	for _, player in ipairs(entrants) do
-		if GameState.IsAlive(player) then
+		if player.Parent == Players and GameState.IsAlive(player) then
 			GameState.Participants[player] = true
 			GameState.TagCounts[player] = 0
 			GameState.ResetData(player)
@@ -901,7 +932,8 @@ local function runRound()
 
 	for _, player in ipairs(GameState.ParticipantList()) do
 		local data = GameState.GetData(player)
-		for _, combo in ipairs(Config.FindCombos(DeckManager.GetDeck(player))) do
+		local loadFailed = not BotManager.IsBot(player) and PlayerDataStore.GetLoadState(player) == "Failed"
+		for _, combo in ipairs(Config.FindCombos(DeckManager.GetDeck(player, loadFailed))) do
 			data.ActiveCombos[combo.Id] = true
 		end
 		GameState.RefreshSpeed(player)
@@ -937,7 +969,7 @@ local function runRound()
 	while true do
 		local now = GameState.Now()
 		local left = endTime - now
-		if left <= 0 or endRequested or nextMapRequested then
+		if left <= 0 or endRequested or nextMapRequested or departedSuddenTagger then
 			timedOut = left <= 0
 			endRequested = false
 			break
@@ -969,6 +1001,9 @@ local function runRound()
 			break
 		end
 
+		if departedSuddenTagger then
+			break
+		end
 		reconcileTaggers()
 		if not hasRunners() then
 			break
@@ -1003,7 +1038,7 @@ local function runRound()
 	-- 結果を作る
 	local entries = {}
 	for _, player in ipairs(roster) do
-		if BotManager.IsBot(player) or player.Parent == Players then
+		if player ~= departedSuddenTagger and (BotManager.IsBot(player) or player.Parent == Players) then
 			local eliminatedOrder = nil
 			for index, other in ipairs(GameState.Eliminated) do
 				if other == player then
@@ -1014,7 +1049,8 @@ local function runRound()
 				Key = player,
 				Tags = GameState.TagCounts[player] or 0,
 				FinalTagger = GameState.IsTagger(player),
-				ChampionEligible = (not isSuddenDeath() or timedOut) and isChampionEligible(player),
+				ChampionEligible = (not isSuddenDeath() or timedOut or departedSuddenTagger ~= nil) and isChampionEligible(player)
+					and (not departedSuddenTagger or GameState.IsAlive(player)),
 				EliminatedOrder = eliminatedOrder,
 			})
 		end
@@ -1117,7 +1153,9 @@ local function onCharacterAdded(player, character)
 	ItemManager.OnCharacterAdded(player)
 	TaggerLook.OnCharacterAdded(player) -- 鬼のままリスポーンしたら色を付け直す
 	-- 落下ダンジョンで試合中にリスポーンした参加者は、中央の足場へ戻す
-	if GameState.Phase == "Round" and MapBuilder.CurrentMap == "Sky" and GameState.IsParticipant(player) then
+	if GameState.Phase == "Round" and isSuddenDeath() and GameState.IsTagger(player) then
+		ZoneManager.ReturnTaggerToCenter(player)
+	elseif GameState.Phase == "Round" and MapBuilder.CurrentMap == "Sky" and GameState.IsParticipant(player) then
 		local platforms = MapBuilder.GetSkyPlatforms()
 		local start = platforms and platforms:FindFirstChild("ArenaStart")
 		if start then
@@ -1178,10 +1216,6 @@ function RoundManager.Init()
 		modeVotes[player] = nil
 		botStrengthVotes[player] = nil
 		refreshVoteDisplay()
-		if GameState.Phase == "Round" and isSuddenDeath() then
-			reconcileTaggers()
-			broadcastState()
-		end
 	end)
 end
 
@@ -1197,6 +1231,9 @@ function RoundManager.SetAdminTagger(player)
 	end
 	if GameState.IsTagger(player) then
 		return true
+	end
+	if isSuddenDeath() then
+		return false
 	end
 	setTagger(GameState.TaggerList()[1], player)
 	broadcastState()
