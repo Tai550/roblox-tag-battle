@@ -6,6 +6,11 @@ local ItemManager = require(script.Parent:WaitForChild("ItemManager"))
 local RoundManager = require(script.Parent:WaitForChild("RoundManager"))
 local Monetization = require(script.Parent:WaitForChild("Monetization"))
 local DeckManager = require(script.Parent:WaitForChild("DeckManager"))
+local MapBuilder = require(script.Parent:WaitForChild("MapBuilder"))
+
+-- マップと Workspace.ItemSpawns を、どの Init よりも先に（試合開始より前に）用意する。
+-- ItemManager / ZoneManager は試合開始時に ItemSpawns を読むので、ここで作ればそのまま連動する。
+MapBuilder.Build()
 
 Leaderstats.Init()
 ItemManager.Init()

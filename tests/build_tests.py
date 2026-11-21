@@ -22,6 +22,7 @@ MODULES = [
     ("src/server/ZoneManager.lua", "ZoneManager"),
     ("src/server/ItemManager.lua", "ItemManager"),
     ("src/server/RoundManager.lua", "RoundManager"),
+    ("src/server/MapBuilder.lua", "MapBuilder"),
 ]
 
 PRELUDE = """-- [test] Roblox API mock prelude
@@ -35,6 +36,7 @@ local Enum = __RT.Enum
 local Color3 = __RT.Color3
 local Vector3 = __RT.Vector3
 local CFrame = __RT.CFrame
+local UDim2 = __RT.UDim2
 local task = __RT.task
 local warn = __RT.warn
 -- [original file below]

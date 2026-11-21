@@ -1,4 +1,4 @@
--- run_tests: v2 で追加した計算ロジックのモックテスト
+-- run_tests: v2 で追加した計算ロジックと、マップ生成（MapBuilder）のモックテスト
 -- 実行前に `python3 tests/build_tests.py` で tests/.build/ を作っておくこと。
 -- 実行: luau tests/run_tests.lua
 
@@ -13,6 +13,7 @@ RT.modules.DeckManager = require("./.build/DeckManager")
 RT.modules.ZoneManager = require("./.build/ZoneManager")
 RT.modules.ItemManager = require("./.build/ItemManager")
 RT.modules.RoundManager = require("./.build/RoundManager")
+RT.modules.MapBuilder = require("./.build/MapBuilder")
 
 local Config = RT.modules.Config
 local ZoneManager = RT.modules.ZoneManager
@@ -203,6 +204,158 @@ do
 	check("遠くはエリア外", not ZoneManager.IsInside(Vector3.new(500, 3, 0)))
 	ZoneManager.Stop()
 	check("終了するとゾーンは止まる", ZoneManager.IsActive() == false)
+end
+
+---------------------------------------------------------------------
+-- 7. マップ生成（MapBuilder）：渋谷風の街と出現ポイント
+---------------------------------------------------------------------
+
+do
+	local MapBuilder = RT.modules.MapBuilder
+	local workspace = RT.workspace
+
+	local function countChildrenNamed(parent, name)
+		local n = 0
+		for _, child in ipairs(parent:GetChildren()) do
+			if child.Name == name then
+				n = n + 1
+			end
+		end
+		return n
+	end
+	local function baseParts(root)
+		local list = {}
+		for _, d in ipairs(root:GetDescendants()) do
+			if d:IsA("BasePart") then
+				table.insert(list, d)
+			end
+		end
+		return list
+	end
+
+	local summary = MapBuilder.Build()
+	local map = workspace:FindFirstChild("Map")
+	local spawns = workspace:FindFirstChild(Config.ItemSpawnFolderName)
+	check("Workspace.Map が作られる", map ~= nil)
+	check("Workspace.ItemSpawns が作られる", spawns ~= nil)
+
+	local spawnParts = spawns and baseParts(spawns) or {}
+	check("出現ポイントは BasePart が12個", #spawnParts == 12)
+
+	local allInside, allMarker = true, true
+	for _, p in ipairs(spawnParts) do
+		if math.abs(p.Position.X) > 115 or math.abs(p.Position.Z) > 115 then
+			allInside = false
+		end
+		if not (p.Transparency == 1 and p.CanCollide == false and p.Anchored == true
+			and p.Size.X == 2 and p.Size.Y == 1 and p.Size.Z == 2) then
+			allMarker = false
+		end
+	end
+	check("出現ポイントはすべて舞台の範囲内（|x|,|z| <= 115）", allInside)
+	check("出現ポイントは 2×1×2・透明・当たり判定なし・固定", allMarker)
+
+	local names = {}
+	for _, p in ipairs(spawnParts) do
+		names[p.Name] = true
+	end
+	local allNamed = true
+	for i = 1, 12 do
+		if not names["Spawn" .. i] then
+			allNamed = false
+		end
+	end
+	check("出現ポイントの名前は Spawn1〜Spawn12", allNamed)
+
+	-- 横断歩道：白い Part（4方向 × 9本 = 36本を想定）
+	local mapParts = map and baseParts(map) or {}
+	local white = 0
+	for _, p in ipairs(mapParts) do
+		local c = p.Color
+		if c and c.R == 255 and c.G == 255 and c.B == 255 then
+			white = white + 1
+		end
+	end
+	check("横断歩道の白い Part が4方向ぶん（36本以上）ある", white >= 36)
+
+	local total = #mapParts + #spawnParts
+	check("BasePart の総数は 700 以下", total <= 700)
+	check("Build() の集計と実際の Part 数が一致", summary.PartCount == total)
+	print(string.format("    （Map の BasePart %d ＋ 出現ポイント %d ＝ %d）", #mapParts, #spawnParts, total))
+
+	-- 屋上に登れる建物（2〜3棟）と、屋上の出現ポイント（2点）
+	check("屋上に登れる建物は2〜3棟", summary.ClimbableBuildings >= 2 and summary.ClimbableBuildings <= 3)
+	print(string.format("    （屋上に登れる建物 %d 棟）", summary.ClimbableBuildings))
+	local roofSpawns = 0
+	for _, p in ipairs(MapBuilder.ItemSpawnPositions()) do
+		if p.roof then
+			roofSpawns = roofSpawns + 1
+		end
+	end
+	check("屋上の出現ポイントは2点", roofSpawns == 2)
+
+	-- 出現ポイントが建物の中に埋まっていない（屋上のものは屋上より上）
+	local notBuried = true
+	for _, p in ipairs(MapBuilder.ItemSpawnPositions()) do
+		for _, b in ipairs(MapBuilder.Buildings) do
+			local inX = math.abs(p.x - b.x) < b.w / 2 + 1
+			local inZ = math.abs(p.z - b.z) < b.d / 2 + 1
+			if inX and inZ and p.y < b.h then
+				notBuried = false
+			end
+		end
+	end
+	check("出現ポイントは建物に埋まっていない", notBuried)
+
+	-- スロープの高い端は屋上の高さ、側面はビルにぴったり接する
+	local rampsOk = true
+	for _, b in ipairs(MapBuilder.Buildings) do
+		if b.ramp then
+			local cx, _, width = MapBuilder.RampGeometry(b)
+			if not near(math.abs(cx - b.x), b.w / 2 + width / 2) then
+				rampsOk = false
+			end
+			-- スロープが他のビルにめり込んでいない
+			for _, other in ipairs(MapBuilder.Buildings) do
+				if other ~= b then
+					local hitX = math.abs(cx - other.x) < (width + other.w) / 2
+					local hitZ = math.abs(b.z - other.z) < (b.d + other.d) / 2
+					if hitX and hitZ then
+						rampsOk = false
+					end
+				end
+			end
+		end
+	end
+	check("スロープはビルの側面に接し、他のビルと重ならない", rampsOk)
+
+	-- ビル20棟が舞台の中に収まり、道路（幅36）にはみ出さない
+	local buildingsOk = #MapBuilder.Buildings == 20
+	for _, b in ipairs(MapBuilder.Buildings) do
+		local minX, maxX = b.x - b.w / 2, b.x + b.w / 2
+		local minZ, maxZ = b.z - b.d / 2, b.z + b.d / 2
+		if math.max(math.abs(minX), math.abs(maxX), math.abs(minZ), math.abs(maxZ)) > 110 then
+			buildingsOk = false
+		end
+		if (minX < 18 and maxX > -18) or (minZ < 18 and maxZ > -18) then
+			buildingsOk = false
+		end
+		if b.h < 20 or b.h > 70 then
+			buildingsOk = false
+		end
+	end
+	check("ビル20棟は道路にはみ出さず、高さ20〜70", buildingsOk)
+
+	-- 冪等性：もう一度呼んでも Map / ItemSpawns は1つずつ、中身も同じ数
+	local summary2 = MapBuilder.Build()
+	check("2回目の Build() でも Map は1つだけ", countChildrenNamed(workspace, "Map") == 1)
+	check("2回目の Build() でも ItemSpawns は1つだけ",
+		countChildrenNamed(workspace, Config.ItemSpawnFolderName) == 1)
+	check("2回目の Build() でも同じ Part 数", summary2.PartCount == summary.PartCount)
+
+	-- 既存の出現ポイント読み込み（ItemManager）がそのまま連動する
+	local points, isFallback = ItemManager.GetSpawnPoints()
+	check("ItemManager が生成した12点を読む（予備ポイントではない）", #points == 12 and isFallback == false)
 end
 
 ---------------------------------------------------------------------

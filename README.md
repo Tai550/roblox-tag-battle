@@ -1,7 +1,7 @@
 # バトルアイテム付き鬼ごっこ（Roblox）
 
 ラウンド制の鬼ごっこに、マップに出てくる「バトルアイテム」を組み合わせた Roblox ゲームです。
-スクリプト一式を Rojo 形式でまとめています。マップは Roblox Studio 側で自由に作ってください。
+スクリプト一式を Rojo 形式でまとめています。マップ（渋谷風の街）はサーバー起動時にコードで自動生成されます（[マップ（コード生成）](#マップコード生成) を参照）。
 
 ## ゲームの説明
 
@@ -79,6 +79,7 @@ src/
     SparkleTrail.lua            キラキラトレイルの付け外し（見た目だけ）
     ZoneManager.lua             縮小エリア（中心・半径の計算、壁、エリア外スタミナ）
     DeckManager.lua             デッキ構築（選択の検証、デッキからの抽選）
+    MapBuilder.lua              渋谷風の街マップと出現ポイント（ItemSpawns）をコードで生成
   client/                     → StarterPlayer.StarterPlayerScripts.Client
     HUD.client.lua              役割・残り時間・人数待ち・結果・お知らせの表示
     ItemControls.client.lua     アイテムボタンとキー入力、効果の残り時間表示
@@ -108,7 +109,7 @@ src/
 4. Studio でマップの place を開き、Rojo プラグインの「Connect」を押すと、スクリプトが同期されます。
 5. ファイルを編集すると、Studio に自動で反映されます。
 
-place ファイルを丸ごと作りたい場合は `rojo build -o TagBattle.rbxlx` で書き出して Studio で開けます（この場合マップは空なので、Studio 側で作ってください）。
+place ファイルを丸ごと作りたい場合は `rojo build -o TagBattle.rbxlx` で書き出して Studio で開けます（マップはファイルには入っておらず、Play でサーバーが起動したときに生成されます）。
 
 ### 方法B: ファイルを手で配置する
 
@@ -130,6 +131,7 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 | ServerScriptService › Server | ModuleScript `SparkleTrail` | `src/server/SparkleTrail.lua` |
 | ServerScriptService › Server | ModuleScript `ZoneManager` | `src/server/ZoneManager.lua` |
 | ServerScriptService › Server | ModuleScript `DeckManager` | `src/server/DeckManager.lua` |
+| ServerScriptService › Server | ModuleScript `MapBuilder` | `src/server/MapBuilder.lua` |
 | StarterPlayer › StarterPlayerScripts | Folder `Client` | |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `HUD` | `src/client/HUD.client.lua` |
 | StarterPlayer › StarterPlayerScripts › Client | LocalScript `ItemControls` | `src/client/ItemControls.client.lua` |
@@ -141,7 +143,25 @@ Rojo を使わない場合は、Studio の Explorer で次のように作って�
 
 2人以上必要なので、Studio の「テスト」タブ →「クライアントとサーバー」でプレイヤー数を2〜3にして「開始」すると、ローカルで複数人のテストができます。
 
+## マップ（コード生成）
+
+マップは `src/server/MapBuilder.lua` がコードで作ります。`Main.server.lua` が起動時に、他の初期化より先に `MapBuilder.Build()` を1回呼び、次のものを Workspace に生成します。
+
+- `Workspace.Map`: 220×220 スタッドの渋谷風の街。中心がスクランブル交差点（十字の道路・4方向の横断歩道・中央線）、少し高い歩道の街区、ビル20棟（高さ20〜70）、大型スクリーン「SHIBUYA」のランドマーク、木のある広場、駅前風の広場、植え込み・自販機・バス停・信号機・街灯・バリケードなどの障害物、外周の透明な壁。
+  - 低いビル3棟には側面にスロープがあり、屋上に登れます（鬼ごっこの逃げ道）。
+  - プレイヤーのスポーン（SpawnLocation）は駅前広場にあります。
+- `Workspace.ItemSpawns`: アイテムの出現ポイント12点（交差点・路地・屋上2点・広場など）。ItemManager / ZoneManager は試合開始時にこのフォルダを読むので、そのまま連動します。
+
+注意点:
+
+- **Studio で place を開いただけではマップは見えません。** 「プレイ」などでサーバーが起動したときに生成されます（編集画面には残りません）。
+- 乱数は使っていないので、毎回同じマップになります。配置を変えたいときは `MapBuilder.lua` の上のほうにある表（`BUILDINGS`、`ITEM_SPAWNS` など）の数字を書き換えます。
+- `Build()` は、すでに `Workspace.Map` と `Workspace.ItemSpawns` があれば消してから作り直します。Studio で自分で作った `ItemSpawns` フォルダも置き換わるので、自作のマップを使うときは次の手順で無効化してください。
+- **マップを無効化するには**、`Main.server.lua` の `MapBuilder.Build()` の行を消す（またはコメントアウトする）だけです。その場合は下の「マップ側の準備」の手順で、自分のマップと ItemSpawns を用意します。
+
 ## マップ側の準備（ItemSpawns フォルダ）
+
+自作のマップを使う場合（`MapBuilder.Build()` の呼び出しを外したとき）の手順です。
 
 1. マップ（床・障害物・SpawnLocation など）を Studio で作ります。
 2. Explorer で **Workspace** を右クリック →「オブジェクトを挿入」→ **Folder** を追加し、名前を **`ItemSpawns`** にします。

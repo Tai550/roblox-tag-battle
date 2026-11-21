@@ -44,6 +44,18 @@ RT.Color3 = {
 	end,
 }
 
+RT.UDim2 = {
+	new = function(xs, xo, ys, yo)
+		return { XScale = xs or 0, XOffset = xo or 0, YScale = ys or 0, YOffset = yo or 0 }
+	end,
+	fromScale = function(xs, ys)
+		return { XScale = xs or 0, XOffset = 0, YScale = ys or 0, YOffset = 0 }
+	end,
+	fromOffset = function(xo, yo)
+		return { XScale = 0, XOffset = xo or 0, YScale = 0, YOffset = yo or 0 }
+	end,
+}
+
 local CFrameMT = {
 	__mul = function(a, _)
 		return a
@@ -102,16 +114,46 @@ end
 function instanceMethods.FindFirstChildOfClass(_, _)
 	return nil
 end
-function instanceMethods.GetDescendants(_)
-	return {}
+function instanceMethods.GetChildren(self)
+	local list = {}
+	for _, child in ipairs(rawget(self, "_children") or {}) do
+		table.insert(list, child)
+	end
+	return list
 end
+function instanceMethods.GetDescendants(self)
+	local list = {}
+	local function walk(node)
+		for _, child in ipairs(rawget(node, "_children") or {}) do
+			table.insert(list, child)
+			walk(child)
+		end
+	end
+	walk(self)
+	return list
+end
+-- BasePart として扱うクラス（Part の仲間）
+local BASE_PART_CLASSES = { Part = true, WedgePart = true, SpawnLocation = true, TrussPart = true }
 function instanceMethods.IsA(self, className)
 	if className == "BasePart" then
-		return rawget(self, "ClassName") == "Part"
+		return BASE_PART_CLASSES[rawget(self, "ClassName")] == true
 	end
 	return rawget(self, "ClassName") == className
 end
+-- 親の子リストから外す（Destroy と親の付け替えで使う）
+local function detachFromParent(self)
+	local parent = rawget(self, "Parent")
+	if type(parent) == "table" and rawget(parent, "_children") then
+		local children = rawget(parent, "_children")
+		for index = #children, 1, -1 do
+			if children[index] == self then
+				table.remove(children, index)
+			end
+		end
+	end
+end
 function instanceMethods.Destroy(self)
+	detachFromParent(self)
 	rawset(self, "Parent", nil)
 end
 function instanceMethods.FireClient(_, ...)
@@ -131,8 +173,11 @@ local instanceMT = {
 		return nil
 	end,
 	__newindex = function(self, key, value)
-		if key == "Parent" and type(value) == "table" and rawget(value, "_children") then
-			table.insert(rawget(value, "_children"), self)
+		if key == "Parent" then
+			detachFromParent(self)
+			if type(value) == "table" and rawget(value, "_children") then
+				table.insert(rawget(value, "_children"), self)
+			end
 		end
 		rawset(self, key, value)
 	end,
