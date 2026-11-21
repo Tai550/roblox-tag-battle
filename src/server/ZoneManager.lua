@@ -19,7 +19,8 @@ local currentRadius = 0             -- 今の半径
 local roundDuration = 0             -- 今ラウンドの試合時間（秒）
 local startClock = 0                -- ラウンド開始時刻（GameState.Now 基準）
 local lastCheckClock = 0            -- 前回 内外判定をした時刻
-local wallPart = nil
+local wallModel = nil  -- 壁のパネルをまとめた Model
+local wallPanels = {}  -- 円周に並べた薄いパネル
 
 ---------------------------------------------------------------------
 -- 計算だけの関数（テストからも呼べるよう、状態に触らない形で公開）
@@ -111,30 +112,56 @@ end
 -- 壁の見た目（大きな円柱。再利用し、ラウンド終了で消す）
 ---------------------------------------------------------------------
 
+local function makePanel()
+	local panel = Instance.new("Part")
+	panel.Anchored = true
+	panel.CanCollide = false
+	panel.CanQuery = false
+	panel.CanTouch = false
+	panel.CastShadow = false
+	panel.Material = Enum.Material.Neon
+	panel.Color = Config.ZoneWallColor
+	panel.Transparency = Config.ZoneWallTransparency
+	return panel
+end
+
+-- 壁は「薄いパネルを円周に並べた輪」で作る。
+-- 中身の詰まった円柱にすると、エリアの中にいる間ずっと画面がピンクに染まるため。
 local function updateWall()
-	if not wallPart then
-		wallPart = Instance.new("Part")
-		wallPart.Name = "ZoneWall"
-		wallPart.Shape = Enum.PartType.Cylinder
-		wallPart.Anchored = true
-		wallPart.CanCollide = false
-		wallPart.CanQuery = false
-		wallPart.Material = Enum.Material.Neon
-		wallPart.Color = Config.ZoneWallColor
-		wallPart.Transparency = Config.ZoneWallTransparency
-		wallPart.Parent = workspace
+	if not wallModel then
+		wallModel = Instance.new("Model")
+		wallModel.Name = "ZoneWall"
+		wallPanels = {}
+		for i = 1, Config.ZoneWallSegments do
+			local panel = makePanel()
+			panel.Name = "Panel" .. i
+			panel.Parent = wallModel
+			wallPanels[i] = panel
+		end
+		wallModel.Parent = workspace
 	end
-	local diameter = currentRadius * 2
-	wallPart.Size = Vector3.new(Config.ZoneWallHeight, diameter, diameter)
-	-- 円柱は横向き（軸が X 方向）が既定なので、Z 軸まわりに90度回して縦向きにする
-	wallPart.CFrame = CFrame.new(center.X, center.Y + Config.ZoneWallHeight / 2, center.Z)
-		* CFrame.Angles(0, 0, math.rad(90))
+	local count = #wallPanels
+	local step = math.pi * 2 / count
+	-- 隣のパネルとすき間ができないよう、弦の長さより少しだけ長くする
+	local width = 2 * currentRadius * math.sin(step / 2) + 0.5
+	local y = center.Y + Config.ZoneWallHeight / 2
+	for i, panel in ipairs(wallPanels) do
+		local angle = (i - 1) * step
+		panel.Size = Vector3.new(width, Config.ZoneWallHeight, 0.4)
+		-- パネルのローカル X 軸が円の接線方向を向くよう、Y 軸まわりに回す
+		panel.CFrame = CFrame.new(
+			center.X + math.cos(angle) * currentRadius,
+			y,
+			center.Z + math.sin(angle) * currentRadius
+		) * CFrame.Angles(0, -angle - math.pi / 2, 0)
+	end
 end
 
 local function removeWall()
-	if wallPart then
-		wallPart:Destroy()
-		wallPart = nil
+	if wallModel then
+		wallModel:Destroy()
+		wallModel = nil
+		wallPanels = {}
 	end
 end
 
@@ -149,12 +176,19 @@ local function respawnInside(player)
 	end
 	local angle = math.random() * math.pi * 2
 	local dist = math.random() * currentRadius * 0.7 -- 中心寄りに戻す
-	local position = Vector3.new(
-		center.X + math.cos(angle) * dist,
-		center.Y + Config.ItemHeightOffset,
-		center.Z + math.sin(angle) * dist
-	)
-	character:PivotTo(CFrame.new(position))
+	local x = center.X + math.cos(angle) * dist
+	local z = center.Z + math.sin(angle) * dist
+	local y = center.Y + Config.ItemHeightOffset
+	-- 障害物の中に埋まらないよう、上から真下に光線を飛ばして足場の上に置く
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { character, wallModel }
+	local from = Vector3.new(x, center.Y + Config.RespawnRayHeight, z)
+	local hit = workspace:Raycast(from, Vector3.new(0, -Config.RespawnRayHeight * 2, 0), params)
+	if hit then
+		y = hit.Position.Y + Config.ItemHeightOffset
+	end
+	character:PivotTo(CFrame.new(x, y, z))
 end
 
 ---------------------------------------------------------------------

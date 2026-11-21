@@ -240,7 +240,7 @@ end)
 -- 縮小エリアの表示（ラウンド中）
 ---------------------------------------------------------------------
 
-local zoneFrame = makeFrame("ZonePanel", UDim2.new(0, 240, 0, 84), UDim2.new(1, -130, 0, 8))
+local zoneFrame = makeFrame("ZonePanel", UDim2.new(0, 240, 0, 84), UDim2.new(0.5, 0, 0, 138)) -- 上の試合表示のすぐ下（右上のランキングと重ならない）
 zoneFrame.AnchorPoint = Vector2.new(0.5, 0)
 local zoneRadiusLabel = makeLabel(zoneFrame, "Radius", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 4), 17, "")
 local zoneWarnLabel = makeLabel(zoneFrame, "Warn", UDim2.new(1, -12, 0, 22), UDim2.new(0.5, 0, 0, 26), 17, "")

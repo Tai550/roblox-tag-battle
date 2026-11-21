@@ -63,9 +63,11 @@ Config.ZoneStaminaMax = 100        -- エリア外スタミナの最大値
 Config.ZoneDrainPerSecond = 12     -- エリア外で1秒に減るスタミナ
 Config.ZoneRegenPerSecond = 25     -- エリア内で1秒に回復するスタミナ
 Config.ZoneCheckInterval = 0.25    -- エリア内外の判定間隔（秒）
-Config.ZoneWallHeight = 60         -- 壁（円柱）の高さ
+Config.ZoneWallHeight = 60         -- 壁の高さ
 Config.ZoneWallColor = Color3.fromRGB(255, 90, 200) -- 壁の色
 Config.ZoneWallTransparency = 0.5  -- 壁の透明度
+Config.ZoneWallSegments = 64       -- 壁を何枚のパネルで円にするか（多いほどなめらか）
+Config.RespawnRayHeight = 60       -- リスポーン時、どの高さから足場を探すか
 
 ---------------------------------------------------------------------
 -- デッキ構築

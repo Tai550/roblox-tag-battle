@@ -8,61 +8,20 @@
     "Anchored": true,
     "Size": {
      "Vector3": [
-      220,
-      2,
-      220
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      0,
-      -1,
-      0
+      240.0,
+      2.0,
+      240.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      106,
-      190,
-      48
+      96,
+      176,
+      60
      ]
-    },
-    "TopSurface": {
-     "Enum": 0
-    },
-    "BottomSurface": {
-     "Enum": 0
     },
     "Material": {
      "Enum": 1280
-    }
-   }
-  },
-  {
-   "name": "Wall1",
-   "className": "Part",
-   "properties": {
-    "Anchored": true,
-    "Size": {
-     "Vector3": [
-      224,
-      16,
-      2
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      0,
-      8,
-      111
-     ]
-    },
-    "Color": {
-     "Color3uint8": [
-      120,
-      120,
-      130
-     ]
     },
     "TopSurface": {
      "Enum": 0
@@ -70,36 +29,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Transparency": {
-     "Float32": 0.5
+    "Position": {
+     "Vector3": [
+      0.0,
+      -1.0,
+      0.0
+     ]
     }
    }
   },
   {
-   "name": "Wall2",
+   "name": "PathX",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      224,
-      16,
-      2
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      0,
-      8,
-      -111
+      232.0,
+      0.2,
+      12.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      120,
-      120,
-      130
+      170,
+      160,
+      140
      ]
+    },
+    "Material": {
+     "Enum": 880
     },
     "TopSurface": {
      "Enum": 0
@@ -107,36 +66,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Transparency": {
-     "Float32": 0.5
+    "Position": {
+     "Vector3": [
+      0.0,
+      0.1,
+      0.0
+     ]
     }
    }
   },
   {
-   "name": "Wall3",
+   "name": "PathZ",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      2,
-      16,
-      224
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      111,
-      8,
-      0
+      12.0,
+      0.2,
+      232.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      120,
-      120,
-      130
+      170,
+      160,
+      140
      ]
+    },
+    "Material": {
+     "Enum": 880
     },
     "TopSurface": {
      "Enum": 0
@@ -144,36 +103,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Transparency": {
-     "Float32": 0.5
+    "Position": {
+     "Vector3": [
+      0.0,
+      0.1,
+      0.0
+     ]
     }
    }
   },
   {
-   "name": "Wall4",
+   "name": "WallN",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      2,
-      16,
-      224
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      -111,
-      8,
-      0
+      240.0,
+      22.0,
+      4.0
      ]
     },
     "Color": {
      "Color3uint8": [
-      120,
-      120,
-      130
+      150,
+      85,
+      70
      ]
+    },
+    "Material": {
+     "Enum": 848
     },
     "TopSurface": {
      "Enum": 0
@@ -181,36 +140,894 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Transparency": {
-     "Float32": 0.5
+    "Position": {
+     "Vector3": [
+      0.0,
+      11.0,
+      120.0
+     ]
     }
    }
   },
   {
-   "name": "Block1",
+   "name": "WallS",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      8,
-      8,
-      8
+      240.0,
+      22.0,
+      4.0
      ]
+    },
+    "Color": {
+     "Color3uint8": [
+      150,
+      85,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
     },
     "Position": {
      "Vector3": [
-      30,
-      4,
-      20
+      0.0,
+      11.0,
+      -120.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "WallE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      22.0,
+      240.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      150,
+      85,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      120.0,
+      11.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "WallW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      22.0,
+      240.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      150,
+      85,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -120.0,
+      11.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "StripeN",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      240.0,
+      1.0,
+      0.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      18.5,
+      117.8
+     ]
+    }
+   }
+  },
+  {
+   "name": "StripeS",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      240.0,
+      1.0,
+      0.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      18.5,
+      -117.8
+     ]
+    }
+   }
+  },
+  {
+   "name": "StripeE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.4,
+      1.0,
+      240.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      117.8,
+      18.5,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "StripeW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.4,
+      1.0,
+      240.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -117.8,
+      18.5,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "CornerTower1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      30.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      70,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      118.0,
+      15.0,
+      118.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "CornerBeacon1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      118.0,
+      33.0,
+      118.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 60
+      },
+      "Brightness": {
+       "Float32": 2
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "CornerTower2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      30.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      70,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -118.0,
+      15.0,
+      118.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "CornerBeacon2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -118.0,
+      33.0,
+      118.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 60
+      },
+      "Brightness": {
+       "Float32": 2
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "CornerTower3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      30.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      70,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -118.0,
+      15.0,
+      -118.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "CornerBeacon3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -118.0,
+      33.0,
+      -118.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 60
+      },
+      "Brightness": {
+       "Float32": 2
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "CornerTower4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      30.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      70,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 848
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      118.0,
+      15.0,
+      -118.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "CornerBeacon4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      118.0,
+      33.0,
+      -118.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 60
+      },
+      "Brightness": {
+       "Float32": 2
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "Plaza",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.4,
+      56.0,
+      56.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      195,
+      185
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       0.0,
+       0.2,
+       0.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "TowerPillar1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      15.0,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      8.0,
+      7.5,
+      8.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerPillar2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      15.0,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -8.0,
+      7.5,
+      8.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerPillar3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      15.0,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -8.0,
+      7.5,
+      -8.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerPillar4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      15.0,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      8.0,
+      7.5,
+      -8.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerDeck",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      20.0,
+      1.0,
+      20.0
      ]
     },
     "Color": {
      "Color3uint8": [
       230,
-      170,
-      60
+      120,
+      50
      ]
+    },
+    "Material": {
+     "Enum": 1056
     },
     "TopSurface": {
      "Enum": 0
@@ -218,147 +1035,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Material": {
-     "Enum": 816
+    "Position": {
+     "Vector3": [
+      0.0,
+      14.5,
+      0.0
+     ]
     }
    }
   },
   {
-   "name": "Block2",
+   "name": "RailN",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      12,
-      6,
-      4
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      -35,
-      3,
-      25
+      20.0,
+      3.0,
+      0.6
      ]
     },
     "Color": {
      "Color3uint8": [
-      230,
-      170,
-      60
-     ]
-    },
-    "TopSurface": {
-     "Enum": 0
-    },
-    "BottomSurface": {
-     "Enum": 0
-    },
-    "Material": {
-     "Enum": 816
-    }
-   }
-  },
-  {
-   "name": "Block3",
-   "className": "Part",
-   "properties": {
-    "Anchored": true,
-    "Size": {
-     "Vector3": [
-      4,
-      10,
-      16
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      20,
-      5,
-      -40
-     ]
-    },
-    "Color": {
-     "Color3uint8": [
-      230,
-      170,
-      60
-     ]
-    },
-    "TopSurface": {
-     "Enum": 0
-    },
-    "BottomSurface": {
-     "Enum": 0
-    },
-    "Material": {
-     "Enum": 816
-    }
-   }
-  },
-  {
-   "name": "Block4",
-   "className": "Part",
-   "properties": {
-    "Anchored": true,
-    "Size": {
-     "Vector3": [
-      10,
-      8,
-      10
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      -25,
-      4,
-      -30
-     ]
-    },
-    "Color": {
-     "Color3uint8": [
-      230,
-      170,
-      60
-     ]
-    },
-    "TopSurface": {
-     "Enum": 0
-    },
-    "BottomSurface": {
-     "Enum": 0
-    },
-    "Material": {
-     "Enum": 816
-    }
-   }
-  },
-  {
-   "name": "Block5",
-   "className": "Part",
-   "properties": {
-    "Anchored": true,
-    "Size": {
-     "Vector3": [
-      6,
-      6,
-      20
-     ]
-    },
-    "Position": {
-     "Vector3": [
       60,
-      3,
-      -10
+      60,
+      70
      ]
     },
-    "Color": {
-     "Color3uint8": [
-      230,
-      170,
-      60
-     ]
+    "Material": {
+     "Enum": 1088
     },
     "TopSurface": {
      "Enum": 0
@@ -366,36 +1072,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Material": {
-     "Enum": 816
+    "Position": {
+     "Vector3": [
+      0.0,
+      16.5,
+      9.7
+     ]
     }
    }
   },
   {
-   "name": "Block6",
+   "name": "RailS",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      20,
-      6,
-      6
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      -60,
-      3,
-      10
+      20.0,
+      3.0,
+      0.6
      ]
     },
     "Color": {
      "Color3uint8": [
-      230,
-      170,
-      60
+      60,
+      60,
+      70
      ]
+    },
+    "Material": {
+     "Enum": 1088
     },
     "TopSurface": {
      "Enum": 0
@@ -403,36 +1109,370 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Material": {
-     "Enum": 816
+    "Position": {
+     "Vector3": [
+      0.0,
+      16.5,
+      -9.7
+     ]
     }
    }
   },
   {
-   "name": "Block7",
+   "name": "RailX1a",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      16,
-      4,
-      4
+      0.6,
+      3.0,
+      6.0
      ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
     },
     "Position": {
      "Vector3": [
-      0,
-      2,
+      9.7,
+      16.5,
+      7.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RailX1b",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      3.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      9.7,
+      16.5,
+      -7.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RailX-1a",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      3.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -9.7,
+      16.5,
+      7.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "RailX-1b",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      3.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      60,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -9.7,
+      16.5,
+      -7.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerFlag",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.0,
+      10.0,
+      1.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      240,
+      240
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      0.0,
+      20.0,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerFlagCloth",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      0.3
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      230,
+      50,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 256
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      2.8,
+      23.5,
+      0.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TowerRampE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      36.34119409414458,
+      1.0,
+      7.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      190,
+      140,
+      90
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       25.78778306188464,
+       7.0472705320205655,
+       0.0
+      ],
+      "orientation": [
+       [
+        -0.9054589359588684,
+        0.4244338762307196,
+        0.0
+       ],
+       [
+        0.4244338762307196,
+        0.9054589359588684,
+        0.0
+       ],
+       [
+        0.0,
+        0.0,
+        -1.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "TowerRampW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      36.34119409414458,
+      1.0,
+      7.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      190,
+      140,
+      90
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -25.78778306188464,
+       7.0472705320205655,
+       0.0
+      ],
+      "orientation": [
+       [
+        0.9054589359588684,
+        -0.4244338762307196,
+        0.0
+       ],
+       [
+        0.4244338762307196,
+        0.9054589359588684,
+        -0.0
+       ],
+       [
+        0.0,
+        0.0,
+        1.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "LampPole1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.8,
+      10.0,
+      0.8
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      50,
       55
      ]
     },
-    "Color": {
-     "Color3uint8": [
-      230,
-      170,
-      60
-     ]
+    "Material": {
+     "Enum": 1088
     },
     "TopSurface": {
      "Enum": 0
@@ -440,36 +1480,36 @@
     "BottomSurface": {
      "Enum": 0
     },
-    "Material": {
-     "Enum": 816
+    "Position": {
+     "Vector3": [
+      22.0,
+      5.0,
+      22.0
+     ]
     }
    }
   },
   {
-   "name": "Block8",
+   "name": "LampHead1",
    "className": "Part",
    "properties": {
     "Anchored": true,
     "Size": {
      "Vector3": [
-      4,
-      4,
-      16
-     ]
-    },
-    "Position": {
-     "Vector3": [
-      0,
-      2,
-      -60
+      2.4,
+      2.4,
+      2.4
      ]
     },
     "Color": {
      "Color3uint8": [
+      255,
       230,
-      170,
-      60
+      170
      ]
+    },
+    "Material": {
+     "Enum": 288
     },
     "TopSurface": {
      "Enum": 0
@@ -477,8 +1517,4606 @@
     "BottomSurface": {
      "Enum": 0
     },
+    "Position": {
+     "Vector3": [
+      22.0,
+      10.6,
+      22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 28
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "LampPole2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.8,
+      10.0,
+      0.8
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      50,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -22.0,
+      5.0,
+      22.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LampHead2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.4,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      230,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -22.0,
+      10.6,
+      22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 28
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "LampPole3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.8,
+      10.0,
+      0.8
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      50,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -22.0,
+      5.0,
+      -22.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LampHead3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.4,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      230,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -22.0,
+      10.6,
+      -22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 28
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "LampPole4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.8,
+      10.0,
+      0.8
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      50,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      22.0,
+      5.0,
+      -22.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "LampHead4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.4,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      230,
+      170
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      22.0,
+      10.6,
+      -22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   },
+   "children": [
+    {
+     "name": "Light",
+     "className": "PointLight",
+     "properties": {
+      "Range": {
+       "Float32": 28
+      },
+      "Brightness": {
+       "Float32": 1.5
+      },
+      "Color": {
+       "Color3": [
+        1.0,
+        0.85,
+        0.6
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "Container1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      20.0,
+      10.0,
+      8.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      60,
+      50
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      32.0,
+      5.0,
+      34.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      20.0,
+      10.0,
+      8.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      110,
+      200
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      36.0,
+      5.0,
+      86.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      20.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      190,
+      40
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      86.0,
+      5.0,
+      30.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      20.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      90
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      90.0,
+      5.0,
+      82.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      10.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      120,
+      40
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      90.0,
+      15.0,
+      76.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      20.0,
+      10.0,
+      8.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      190,
+      40
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      62.0,
+      5.0,
+      100.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container7",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      20.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      60,
+      50
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      102.0,
+      5.0,
+      54.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container8",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      20.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      110,
+      200
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      44.0,
+      5.0,
+      62.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Container9",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      10.0,
+      10.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      60,
+      160,
+      90
+     ]
+    },
+    "Material": {
+     "Enum": 1040
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      38.0,
+      15.0,
+      34.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "ContainerRamp1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      21.591260281974,
+      1.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      120,
+      125
+     ]
+    },
+    "Material": {
+     "Enum": 1056
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       90.0,
+       4.562921361939231,
+       100.75717853441068
+      ],
+      "orientation": [
+       [
+        0.0,
+        0.0,
+        1.0
+       ],
+       [
+        0.48564293117863205,
+        0.8741572761215378,
+        -0.0
+       ],
+       [
+        -0.8741572761215377,
+        0.485642931178632,
+        0.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "ContainerStep1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      5.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      90.0,
+      12.5,
+      86.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "ContainerRamp2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      21.155644370746373,
+      1.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      120,
+      125
+     ]
+    },
+    "Material": {
+     "Enum": 1056
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       27.0,
+       4.56587842893777,
+       21.498069469178418
+      ],
+      "orientation": [
+       [
+        0.0,
+        0.0,
+        -1.0
+       ],
+       [
+        0.49613893835683387,
+        0.8682431421244591,
+        0.0
+       ],
+       [
+        0.8682431421244593,
+        -0.49613893835683387,
+        0.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "ContainerStep2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      5.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      30.0,
+      12.5,
+      34.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      70.0,
+      2.0,
+      40.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      74.0,
+      2.0,
+      44.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      55.0,
+      2.0,
+      82.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      106.0,
+      2.0,
+      96.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      20.0,
+      2.0,
+      104.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Crate6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      4.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      160,
+      110,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 528
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      75.0,
+      2.0,
+      20.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Trunk1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -32.0,
+       6.0,
+       32.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      141,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -32.0,
+      16.2,
+      32.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -25.0,
+       7.0,
+       56.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.0,
+      13.0,
+      13.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      152,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      17.9,
+      56.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -36.0,
+       5.5,
+       86.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      12.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      163,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -36.0,
+      14.6,
+      86.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -50.0,
+       6.5,
+       40.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      11.0,
+      11.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      134,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -50.0,
+      16.3,
+      40.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      10.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -86.0,
+       5.0,
+       34.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      145,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -86.0,
+      14.2,
+      34.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -95.0,
+       6.0,
+       70.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.0,
+      13.0,
+      13.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      156,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -95.0,
+      15.9,
+      70.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk7",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -76.0,
+       7.0,
+       96.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves7",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      12.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      167,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -76.0,
+      17.6,
+      96.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk8",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -52.0,
+       5.5,
+       108.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves8",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      11.0,
+      11.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      138,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -52.0,
+      14.3,
+      108.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk9",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -100.0,
+       6.5,
+       102.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves9",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      149,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -100.0,
+      17.2,
+      102.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk10",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      10.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -72.0,
+       5.0,
+       24.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves10",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.0,
+      13.0,
+      13.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      160,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -72.0,
+      13.9,
+      24.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk11",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -86.0,
+       6.0,
+       54.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves11",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      12.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      131,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -86.0,
+      15.6,
+      54.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk12",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -42.0,
+       7.0,
+       66.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves12",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      11.0,
+      11.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      142,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -42.0,
+      17.3,
+      66.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Trunk13",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -108.0,
+       5.5,
+       22.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Leaves13",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      50,
+      153,
+      55
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -108.0,
+      15.2,
+      22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Hill",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      40.0,
+      40.0,
+      40.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      100,
+      170,
+      70
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -30.0,
+      -13.0,
+      100.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "HillTrunk",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      9.0,
+      2.4,
+      2.4
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      110,
+      75,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 512
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       -30.0,
+       11.5,
+       100.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "HillLeaves",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      12.0,
+      12.0,
+      12.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      70,
+      160,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -30.0,
+      19.6,
+      100.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Rock1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      7.0,
+      7.0,
+      7.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      130,
+      130,
+      135
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -58.0,
+      1.75,
+      86.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Rock2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      130,
+      130,
+      135
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -92.0,
+      1.5,
+      16.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Rock3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      5.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      130,
+      130,
+      135
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -20.0,
+      1.25,
+      22.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Rock4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      8.0,
+      8.0,
+      8.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      130,
+      130,
+      135
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -110.0,
+      2.0,
+      44.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "Rock5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      5.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      130,
+      130,
+      135
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -66.0,
+      1.25,
+      40.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "HedgeX1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -70.5,
+      4.0,
+      -45.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -49.5,
+      4.0,
+      -45.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      32.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -60.0,
+      4.0,
+      -75.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      25.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -83.5,
+      4.0,
+      -25.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      34.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -42.0,
+      4.0,
+      -25.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      55.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -68.5,
+      4.0,
+      -96.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeX7",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      8.0,
+      3.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -27.0,
+      4.0,
+      -96.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      11.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      4.0,
+      -70.5
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      11.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -45.0,
+      4.0,
+      -49.5
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      32.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -75.0,
+      4.0,
+      -60.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      45.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      4.0,
+      -73.5
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      4.0,
+      -32.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ6",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      10.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      4.0,
+      -91.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ7",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      49.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      4.0,
+      -49.5
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ8",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -60.0,
+      4.0,
+      -89.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HedgeZ9",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      3.0,
+      8.0,
+      13.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      40,
+      105,
+      45
+     ]
+    },
+    "Material": {
+     "Enum": 1280
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -60.0,
+      4.0,
+      -31.5
+     ]
+    }
+   }
+  },
+  {
+   "name": "MazePost1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      11.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      195,
+      185
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      5.5,
+      -25.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "MazeGem1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      2.5,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      220,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      12.5,
+      -25.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "MazePost2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      11.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      195,
+      185
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      5.5,
+      -25.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "MazeGem2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      2.5,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      220,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      12.5,
+      -25.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "MazePost3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      11.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      195,
+      185
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      5.5,
+      -96.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "MazeGem3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      2.5,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      220,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -25.0,
+      12.5,
+      -96.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "MazePost4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      4.0,
+      11.0,
+      4.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      200,
+      195,
+      185
+     ]
+    },
+    "Material": {
+     "Enum": 800
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      5.5,
+      -96.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "MazeGem4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.5,
+      2.5,
+      2.5
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      120,
+      220,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      -96.0,
+      12.5,
+      -96.0
+     ]
+    },
+    "Shape": {
+     "Enum": 0
+    }
+   }
+  },
+  {
+   "name": "FunBox",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      16.0,
+      4.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      230,
+      230,
+      235
+     ]
+    },
     "Material": {
      "Enum": 816
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      60.0,
+      2.0,
+      -34.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "FunRampE",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.649110640673518,
+      1.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       73.84188611699157,
+       1.525658350974743,
+       -34.0
+      ],
+      "orientation": [
+       [
+        -0.9486832980505138,
+        0.31622776601683794,
+        0.0
+       ],
+       [
+        0.31622776601683794,
+        0.9486832980505139,
+        0.0
+       ],
+       [
+        0.0,
+        0.0,
+        -1.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "FunRampW",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      13.649110640673518,
+      1.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       46.15811388300842,
+       1.525658350974743,
+       -34.0
+      ],
+      "orientation": [
+       [
+        0.9486832980505138,
+        -0.31622776601683794,
+        0.0
+       ],
+       [
+        0.31622776601683794,
+        0.9486832980505139,
+        -0.0
+       ],
+       [
+        0.0,
+        0.0,
+        1.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "TunnelWallA",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.5,
+      7.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      120,
+      40
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      85.0,
+      3.5,
+      -61.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TunnelWallB",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      1.5,
+      7.0,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      120,
+      40
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      95.0,
+      3.5,
+      -61.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "TunnelRoof",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      11.5,
+      1.2,
+      34.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      250,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      90.0,
+      7.6,
+      -61.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "JumpStep1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      3.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      80,
+      120
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      26.0,
+      1.5,
+      -92.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "JumpStep2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      6.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      80,
+      120
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      34.0,
+      3.0,
+      -92.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "JumpStep3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      9.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      80,
+      120
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      42.0,
+      4.5,
+      -92.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "JumpStep4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      6.0,
+      12.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      240,
+      80,
+      120
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      50.0,
+      6.0,
+      -92.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HighDeck",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      14.0,
+      1.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      230,
+      230,
+      235
+     ]
+    },
+    "Material": {
+     "Enum": 1056
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      62.0,
+      13.5,
+      -92.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HighDeckLeg-1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      13.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      56.0,
+      6.5,
+      -86.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HighDeckLegB-1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      13.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      56.0,
+      6.5,
+      -98.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HighDeckLeg1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      13.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      68.0,
+      6.5,
+      -86.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "HighDeckLegB1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      2.0,
+      13.0,
+      2.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      90,
+      90,
+      100
+     ]
+    },
+    "Material": {
+     "Enum": 1088
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "Position": {
+     "Vector3": [
+      68.0,
+      6.5,
+      -98.0
+     ]
+    }
+   }
+  },
+  {
+   "name": "Slide",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      40.56008088970496,
+      1.0,
+      6.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      250,
+      200,
+      60
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       87.32305395129205,
+       6.532356871271858,
+       -92.0
+      ],
+      "orientation": [
+       [
+        -0.9352862574562836,
+        0.35389209741589106,
+        0.0
+       ],
+       [
+        0.35389209741589106,
+        0.9352862574562835,
+        0.0
+       ],
+       [
+        0.0,
+        0.0,
+        -1.0
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "Bumper1",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       32.0,
+       1.5,
+       -60.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Bumper2",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       40.0,
+       1.5,
+       -66.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Bumper3",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       100.0,
+       1.5,
+       -26.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Bumper4",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       24.0,
+       1.5,
+       -40.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "Bumper5",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      5.0,
+      3.0,
+      5.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      80,
+      170,
+      230
+     ]
+    },
+    "Material": {
+     "Enum": 272
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       104.0,
+       1.5,
+       -104.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    }
+   }
+  },
+  {
+   "name": "SpawnPad",
+   "className": "Part",
+   "properties": {
+    "Anchored": true,
+    "Size": {
+     "Vector3": [
+      0.6,
+      14.0,
+      14.0
+     ]
+    },
+    "Color": {
+     "Color3uint8": [
+      255,
+      255,
+      255
+     ]
+    },
+    "Material": {
+     "Enum": 288
+    },
+    "TopSurface": {
+     "Enum": 0
+    },
+    "BottomSurface": {
+     "Enum": 0
+    },
+    "CFrame": {
+     "CFrame": {
+      "position": [
+       0.0,
+       0.5,
+       0.0
+      ],
+      "orientation": [
+       [
+        0,
+        -1,
+        0
+       ],
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        0,
+        1
+       ]
+      ]
+     }
+    },
+    "Shape": {
+     "Enum": 2
+    },
+    "Transparency": {
+     "Float32": 0.3
+    },
+    "CanCollide": {
+     "Bool": false
     }
    }
   },
@@ -489,29 +6127,24 @@
     "Anchored": true,
     "Size": {
      "Vector3": [
-      12,
-      1,
-      12
+      12.0,
+      1.0,
+      12.0
      ]
     },
     "Position": {
      "Vector3": [
-      0,
+      0.0,
       0.5,
-      0
+      0.0
      ]
     },
-    "Color": {
-     "Color3uint8": [
-      255,
-      255,
-      255
-     ]
+    "Transparency": {
+     "Float32": 1.0
     },
     "Duration": {
      "Int32": 0
-    },
-    "Neutral": true
+    }
    }
   }
  ]
